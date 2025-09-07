@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title></title>
+    <link rel="stylesheet" href="../styles/dashboard.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <main class="main-content">
+            <!-- Subject ID Header -->
+            <header class="subject-header">
+                <div class="subject-icon">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/>
+                    </svg>
+                </div>
+                <div class="subject-info">
+                    <label class="subject-label">Subject ID</label>
+                    <div class="subject-value" id="subject-display">**Subject ID**</div>
+                </div>
+            </header>
+
+            <!-- Main Panel -->
+            <div class="main-panel">
+                <!-- Vertical Stepper -->
+                <div class="stepper" role="list" aria-label="Assessment progress">
+                    <!-- Step 1: Pre-task Survey -->
+                    <div class="step-item" role="listitem" data-step="1">
+                        <div class="step-indicator" id="step-1-indicator">
+                            <div class="step-circle inactive" aria-hidden="true"></div>
+                            <div class="step-check" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="white">
+                                    <path d="M13.5 4.5L6 12 2.5 8.5l1-1L6 10l6.5-6.5 1 1z"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="step-content">
+                            <button class="biodata-button" id="biodata-btn" 
+                                    aria-describedby="step-1-status">
+                                <span class="button-text">Pre-task Survey</span>
+                                <span class="button-loading" aria-hidden="true">Opening form…</span>
+                                <svg class="button-arrow" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M6 3l5 5-5 5V3z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="step-connector"></div>
+                        <div class="step-status" id="step-1-status" aria-live="polite"></div>
+                    </div>
+
+                    <!-- Step 2: Select Task -->
+                    <div class="step-item" role="listitem" data-step="2">
+                        <div class="step-indicator" id="step-2-indicator">
+                            <div class="step-circle inactive" aria-hidden="true"></div>
+                            <div class="step-check" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="white">
+                                    <path d="M13.5 4.5L6 12 2.5 8.5l1-1L6 10l6.5-6.5 1 1z"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="step-content">
+                            <div class="task-selector">
+                                <label for="task-dropdown" class="visually-hidden">Select a task to run</label>
+                                <select class="task-dropdown" id="task-dropdown" 
+                                        disabled aria-describedby="step-2-status">
+                                    <option value="">Select a task</option>
+                                    <option value="stroop-color">Stroop Colour Word Task</option>
+                                    <option value="cvc-task">CVC Task</option>
+                                    <option value="reading-span">Reading Span Task</option>
+                                    <option value="speeded-classification">Speeded Classification Task</option>
+                                    <option value="auditory-stroop">Auditory Stroop Task</option>
+                                    <option value="n-back">N-Back Working Memory Task</option>
+                                    <option value="flanker">Flanker Task</option>
+                                    <option value="simon">Simon Task</option>
+                                    <option value="stop-signal">Stop Signal Task</option>
+                                    <option value="go-no-go">Go/No-Go Task</option>
+                                </select>
+                                <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M4 6l4 4 4-4H4z"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="step-connector"></div>
+                        <div class="step-status" id="step-2-status" aria-live="polite"></div>
+                    </div>
+
+                    <!-- Step 3: Task Configuration -->
+                    <div class="step-item" role="listitem" data-step="3">
+                        <div class="step-indicator" id="step-3-indicator">
+                            <div class="step-circle inactive" aria-hidden="true"></div>
+                            <div class="step-check" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="white">
+                                    <path d="M13.5 4.5L6 12 2.5 8.5l1-1L6 10l6.5-6.5 1 1z"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="step-content">
+                            <button class="task-config-button" id="task-config-btn" disabled 
+                                    aria-describedby="step-3-status">
+                                <span class="button-text">Task Configuration</span>
+                                <span class="button-loading" aria-hidden="true">Opening settings…</span>
+                                <svg class="button-arrow" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M6 3l5 5-5 5V3z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="step-status" id="step-3-status" aria-live="polite"></div>
+                    </div>
+                </div>
+
+                <!-- Run Task Button -->
+                <button class="run-task-button" id="run-task-btn" disabled aria-describedby="run-task-status">
+                    <span class="button-text">Run the task</span>
+                    <span class="button-loading" aria-hidden="true">Starting…</span>
+                </button>
+                <div class="run-task-status" id="run-task-status" aria-live="polite"></div>
+            </div>
+
+            <!-- Toast Container -->
+            <div class="toast-container" id="toast-container" aria-live="polite"></div>
+        </main>
+    </div>
+
+    <!-- Modal Container -->
+    <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="modal-content">
+            <!-- Modal content will be injected here -->
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="../scripts/dashboard.js"></script>
+</body>
+</html>
