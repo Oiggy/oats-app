@@ -1,0 +1,720 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #333;
+    overflow: hidden;
+    height: 100vh;
+}
+
+.task-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Task Header */
+.task-header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    padding: 20px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+}
+
+.progress-container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #45a049);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+}
+
+/* Main Task Area */
+.task-main {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 100px;
+    padding: 40px;
+}
+
+/* Screen Management */
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.screen.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Loading Screen */
+.loading-screen {
+    background: transparent;
+}
+
+.loading-content {
+    text-align: center;
+    width: 100%;
+    max-width: 400px;
+    padding: 40px;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-content h2 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 24px;
+    width: 100%;
+}
+
+.loading-content p {
+    color: #666;
+    font-size: 16px;
+    width: 100%;
+}
+
+/* Instruction Screen - FIXED */
+.instruction-screen {
+    background: transparent;
+}
+
+.instruction-content {
+    text-align: center;
+    width: 100%;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.instruction-content h2 {
+    color: #333;
+    margin-bottom: 30px;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.3;
+    width: 100%;
+    max-width: 700px;
+}
+
+.instruction-content p {
+    font-size: 18px;
+    line-height: 1.8;
+    margin-bottom: 20px;
+    color: #555;
+    width: 100%;
+    max-width: 650px;
+}
+
+.instruction-content ul {
+    text-align: left;
+    margin: 25px 0;
+    padding-left: 30px;
+    width: 100%;
+    max-width: 600px;
+}
+
+.instruction-content li {
+    margin-bottom: 15px;
+    line-height: 1.7;
+    font-size: 16px;
+    color: #555;
+}
+
+.instruction-content strong {
+    color: #333;
+    font-weight: 600;
+}
+
+/* Transition Screen */
+.transition-screen {
+    background: transparent;
+}
+
+.transition-content {
+    text-align: center;
+    width: 100%;
+    max-width: 600px;
+    padding: 40px;
+}
+
+.transition-content h2 {
+    color: #4CAF50;
+    margin-bottom: 25px;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.transition-content p {
+    font-size: 18px;
+    line-height: 1.6;
+    color: #555;
+    margin-bottom: 30px;
+}
+
+/* Trial Screen */
+.trial-screen {
+    background: transparent;
+}
+
+.trial-state {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+}
+
+.trial-state.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Pre-stimulus */
+.fixation-cross {
+    font-size: 48px;
+    font-weight: bold;
+    color: #333;
+}
+
+/* Stimulus Presentation */
+.stimulus-container {
+    text-align: center;
+    width: 100%;
+    max-width: 500px;
+}
+
+.audio-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.audio-icon {
+    font-size: 48px;
+    margin-right: 20px;
+}
+
+.audio-waves {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.audio-waves span {
+    width: 4px;
+    height: 20px;
+    background: #667eea;
+    border-radius: 2px;
+    animation: wave 1.5s ease-in-out infinite;
+}
+
+.audio-waves span:nth-child(1) { animation-delay: 0s; }
+.audio-waves span:nth-child(2) { animation-delay: 0.1s; }
+.audio-waves span:nth-child(3) { animation-delay: 0.2s; }
+
+@keyframes wave {
+    0%, 40%, 100% { transform: scaleY(0.4); }
+    20% { transform: scaleY(1); }
+}
+
+.stimulus-instruction {
+    font-size: 18px;
+    color: #666;
+}
+
+/* Response Collection */
+/*
+.response-container {
+    text-align: center;
+    width: 100%;
+    max-width: 600px;
+}
+*/
+/*
+.response-prompt {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 30px;
+    color: #333;
+}
+*/
+
+/* Center everything in the response stack on the same axis */
+.response-container {
+  display: grid;          /* or: display:flex; flex-direction:column; */
+  justify-items: center;  /* makes prompt + buttons share one center */
+}
+
+/* Keep the question as one centered line */
+#response-prompt {
+  display: block;         /* not inline/inline-block */
+  white-space: nowrap;
+  margin-bottom: 30px;    /* keep your spacing */
+  text-align: center;
+}
+
+#response-prompt { white-space: nowrap !important; }
+
+.response-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+}
+
+.response-button {
+    background: #fff;
+    border: 3px solid #667eea;
+    border-radius: 12px;
+    padding: 20px 40px;
+    font-size: 24px;
+    font-weight: 600;
+    color: #667eea;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 120px;
+}
+
+.response-button:hover {
+    background: #667eea;
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.response-button:active {
+    transform: translateY(0);
+}
+
+.response-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Timeout Indicator */
+.timeout-indicator {
+    width: 100%;
+    height: 6px;
+    background: #f0f0f0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.timeout-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #ff9800, #f44336);
+    width: 100%;
+    transform-origin: right;
+    transition: transform linear;
+}
+
+/* Feedback */
+.feedback-container {
+    text-align: center;
+    width: 100%;
+    max-width: 400px;
+}
+
+.feedback-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.feedback-icon.correct {
+    color: #4CAF50;
+}
+
+.feedback-icon.incorrect {
+    color: #f44336;
+}
+
+.feedback-icon.timeout {
+    color: #ff9800;
+}
+
+.feedback-text {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.feedback-text.correct {
+    color: #4CAF50;
+}
+
+.feedback-text.incorrect {
+    color: #f44336;
+}
+
+.feedback-text.timeout {
+    color: #ff9800;
+}
+
+/* Complete Screen */
+.complete-screen {
+    background: transparent;
+}
+
+.complete-content {
+    text-align: center;
+    width: 100%;
+    max-width: 600px;
+    padding: 40px;
+}
+
+.complete-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.complete-content h2 {
+    color: #4CAF50;
+    margin-bottom: 20px;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.complete-content p {
+    font-size: 18px;
+    line-height: 1.6;
+    color: #555;
+    margin-bottom: 25px;
+}
+
+.results-summary {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: left;
+    width: 100%;
+    max-width: 400px;
+}
+
+.results-summary h4 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 16px;
+}
+
+.results-summary p {
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #666;
+}
+
+/* Error Screen */
+.error-screen {
+    background: transparent;
+}
+
+.error-content {
+    text-align: center;
+    width: 100%;
+    max-width: 600px;
+    padding: 40px;
+}
+
+.error-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    color: #f44336;
+}
+
+.error-content h2 {
+    color: #f44336;
+    margin-bottom: 20px;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.error-content p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #555;
+    margin-bottom: 25px;
+}
+
+/* Buttons */
+.primary-button, .secondary-button {
+    padding: 14px 28px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin: 15px 8px;
+    min-height: 48px;
+    min-width: 120px;
+}
+
+.primary-button {
+    background: #667eea;
+    color: white;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.primary-button:hover {
+    background: #5a6fd8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.secondary-button {
+    background: #f8f9fa;
+    color: #333;
+    border: 2px solid #dee2e6;
+}
+
+.secondary-button:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+}
+
+/* Hidden Audio Element */
+#stimulus-audio {
+    display: none;
+}
+
+/* Responsive Design */
+@media (max-height: 700px) {
+    .task-main {
+        margin-top: 80px;
+        padding: 20px;
+    }
+    
+    .content-container {
+        min-height: 400px;
+        padding: 30px;
+    }
+    
+    .instruction-content {
+        padding: 30px;
+    }
+    
+    .instruction-content h2 {
+        font-size: 24px;
+        margin-bottom: 20px;
+    }
+    
+    .task-header {
+        padding: 15px;
+    }
+}
+
+@media (max-width: 768px) {
+    .task-main {
+        padding: 20px;
+    }
+    
+    .content-container {
+        padding: 25px;
+        margin: 0 10px;
+        max-width: 95%;
+    }
+    
+    .instruction-content {
+        padding: 20px;
+    }
+    
+    .instruction-content h2 {
+        font-size: 22px;
+    }
+    
+    .instruction-content p {
+        font-size: 16px;
+    }
+    
+    .response-buttons {
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+    }
+    
+    .response-button {
+        min-width: 200px;
+    }
+}
+
+@media (max-width: 480px) {
+    .content-container {
+        padding: 20px;
+        border-radius: 12px;
+    }
+    
+    .instruction-content h2 {
+        font-size: 20px;
+    }
+    
+    .instruction-content p {
+        font-size: 15px;
+    }
+    
+    .primary-button, .secondary-button {
+        padding: 12px 20px;
+        font-size: 14px;
+    }
+}
+
+/* Visually Hidden */
+.visually-hidden {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+/* Focus indicators */
+*:focus {
+    outline: 2px solid #667eea;
+    outline-offset: 2px;
+}
+
+button:focus,
+select:focus {
+    outline: none;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* FORCE PROPER TEXT WIDTH - Add at the end of CSS file */
+.instruction-content * {
+    max-width: none !important;
+    width: auto !important;
+    white-space: normal !important;
+}
+
+.instruction-content {
+    max-width: none !important;
+    width: 100% !important;
+    min-width: 600px !important;
+}
+
+.instruction-content p,
+.instruction-content h2,
+.instruction-content div {
+    max-width: 600px !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center !important;
+}
+
+.instruction-content ul {
+    max-width: 500px !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Sentence styling for line-by-line layout */
+.sentence {
+    display: block;
+    text-align: center;
+    margin-bottom: 20px;
+    line-height: 1.6;
+    font-size: 18px;
+    color: #555;
+    width: 100%;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Center the whole Phase Complete block on one axis */
+.transition-content {
+  display: grid;          /* centers children on the same axis */
+  justify-items: center;
+  text-align: center;
+}
+
+/* Keep the message as one centered line */
+#transition-message {
+  white-space: nowrap;    /* prevent word-by-word wrapping */
+  line-height: 1.4;
+}
+
+/* Optional: allow wrapping on very narrow windows */
+@media (max-width: 480px) {
+  #transition-message { white-space: normal; }
+}
+

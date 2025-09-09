@@ -2498,8 +2498,61 @@ class Dashboard {
     }
 }
 
-// Initialize dashboard when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+// Add this function to your existing dashboard.js
+function connectTaskIntegration() {
+    const runTaskBtn = document.getElementById('run-task-btn');
+    
+    if (runTaskBtn) {
+        // Override the existing click handler
+        runTaskBtn.addEventListener('click', async function() {
+            const taskDropdown = document.getElementById('task-dropdown');
+            const selectedTask = taskDropdown ? taskDropdown.value : null;
+            
+            if (!selectedTask) {
+                alert('Please select a task first');
+                return;
+            }
+            
+            if (selectedTask === 'speeded-classification') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the integration function
+                if (window.loadSpeededClassificationTask) {
+                    await window.loadSpeededClassificationTask(participantId);
+                } else {
+                    alert('Task integration not loaded');
+                }
+            } else {
+                alert('This task is not yet implemented');
+            }
+        });
+    }
+}
+
+function getParticipantId() {
+    // Get from subject display
+    const subjectDisplay = document.getElementById('subject-display');
+    if (subjectDisplay && subjectDisplay.textContent !== '**Subject ID**') {
+        return subjectDisplay.textContent;
+    }
+    return 'test_participant'; // fallback
+}
+
+// COMBINE INTO ONE DOMContentLoaded LISTENER
+document.addEventListener('DOMContentLoaded', function() {
     console.log('Initializing dashboard...');
+    
+    // Initialize the dashboard first
     window.dashboard = new Dashboard();
+    
+    // Then connect task integration after a short delay
+    setTimeout(connectTaskIntegration, 500);
+    
+    console.log('Dashboard.js loaded, task integration will be connected in 500ms');
 });
