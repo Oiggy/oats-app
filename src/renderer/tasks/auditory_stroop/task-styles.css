@@ -1,0 +1,252 @@
+/* Auditory Stroop Task - Additional Styles */
+/* These styles complement the main inline styles without overriding core layout */
+
+/* Enhanced text styling for instructions */
+.instructions-screen strong {
+    color: #1d1d1f;
+    font-weight: 700;
+}
+
+.instructions-screen em {
+    color: #007aff;
+    font-style: normal;
+    font-weight: 600;
+}
+
+/* Preview button hover effects */
+.response-buttons-preview .preview-button {
+    transition: all 0.2s ease;
+    cursor: default;
+}
+
+.response-buttons-preview .preview-button:hover {
+    background-color: #f8f9ff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
+}
+
+/* Enhanced response buttons for stimulus display */
+.stimulus-display .response-buttons .response-button {
+    font-size: 24px;
+    min-width: 80px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: 1px;
+}
+
+.stimulus-display .response-buttons .response-button:focus {
+    outline: 3px solid rgba(0, 122, 255, 0.3);
+    outline-offset: 2px;
+}
+
+/* Feedback message styling */
+.feedback div:first-child {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.feedback div:not(:first-child) {
+    margin-bottom: 4px;
+    font-size: 16px;
+}
+
+.feedback.correct div:first-child {
+    color: #0f5132;
+}
+
+.feedback.incorrect div:first-child {
+    color: #721c24;
+}
+
+.feedback.timeout div:first-child {
+    color: #664d03;
+}
+
+/* Audio test section enhancements */
+.audio-test-section {
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+}
+
+.audio-caption {
+    font-style: italic;
+}
+
+/* Task completion summary enhancements */
+.task-complete .summary p strong {
+    color: #1d1d1f;
+    font-weight: 600;
+}
+
+.task-complete .summary h4 {
+    font-size: 18px;
+    border-bottom: 2px solid #007aff;
+    padding-bottom: 8px;
+    display: inline-block;
+}
+
+/* Stimulus icon animation refinements */
+@keyframes pulse {
+    0%, 100% { 
+        transform: scale(1); 
+        opacity: 1; 
+    }
+    50% { 
+        transform: scale(1.05); 
+        opacity: 0.85; 
+    }
+}
+
+.stimulus-icon {
+    animation-duration: 2s;
+    animation-timing-function: ease-in-out;
+}
+
+/* Loading states for buttons */
+.task-button.loading {
+    position: relative;
+    color: transparent;
+}
+
+.task-button.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Accessibility improvements */
+.task-button:focus,
+.response-button:focus {
+    outline: 3px solid rgba(0, 122, 255, 0.5);
+    outline-offset: 2px;
+}
+
+.task-button:focus:not(:focus-visible),
+.response-button:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .preview-button,
+    .response-button {
+        border-width: 3px;
+    }
+    
+    .feedback {
+        border-width: 3px;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .stimulus-icon,
+    .task-button,
+    .response-button,
+    .preview-button {
+        animation: none;
+        transition: none;
+    }
+    
+    .task-button:hover,
+    .response-button:hover,
+    .preview-button:hover {
+        transform: none;
+    }
+}
+
+/* Print styles (in case someone prints results) */
+@media print {
+    .task-header,
+    .task-footer {
+        background: white !important;
+        border: 1px solid #000 !important;
+    }
+    
+    .task-button,
+    .response-button {
+        border: 2px solid #000 !important;
+        background: white !important;
+        color: #000 !important;
+    }
+}
+
+/* Custom scrollbar for task content if needed */
+.task-stage::-webkit-scrollbar {
+    width: 8px;
+}
+
+.task-stage::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.task-stage::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.task-stage::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Text selection styling */
+.welcome-screen ::selection,
+.instructions-screen ::selection {
+    background: rgba(0, 122, 255, 0.2);
+    color: #1d1d1f;
+}
+
+/* Enhanced typography for different screen sizes */
+@media (max-width: 768px) {
+    .welcome-screen h3,
+    .instructions-screen h3 {
+        font-size: 20px;
+    }
+    
+    .response-button {
+        font-size: 20px;
+        min-width: 70px;
+        padding: 12px 24px;
+    }
+    
+    .stimulus-display .response-buttons {
+        gap: 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .response-buttons {
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+    }
+    
+    .response-button {
+        width: 120px;
+    }
+}
+
+/* Dark mode support (if system supports it) */
+@media (prefers-color-scheme: dark) {
+    .audio-test-section {
+        background: #2c2c2e;
+        border-color: #48484a;
+        color: #ffffff;
+    }
+}

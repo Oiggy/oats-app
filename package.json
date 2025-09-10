@@ -11,11 +11,16 @@
     "build-mac": "electron-builder --mac",
     "build-linux": "electron-builder --linux"
   },
-  "keywords": ["assessment", "offline", "desktop", "electron"],
+  "keywords": [
+    "assessment",
+    "offline",
+    "desktop",
+    "electron"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^27.0.0",
+    "electron": "^38.0.0",
     "electron-builder": "^24.6.0"
   },
   "build": {

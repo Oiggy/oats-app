@@ -2581,6 +2581,21 @@ function connectTaskIntegration() {
                 } else {
                     alert('Task integration not loaded');
                 }
+            } else if (selectedTask === 'auditory-stroop') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the auditory stroop integration function
+                if (window.loadAuditoryStroopTask) {
+                    await window.loadAuditoryStroopTask(participantId);
+                } else {
+                    alert('Auditory Stroop task integration not loaded');
+                }
             } else {
                 alert('This task is not yet implemented');
             }
