@@ -177,16 +177,23 @@ class Dashboard {
     }
 
     async generateTaskConfigHTML() {
+        console.log('Selected task value:', this.selectedTaskValue);
+        console.log('StroopColorWordConfig available:', !!window.StroopColorWordConfig);
+
         const taskName = this.selectedTask;
         
         if (this.selectedTaskValue === 'speeded-classification') {
             return this.generateSpeededClassificationConfig();
         } else if (this.selectedTaskValue === 'auditory-stroop') {
-            // Load the Auditory Stroop config handler
             if (!window.auditoryStroopConfig) {
                 window.auditoryStroopConfig = new AuditoryStroopConfig();
             }
             return window.auditoryStroopConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'stroop-color-word') {
+            if (!window.stroopColorWordConfig) {
+                window.stroopColorWordConfig = new StroopColorWordConfig();
+            }
+            return window.stroopColorWordConfig.generateConfigHTML();
         }
         
         // Fallback for other tasks
@@ -455,8 +462,11 @@ class Dashboard {
             if (window.auditoryStroopConfig) {
                 window.auditoryStroopConfig.bindConfigEvents();
             }
+        } else if (this.selectedTaskValue === 'stroop-color-word') {
+            if (window.stroopColorWordConfig) {
+                window.stroopColorWordConfig.bindConfigEvents();
+            }
         } else {
-            // Fallback for other tasks - bind generic events
             this.bindGenericConfigEvents();
         }
     }
@@ -690,8 +700,11 @@ class Dashboard {
             if (window.auditoryStroopConfig) {
                 await window.auditoryStroopConfig.loadConfiguration();
             }
+        } else if (this.selectedTaskValue === 'stroop-color-word') {
+            if (window.stroopColorWordConfig) {
+                await window.stroopColorWordConfig.loadConfiguration();
+            }
         }
-        // No action needed for other tasks yet
     }
 
     applyConfigurationToForm(config) {
