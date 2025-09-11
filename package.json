@@ -34,5 +34,11 @@
       "src/**/*",
       "package.json"
     ]
+  },
+  "dependencies": {
+    "fft-js": "^0.0.12",
+    "node-record-lpcm16": "^1.0.1",
+    "speaker": "^0.5.5",
+    "wav": "^1.0.2"
   }
 }

@@ -1,10 +1,32 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, systemPreferences } = require('electron');
 const path = require('path');
 
 class OATSApp {
   constructor() {
     this.mainWindow = null;
     this.loadingWindow = null;
+  }
+
+  async requestMicrophonePermission() {
+    if (process.platform === 'darwin') {
+      try {
+        const microphoneAccess = systemPreferences.getMediaAccessStatus('microphone');
+        console.log('Current microphone access status:', microphoneAccess);
+        
+        if (microphoneAccess !== 'granted') {
+          console.log('Requesting microphone permission...');
+          const granted = await systemPreferences.askForMediaAccess('microphone');
+          console.log('Microphone permission granted:', granted);
+          return granted;
+        }
+        return true;
+      } catch (error) {
+        console.error('Error requesting microphone permission:', error);
+        return false;
+      }
+    }
+    // On Windows/Linux, permissions are handled at OS level
+    return true;
   }
 
   createLoadingWindow() {
@@ -64,8 +86,11 @@ class OATSApp {
     }
   }
 
-  initialize() {
-    app.whenReady().then(() => {
+  async initialize() {
+    app.whenReady().then(async () => {
+      // Request microphone permissions first
+      await this.requestMicrophonePermission();
+      
       this.createLoadingWindow();
       this.createMainWindow();
       
@@ -80,8 +105,9 @@ class OATSApp {
       }
     });
 
-    app.on('activate', () => {
+    app.on('activate', async () => {
       if (BrowserWindow.getAllWindows().length === 0) {
+        await this.requestMicrophonePermission();
         this.createLoadingWindow();
         this.createMainWindow();
       }
@@ -89,8 +115,23 @@ class OATSApp {
   }
 }
 
+// IPC handlers
 ipcMain.on('loading-complete', () => {
   console.log('Loading completed');
+});
+
+// Add handler for checking microphone permission status
+ipcMain.handle('check-microphone-permission', async () => {
+  if (process.platform === 'darwin') {
+    return systemPreferences.getMediaAccessStatus('microphone');
+  }
+  return 'granted'; // Assume granted on other platforms
+});
+
+// Add handler for requesting microphone permission from renderer
+ipcMain.handle('request-microphone-permission', async () => {
+  const oatsApp = new OATSApp();
+  return await oatsApp.requestMicrophonePermission();
 });
 
 const oatsApp = new OATSApp();

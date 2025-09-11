@@ -1,4 +1,8 @@
 // Stroop Color-Word Task Popup Integration
+const path = require('path');
+const NativeAudioRecorder = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'native_audio_recorder.js'));
+const SpeechOnsetDetector = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'speech_onset_detector.js'));
+
 class StroopColorWordPopup {
     constructor() {
         this.isOpen = false;
@@ -18,6 +22,14 @@ class StroopColorWordPopup {
         this.audioChunks = [];
         this.breakTrials = [];
         this.sessionTimestamp = null; // Add this line
+        this.audioRecorder = new NativeAudioRecorder();
+        this.isAudioSetup = false;
+        this.currentRecordingPromise = null;
+        this.audioRecorder = new NativeAudioRecorder();
+        this.speechDetector = new SpeechOnsetDetector();
+        this.isAudioSetup = false;
+        this.currentTrialTiming = null;
+        this.recordingPromises = [];
     }
 
     async loadTask(participantId) {
@@ -463,13 +475,55 @@ class StroopColorWordPopup {
                 
                 <p>The number of main trials is divided by three, and breaks occur at those points (the experimenter can calculate the exact trial counts for breaks in advance).</p>
                 
+                <div class="audio-test-section">
+                    <button id="test-audio-btn" class="task-button task-button-secondary">
+                        🎤 Test Microphone
+                    </button>
+                    <p class="audio-caption">Click to test your microphone is working</p>
+                </div>
+                
                 <button id="start-practice-btn" class="task-button task-button-primary">
                     Start Practice
                 </button>
             </div>
         `;
         
+        // Bind events
+        document.getElementById('test-audio-btn').addEventListener('click', () => this.testMicrophone());
         document.getElementById('start-practice-btn').addEventListener('click', () => this.startPracticePhase());
+    }
+
+    // Add microphone test method
+    async testMicrophone() {
+        const testBtn = document.getElementById('test-audio-btn');
+        const originalText = testBtn.textContent;
+        
+        testBtn.textContent = '🎤 Testing...';
+        testBtn.disabled = true;
+        
+        try {
+            const testResult = await this.audioRecorder.testAudio();
+            
+            if (testResult) {
+                testBtn.textContent = '✅ Microphone OK';
+            } else {
+                testBtn.textContent = '❌ Microphone Error';
+            }
+            
+            setTimeout(() => {
+                testBtn.textContent = originalText;
+                testBtn.disabled = false;
+            }, 3000);
+            
+        } catch (error) {
+            testBtn.textContent = '❌ Setup Error';
+            console.error('Microphone test failed:', error);
+            
+            setTimeout(() => {
+                testBtn.textContent = originalText;
+                testBtn.disabled = false;
+            }, 3000);
+        }
     }
 
     startPracticePhase() {
@@ -542,6 +596,8 @@ class StroopColorWordPopup {
     }
 
     async runSingleTrial(phase, stimulus) {
+        console.log('Running trial with stimulus:', stimulus);
+        
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         
@@ -550,38 +606,75 @@ class StroopColorWordPopup {
         
         progressDisplay.textContent = `${phase === 'practice' ? 'Practice' : 'Main'} Trial ${trialNum} of ${totalTrials}`;
         
-        // Start trial timing
-        this.trialStartTime = Date.now();
+        // Initialize timing object
+        this.currentTrialTiming = {
+            audioStartTime: null,
+            stimulusOnsetTime: null,
+            stimulusOffset: null,
+            speechOnsetTime: null,
+            rtSeconds: null,
+            rtConfidence: null
+        };
         
         // Fixation cross
         taskStage.innerHTML = '<div class="fixation-cross">+</div>';
         await this.wait(this.config.parameters.timing.pre_stimulus_delay);
         
-        // Start recording for main phase
+        // Pre-load microphone for main phase
         if (phase === 'main') {
-            await this.startRecording();
+            await this.audioRecorder.preloadMicrophone();
         }
         
-        // Present stimulus
+        // Start recording BEFORE stimulus display for main phase
+        let recordingPromise = null;
+        if (phase === 'main') {
+            const filename = `trial_${this.results.length + 1}.wav`;
+            const outputPath = await this.getAudioOutputPath(filename);
+            const recordingDuration = this.config.parameters.timing.recording_duration;
+            
+            recordingPromise = this.audioRecorder.startRecordingWithPreciseTiming(
+                outputPath, 
+                recordingDuration
+            );
+            
+            // Get audio start time immediately
+            this.currentTrialTiming.audioStartTime = this.audioRecorder.getHighResolutionTime();
+        }
+        
+        // Present stimulus and get precise timing
+        const displayWord = stimulus.stim1 || 'ERROR';
+        const displayColor = stimulus.textColor || 'black';
+        
         taskStage.innerHTML = `
-            <div class="stimulus-display" style="color: ${stimulus.textColor};">
-                ${stimulus.stim1}
+            <div class="stimulus-display" style="color: ${displayColor};">
+                ${displayWord}
             </div>
             ${phase === 'main' ? '<div class="recording-indicator">● REC</div>' : ''}
         `;
         
-        // Wait for recording duration
-        await this.wait(this.config.parameters.timing.recording_duration);
+        // Force repaint and get stimulus onset time
+        await this.forceRepaint();
+        this.currentTrialTiming.stimulusOnsetTime = this.audioRecorder.getHighResolutionTime();
         
-        // Stop recording for main phase
         if (phase === 'main') {
-            await this.stopRecording();
+            this.currentTrialTiming.stimulusOffset = 
+                this.currentTrialTiming.stimulusOnsetTime - this.currentTrialTiming.audioStartTime;
         }
         
-        // Calculate response time
-        const responseTime = Date.now() - this.trialStartTime;
+        // Wait for recording to complete
+        if (recordingPromise) {
+            const recordingResult = await recordingPromise;
+            
+            // Queue speech analysis for later processing
+            this.recordingPromises.push(
+                this.analyzeRecordingAsync(recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
+            );
+        } else {
+            // For practice trials, just wait the recording duration
+            await this.wait(this.config.parameters.timing.recording_duration);
+        }
         
-        // Record trial result
+        // Record trial result with timing data
         const trialResult = {
             phase: phase,
             trial: trialNum,
@@ -589,9 +682,16 @@ class StroopColorWordPopup {
             word: stimulus.stim1,
             ink_color: stimulus.textColor,
             condition: stimulus.condition1,
-            response_time: responseTime,
             recording_file: phase === 'main' ? `trial_${this.results.length + 1}.wav` : 'none',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            
+            // New timing parameters
+            audio_start_time: this.currentTrialTiming.audioStartTime,
+            stimulus_onset_time: this.currentTrialTiming.stimulusOnsetTime,
+            stimulus_offset: this.currentTrialTiming.stimulusOffset,
+            speech_onset_time: null, // Will be filled by analysis
+            rt_seconds: null, // Will be filled by analysis
+            rt_confidence: null // Will be filled by analysis
         };
         
         this.results.push(trialResult);
@@ -601,45 +701,70 @@ class StroopColorWordPopup {
         await this.wait(500);
     }
 
+    // Add method to force repaint for precise timing
+    async forceRepaint() {
+        return new Promise(resolve => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(resolve);
+            });
+        });
+    }
+    
     async startRecording() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    sampleRate: 44100,
-                    channelCount: 1,
-                    volume: this.config.parameters.audio.recording_level / 100
-                }
-            });
+            console.log('Recording initialized');
+            this.recordingStartTime = Date.now();
+            this.isAudioSetup = true;
             
-            this.mediaRecorder = new MediaRecorder(stream);
-            this.audioChunks = [];
-            
-            this.mediaRecorder.ondataavailable = (event) => {
-                this.audioChunks.push(event.data);
-            };
-            
-            this.mediaRecorder.start();
         } catch (error) {
-            console.error('Error starting recording:', error);
+            console.error('Error initializing audio recording:', error);
+            throw error;
         }
     }
 
     async stopRecording() {
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-            return new Promise(resolve => {
-                this.mediaRecorder.onstop = async () => {
-                    // Create audio blob
-                    const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-                    
-                    // Save audio file
-                    await this.saveAudioFile(audioBlob, `trial_${this.results.length + 1}.wav`);
-                    
-                    resolve();
-                };
-                this.mediaRecorder.stop();
-                this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
-            });
+        try {
+            const recordingDuration = this.config.parameters.timing.recording_duration;
+            const filename = `trial_${this.results.length + 1}.wav`;
+            const outputPath = await this.getAudioOutputPath(filename);
+            
+            // Start and complete recording in one call
+            await this.audioRecorder.startRecording(outputPath, recordingDuration);
+            
+            console.log(`Audio recorded to: ${outputPath}`);
+            
+        } catch (error) {
+            console.error('Error recording audio:', error);
+            // Don't throw - allow task to continue even if recording fails
         }
+    }
+
+    async getAudioOutputPath(filename) {
+        const os = window.require('os');
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+        
+        // Get the same directory structure as results
+        let baseDir;
+        if (process.platform === 'win32') {
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'sessions');
+        } else if (process.platform === 'darwin') {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+        } else {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+        }
+        
+        // Initialize timestamp if not already set
+        if (!this.sessionTimestamp) {
+            this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
+        }
+        
+        const taskDir = path.join(baseDir, this.participantId, `scw_${this.sessionTimestamp}`);
+        
+        // Ensure directory exists
+        await fs.mkdir(taskDir, { recursive: true });
+        
+        return path.join(taskDir, filename);
     }
 
     togglePause() {
@@ -655,10 +780,49 @@ class StroopColorWordPopup {
         }
     }
 
-    completeTask() {
+    // Add async speech analysis
+    async analyzeRecordingAsync(audioPath, stimulusOffset) {
+        try {
+            const analysisResult = await this.speechDetector.analyzeWavFile(audioPath, stimulusOffset);
+            
+            // Find the corresponding trial result and update it
+            const trialIndex = this.results.length - 1;
+            if (trialIndex >= 0) {
+                this.results[trialIndex].speech_onset_time = analysisResult.speechOnsetTime;
+                this.results[trialIndex].rt_seconds = analysisResult.rtSeconds;
+                this.results[trialIndex].rt_confidence = analysisResult.rtConfidence;
+                
+                console.log(`Speech analysis completed for trial ${trialIndex + 1}:`, {
+                    rt_ms: analysisResult.rtSeconds ? (analysisResult.rtSeconds * 1000).toFixed(1) : 'N/A',
+                    confidence: analysisResult.rtConfidence ? analysisResult.rtConfidence.toFixed(3) : 'N/A'
+                });
+            }
+            
+        } catch (error) {
+            console.error('Speech analysis failed:', error);
+        }
+    }
+
+    // Update completeTask to wait for all analyses
+    async completeTask() {
         this.taskState = 'completed';
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
+        
+        // Show processing message
+        taskStage.innerHTML = `
+            <div class="task-complete">
+                <h3>Processing Audio...</h3>
+                <p>Analyzing speech recordings for reaction time computation...</p>
+            </div>
+        `;
+        
+        progressDisplay.textContent = 'Processing audio recordings...';
+        
+        // Wait for all speech analyses to complete
+        if (this.recordingPromises.length > 0) {
+            await Promise.all(this.recordingPromises);
+        }
         
         // Calculate summary statistics
         const summary = this.calculateSummary();
@@ -669,8 +833,8 @@ class StroopColorWordPopup {
                 <div class="summary">
                     <h4>End of Block Summary</h4>
                     <p><strong>Number of trials completed:</strong> ${summary.totalTrials}</p>
-                    <p><strong>Accuracy:</strong> ${summary.accuracy}% (estimated)</p>
-                    <p><strong>Average response time:</strong> ${summary.meanRT.toFixed(0)}ms</p>
+                    <p><strong>Average reaction time:</strong> ${summary.meanRT.toFixed(0)}ms</p>
+                    <p><strong>Mean RT confidence:</strong> ${summary.meanConfidence.toFixed(3)}</p>
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -686,58 +850,24 @@ class StroopColorWordPopup {
         });
     }
 
-    async saveAudioFile(audioBlob, filename) {
-        try {
-            const os = window.require('os');
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
-            
-            // Get the same directory structure as results
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'sessions');
-            } else if (process.platform === 'darwin') {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
-            }
-            
-            // Initialize timestamp if not already set
-            if (!this.sessionTimestamp) {
-                this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-            }
-            
-            const taskDir = path.join(baseDir, this.participantId, `scw_${this.sessionTimestamp}`);
-            
-            // Ensure directory exists
-            await fs.mkdir(taskDir, { recursive: true });
-            
-            // Convert blob to buffer
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            
-            // Save audio file
-            const audioPath = path.join(taskDir, filename);
-            await fs.writeFile(audioPath, buffer);
-            
-            console.log(`Audio saved to: ${audioPath}`);
-            
-        } catch (error) {
-            console.error('Error saving audio file:', error);
-        }
-    }
-
+    // Update summary calculation
     calculateSummary() {
         const totalTrials = this.results.length;
-        const meanRT = totalTrials > 0 ? 
-            this.results.reduce((sum, r) => sum + r.response_time, 0) / totalTrials : 0;
+        const validRTs = this.results.filter(r => r.rt_seconds !== null && r.rt_seconds > 0);
+        const meanRT = validRTs.length > 0 ? 
+            validRTs.reduce((sum, r) => sum + (r.rt_seconds * 1000), 0) / validRTs.length : 0;
+        
+        const validConfidences = this.results.filter(r => r.rt_confidence !== null);
+        const meanConfidence = validConfidences.length > 0 ?
+            validConfidences.reduce((sum, r) => sum + r.rt_confidence, 0) / validConfidences.length : 0;
         
         return {
             totalTrials: totalTrials,
-            accuracy: 'N/A', // Voice responses require manual scoring
-            meanRT: meanRT
+            meanRT: meanRT,
+            meanConfidence: meanConfidence
         };
     }
+
 
     async saveResults() {
         try {
@@ -833,8 +963,10 @@ class StroopColorWordPopup {
         content += 'PERFORMANCE SUMMARY\n';
         content += '-'.repeat(30) + '\n';
         content += `Total Trials Completed: ${summary.totalTrials}\n`;
-        content += `Average Response Time: ${summary.meanRT.toFixed(0)}ms\n`;
-        content += `Note: Voice responses require manual scoring for accuracy\n\n`;
+        content += `Average Reaction Time: ${summary.meanRT.toFixed(0)}ms\n`;
+        content += `Mean RT Confidence: ${summary.meanConfidence.toFixed(3)}\n`;
+        content += `Valid Speech Detections: ${summary.validDetections}/${summary.totalTrials}\n`;
+        content += `Note: RT computed from speech onset detection in audio recordings\n\n`;
         
         // Phase breakdown
         const practiceResults = this.results.filter(r => r.phase === 'practice');
@@ -844,35 +976,73 @@ class StroopColorWordPopup {
         content += '-'.repeat(30) + '\n';
         
         if (practiceResults.length > 0) {
-            const practiceMeanRT = practiceResults.reduce((sum, r) => sum + r.response_time, 0) / practiceResults.length;
             content += `Practice Phase:\n`;
             content += `  Trials: ${practiceResults.length}\n`;
-            content += `  Mean RT: ${practiceMeanRT.toFixed(0)}ms\n\n`;
+            content += `  Note: No RT analysis for practice trials\n\n`;
         }
         
         if (mainResults.length > 0) {
-            const mainMeanRT = mainResults.reduce((sum, r) => sum + r.response_time, 0) / mainResults.length;
+            const mainValidRTs = mainResults.filter(r => r.rt_seconds !== null && r.rt_seconds > 0);
+            const mainMeanRT = mainValidRTs.length > 0 ? 
+                mainValidRTs.reduce((sum, r) => sum + (r.rt_seconds * 1000), 0) / mainValidRTs.length : 0;
+            const mainValidConfidences = mainResults.filter(r => r.rt_confidence !== null);
+            const mainMeanConfidence = mainValidConfidences.length > 0 ?
+                mainValidConfidences.reduce((sum, r) => sum + r.rt_confidence, 0) / mainValidConfidences.length : 0;
+                
             content += `Main Phase:\n`;
             content += `  Trials: ${mainResults.length}\n`;
-            content += `  Mean RT: ${mainMeanRT.toFixed(0)}ms\n\n`;
+            content += `  Valid Speech Detections: ${mainValidRTs.length}\n`;
+            content += `  Mean RT: ${mainMeanRT.toFixed(0)}ms\n`;
+            content += `  Mean Confidence: ${mainMeanConfidence.toFixed(3)}\n\n`;
         }
         
         // Detailed Trial Data
         content += 'DETAILED TRIAL DATA\n';
-        content += '-'.repeat(90) + '\n';
-        content += 'Trial | Phase    | Word     | InkColor | Condition   | RT(ms) | Recording\n';
-        content += '-'.repeat(90) + '\n';
+        content += '-'.repeat(140) + '\n';
+        content += 'Trial | Phase    | Word     | InkColor | Condition   | AudioStart   | StimulusOnset | Offset    | SpeechOnset  | RT(ms) | Confidence | Recording\n';
+        content += '-'.repeat(140) + '\n';
         
         for (const trial of this.results) {
             const trialNum = trial.global_trial.toString().padStart(5);
             const phase = trial.phase.padEnd(8);
-            const word = trial.word.padEnd(8);
-            const inkColor = trial.ink_color.padEnd(8);
-            const condition = trial.condition.padEnd(11);
-            const rt = trial.response_time.toString().padStart(6);
-            const recording = trial.recording_file;
+            const word = (trial.word || 'N/A').padEnd(8);
+            const inkColor = (trial.ink_color || 'N/A').padEnd(8);
+            const condition = (trial.condition || 'N/A').padEnd(11);
+            const audioStart = trial.audio_start_time ? trial.audio_start_time.toFixed(6).padEnd(12) : 'N/A'.padEnd(12);
+            const stimulusOnset = trial.stimulus_onset_time ? trial.stimulus_onset_time.toFixed(6).padEnd(13) : 'N/A'.padEnd(13);
+            const offset = trial.stimulus_offset ? trial.stimulus_offset.toFixed(6).padEnd(9) : 'N/A'.padEnd(9);
+            const speechOnset = trial.speech_onset_time ? trial.speech_onset_time.toFixed(6).padEnd(12) : 'N/A'.padEnd(12);
+            const rt = trial.rt_seconds ? (trial.rt_seconds * 1000).toFixed(1).padStart(6) : 'N/A'.padStart(6);
+            const confidence = trial.rt_confidence ? trial.rt_confidence.toFixed(3).padEnd(10) : 'N/A'.padEnd(10);
+            const recording = trial.recording_file || 'none';
             
-            content += `${trialNum} | ${phase} | ${word} | ${inkColor} | ${condition} | ${rt} | ${recording}\n`;
+            content += `${trialNum} | ${phase} | ${word} | ${inkColor} | ${condition} | ${audioStart} | ${stimulusOnset} | ${offset} | ${speechOnset} | ${rt} | ${confidence} | ${recording}\n`;
+        }
+        
+        // Speech Analysis Summary
+        content += '\n' + 'SPEECH ANALYSIS DETAILS\n';
+        content += '-'.repeat(40) + '\n';
+        const analysisResults = this.results.filter(r => r.phase === 'main');
+        const successful = analysisResults.filter(r => r.rt_seconds !== null).length;
+        const failed = analysisResults.length - successful;
+        
+        content += `Total Main Trials: ${analysisResults.length}\n`;
+        content += `Successful Speech Detections: ${successful}\n`;
+        content += `Failed Speech Detections: ${failed}\n`;
+        
+        if (successful > 0) {
+            const validRTs = analysisResults.filter(r => r.rt_seconds !== null);
+            const rtRange = {
+                min: Math.min(...validRTs.map(r => r.rt_seconds * 1000)),
+                max: Math.max(...validRTs.map(r => r.rt_seconds * 1000))
+            };
+            const confidenceRange = {
+                min: Math.min(...validRTs.map(r => r.rt_confidence)),
+                max: Math.max(...validRTs.map(r => r.rt_confidence))
+            };
+            
+            content += `RT Range: ${rtRange.min.toFixed(1)} - ${rtRange.max.toFixed(1)}ms\n`;
+            content += `Confidence Range: ${confidenceRange.min.toFixed(3)} - ${confidenceRange.max.toFixed(3)}\n`;
         }
         
         content += '\n' + '='.repeat(60) + '\n';
@@ -881,7 +1051,6 @@ class StroopColorWordPopup {
         
         return content;
     }
-
     calculateDuration() {
         if (!this.startTime) return 'Unknown';
         const durationMs = new Date() - this.startTime;
