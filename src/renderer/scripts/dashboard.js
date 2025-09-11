@@ -2609,12 +2609,28 @@ function connectTaskIntegration() {
                 } else {
                     alert('Auditory Stroop task integration not loaded');
                 }
+            } else if (selectedTask === 'stroop-color-word') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the stroop color-word integration function
+                if (window.loadStroopColorWordTask) {
+                    await window.loadStroopColorWordTask(participantId);
+                } else {
+                    alert('Stroop Color-Word task integration not loaded');
+                }
             } else {
                 alert('This task is not yet implemented');
             }
         });
     }
 }
+
 
 function getParticipantId() {
     // Get from subject display
