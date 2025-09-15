@@ -178,7 +178,6 @@ class Dashboard {
 
     async generateTaskConfigHTML() {
         console.log('Selected task value:', this.selectedTaskValue);
-        console.log('StroopColorWordConfig available:', !!window.StroopColorWordConfig);
 
         const taskName = this.selectedTask;
         
@@ -194,6 +193,11 @@ class Dashboard {
                 window.stroopColorWordConfig = new StroopColorWordConfig();
             }
             return window.stroopColorWordConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'cvc') {
+            if (!window.cvcConfig) {
+                window.cvcConfig = new CVCConfig();
+            }
+            return window.cvcConfig.generateConfigHTML();
         }
         
         // Fallback for other tasks
@@ -387,85 +391,97 @@ class Dashboard {
     }
 
     bindConfigEvents() {
-        if (this.selectedTaskValue === 'speeded-classification') {
-            // Existing speeded classification binding code
-            const modalContent = document.querySelector('.modal-content');
-            
-            // Close button
-            const closeBtn = modalContent.querySelector('.modal-close');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () => {
-                    this.closeConfigModal();
-                });
-            }
-
-            // Cancel button
-            const cancelBtn = modalContent.querySelector('#config-cancel-btn');
-            if (cancelBtn) {
-                cancelBtn.addEventListener('click', () => {
-                    this.closeConfigModal();
-                });
-            }
-
-            // Save button
-            const saveBtn = modalContent.querySelector('#config-save-btn');
-            if (saveBtn) {
-                saveBtn.addEventListener('click', () => {
-                    this.saveTaskConfiguration();
-                });
-            }
-
-            // Tab switching
-            const tabs = modalContent.querySelectorAll('.config-tab');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    this.switchConfigTab(tab.getAttribute('data-tab'));
-                });
-            });
-
-            // Number steppers
-            const stepperButtons = modalContent.querySelectorAll('.number-stepper button');
-            stepperButtons.forEach(button => {
-                button.addEventListener('click', () => {
-                    this.handleStepperClick(button);
-                });
-            });
-
-            // Sliders
-            const sliders = modalContent.querySelectorAll('.config-slider');
-            sliders.forEach(slider => {
-                slider.addEventListener('input', () => {
-                    this.updateSliderValue(slider);
-                });
-            });
-
-            // Toggle switches
-            const toggleSwitches = modalContent.querySelectorAll('.toggle-switch');
-            toggleSwitches.forEach(toggleSwitch => {
-                const checkbox = toggleSwitch.querySelector('input[type="checkbox"]');
-                const slider = toggleSwitch.querySelector('.toggle-slider');
+        const taskConfigMap = {
+            'speeded-classification': () => {
+                // Existing speeded classification binding code
+                const modalContent = document.querySelector('.modal-content');
                 
-                if (checkbox && slider) {
-                    slider.addEventListener('click', () => {
-                        checkbox.checked = !checkbox.checked;
-                        console.log(`Toggle switch ${checkbox.name} is now: ${checkbox.checked}`);
-                    });
-                    
-                    checkbox.addEventListener('change', () => {
-                        console.log(`Toggle switch ${checkbox.name} changed to: ${checkbox.checked}`);
+                // Close button
+                const closeBtn = modalContent.querySelector('.modal-close');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', () => {
+                        this.closeConfigModal();
                     });
                 }
-            });
-            
-        } else if (this.selectedTaskValue === 'auditory-stroop') {
-            // Use Auditory Stroop config handler
-            if (window.auditoryStroopConfig) {
-                window.auditoryStroopConfig.bindConfigEvents();
+
+                // Cancel button
+                const cancelBtn = modalContent.querySelector('#config-cancel-btn');
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', () => {
+                        this.closeConfigModal();
+                    });
+                }
+
+                // Save button
+                const saveBtn = modalContent.querySelector('#config-save-btn');
+                if (saveBtn) {
+                    saveBtn.addEventListener('click', () => {
+                        this.saveTaskConfiguration();
+                    });
+                }
+
+                // Tab switching
+                const tabs = modalContent.querySelectorAll('.config-tab');
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        this.switchConfigTab(tab.getAttribute('data-tab'));
+                    });
+                });
+
+                // Number steppers
+                const stepperButtons = modalContent.querySelectorAll('.number-stepper button');
+                stepperButtons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        this.handleStepperClick(button);
+                    });
+                });
+
+                // Sliders
+                const sliders = modalContent.querySelectorAll('.config-slider');
+                sliders.forEach(slider => {
+                    slider.addEventListener('input', () => {
+                        this.updateSliderValue(slider);
+                    });
+                });
+
+                // Toggle switches
+                const toggleSwitches = modalContent.querySelectorAll('.toggle-switch');
+                toggleSwitches.forEach(toggleSwitch => {
+                    const checkbox = toggleSwitch.querySelector('input[type="checkbox"]');
+                    const slider = toggleSwitch.querySelector('.toggle-slider');
+                    
+                    if (checkbox && slider) {
+                        slider.addEventListener('click', () => {
+                            checkbox.checked = !checkbox.checked;
+                            console.log(`Toggle switch ${checkbox.name} is now: ${checkbox.checked}`);
+                        });
+                        
+                        checkbox.addEventListener('change', () => {
+                            console.log(`Toggle switch ${checkbox.name} changed to: ${checkbox.checked}`);
+                        });
+                    }
+                });
+            },
+            'auditory-stroop': () => {
+                if (window.auditoryStroopConfig) {
+                    window.auditoryStroopConfig.bindConfigEvents();
+                }
+            },
+            'stroop-color-word': () => {
+                if (window.stroopColorWordConfig) {
+                    window.stroopColorWordConfig.bindConfigEvents();
+                }
+            },
+            'cvc': () => {
+                if (window.cvcConfig) {
+                    window.cvcConfig.bindConfigEvents();
+                }
             }
-        } else if (this.selectedTaskValue === 'stroop-color-word') {
-            if (window.stroopColorWordConfig) {
-                window.stroopColorWordConfig.bindConfigEvents();
-            }
+        };
+
+        const bindFunction = taskConfigMap[this.selectedTaskValue];
+        if (bindFunction) {
+            bindFunction();
         } else {
             this.bindGenericConfigEvents();
         }
@@ -671,39 +687,52 @@ class Dashboard {
     }
 
     async loadTaskConfiguration() {
-        if (this.selectedTaskValue === 'speeded-classification') {
-            try {
-                const os = window.require('os');
-                const path = window.require('path');
-                const fs = window.require('fs').promises;
-                
-                let baseDir;
-                if (process.platform === 'win32') {
-                    baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
-                } else if (process.platform === 'darwin') {
-                    baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
-                } else {
-                    baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+        const taskLoadMap = {
+            'speeded-classification': async () => {
+                try {
+                    const os = window.require('os');
+                    const path = window.require('path');
+                    const fs = window.require('fs').promises;
+                    
+                    let baseDir;
+                    if (process.platform === 'win32') {
+                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
+                    } else if (process.platform === 'darwin') {
+                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+                    } else {
+                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+                    }
+                    
+                    const configPath = path.join(baseDir, 'cfg_speeded_classification_task.json');
+                    const configData = await fs.readFile(configPath, 'utf8');
+                    const config = JSON.parse(configData);
+                    
+                    this.applyConfigurationToForm(config);
+                    
+                } catch (error) {
+                    console.log('No existing speeded classification configuration found, using defaults');
                 }
-                
-                const configPath = path.join(baseDir, 'cfg_speeded_classification_task.json');
-                const configData = await fs.readFile(configPath, 'utf8');
-                const config = JSON.parse(configData);
-                
-                this.applyConfigurationToForm(config);
-                
-            } catch (error) {
-                console.log('No existing speeded classification configuration found, using defaults');
+            },
+            'auditory-stroop': async () => {
+                if (window.auditoryStroopConfig) {
+                    await window.auditoryStroopConfig.loadConfiguration();
+                }
+            },
+            'stroop-color-word': async () => {
+                if (window.stroopColorWordConfig) {
+                    await window.stroopColorWordConfig.loadConfiguration();
+                }
+            },
+            'cvc': async () => {
+                if (window.cvcConfig) {
+                    await window.cvcConfig.loadExistingConfiguration();
+                }
             }
-        } else if (this.selectedTaskValue === 'auditory-stroop') {
-            // Use Auditory Stroop config handler
-            if (window.auditoryStroopConfig) {
-                await window.auditoryStroopConfig.loadConfiguration();
-            }
-        } else if (this.selectedTaskValue === 'stroop-color-word') {
-            if (window.stroopColorWordConfig) {
-                await window.stroopColorWordConfig.loadConfiguration();
-            }
+        };
+
+        const loadFunction = taskLoadMap[this.selectedTaskValue];
+        if (loadFunction) {
+            await loadFunction();
         }
     }
 
