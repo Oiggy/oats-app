@@ -1,0 +1,335 @@
+/* Reading Span Task Specific Styles */
+.reading-span-task-container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    width: 90%;
+    max-width: 900px;
+    min-height: 600px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.reading-span-task-overlay {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.reading-span-task-modal {
+    outline: none;
+}
+
+.reading-span-task-modal * {
+    box-sizing: border-box;
+}
+
+.reading-span-task-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 30px;
+    border-radius: 16px 16px 0 0;
+    text-align: center;
+}
+
+.reading-span-sentence-display {
+    font-size: 22px;
+    font-weight: 400;
+    color: #2c3e50;
+    margin: 40px 0;
+    line-height: 1.6;
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    max-width: 800px;
+    transition: all 0.3s ease;
+}
+
+.reading-span-sentence-display.fade-in {
+    animation: sentenceFadeIn 0.4s ease-out;
+}
+
+.reading-span-config-display {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: left;
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.reading-span-config-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.reading-span-config-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.reading-span-config-value {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.reading-span-phase-indicator {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    background: rgba(255,255,255,0.2);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.reading-span-progress-indicator {
+    margin: 20px 0;
+    font-size: 16px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+/* Recall Buttons */
+.reading-span-recall-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+    width: 100%;
+    max-width: 600px;
+}
+
+.reading-span-recall-button {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    border: none;
+    padding: 16px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 60px;
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.reading-span-recall-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 123, 255, 0.3);
+}
+
+.reading-span-recall-button:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.2);
+}
+
+.reading-span-recall-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+}
+
+.reading-span-recall-button.recording {
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    animation: recordingPulse 1.5s ease-in-out infinite alternate;
+    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.4);
+}
+
+.reading-span-recall-button.completed {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+}
+
+.reading-span-mic-icon {
+    font-size: 18px;
+    margin-right: 4px;
+}
+
+/* Timer Display */
+.reading-span-timer {
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+    border-radius: 25px;
+    padding: 12px 24px;
+    margin: 24px auto;
+    display: inline-block;
+    font-weight: 700;
+    font-size: 18px;
+    box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3);
+    min-width: 200px;
+    text-align: center;
+}
+
+.reading-span-timer.warning {
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    animation: timerPulse 1s ease-in-out infinite alternate;
+}
+
+.reading-span-countdown-value {
+    font-size: 24px;
+    font-weight: 800;
+    margin-right: 8px;
+}
+
+/* Instructions */
+.reading-span-instructions {
+    background: #e3f2fd;
+    border: 2px solid #2196f3;
+    border-left: 6px solid #2196f3;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 24px 0;
+    max-width: 700px;
+}
+
+.reading-span-instructions p {
+    margin: 0;
+    font-size: 16px;
+    color: #1565c0;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+.reading-span-instructions strong {
+    color: #0d47a1;
+    font-weight: 600;
+}
+
+/* Stats Grid */
+.reading-span-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 20px;
+    margin: 30px 0;
+    width: 100%;
+    max-width: 600px;
+}
+
+.reading-span-stat-card {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 24px 16px;
+    text-align: center;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.reading-span-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+}
+
+.reading-span-stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    border-color: #667eea;
+}
+
+.reading-span-stat-card:hover::before {
+    transform: translateX(0);
+}
+
+.reading-span-stat-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 8px;
+    font-family: 'SF Mono', Consolas, monospace;
+}
+
+.reading-span-stat-label {
+    font-size: 13px;
+    color: #6c757d;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.reading-span-stat-card.highlight .reading-span-stat-value {
+    color: #667eea;
+}
+
+/* Phase Transition */
+.reading-span-transition {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 2px solid #dee2e6;
+    border-radius: 16px;
+    padding: 40px 32px;
+    margin: 32px 0;
+    text-align: center;
+    max-width: 600px;
+}
+
+.reading-span-transition h3 {
+    font-size: 28px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 16px;
+}
+
+.reading-span-transition p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #495057;
+    margin: 16px 0;
+}
+
+/* Audio Recording Indicator */
+.reading-span-audio-indicator {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 25px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 10001;
+    display: none;
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.reading-span-audio-indicator.recording {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(220, 53, 69, 0.9);
+    animation: recordingIndicator 1s ease-in-out infinite alternate;
+}
+
+.reading-span-audio-indicator.ready {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(40, 167, 69, 0.9);
+}
+
+/* Buttons */
+.reading-span-button-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none}

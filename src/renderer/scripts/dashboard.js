@@ -198,6 +198,16 @@ class Dashboard {
                 window.cvcConfig = new CVCConfig();
             }
             return window.cvcConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'reading-span') {
+            if (!window.readingSpanConfig) {
+                window.readingSpanConfig = new ReadingSpanConfig();
+            }
+            return window.readingSpanConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'reading-span') {
+            if (!window.readingSpanConfig) {
+                window.readingSpanConfig = new ReadingSpanConfig();
+            }
+            return window.readingSpanConfig.generateConfigHTML();
         }
         
         // Fallback for other tasks
@@ -476,6 +486,11 @@ class Dashboard {
                 if (window.cvcConfig) {
                     window.cvcConfig.bindConfigEvents();
                 }
+            },
+            'reading-span': () => {
+                if (window.readingSpanConfig) {
+                    window.readingSpanConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -715,17 +730,22 @@ class Dashboard {
             },
             'auditory-stroop': async () => {
                 if (window.auditoryStroopConfig) {
-                    await window.auditoryStroopConfig.loadConfiguration();
+                    await window.auditoryStroopConfig.loadExistingConfiguration();
                 }
             },
             'stroop-color-word': async () => {
                 if (window.stroopColorWordConfig) {
-                    await window.stroopColorWordConfig.loadConfiguration();
+                    await window.stroopColorWordConfig.loadExistingConfiguration();
                 }
             },
             'cvc': async () => {
                 if (window.cvcConfig) {
                     await window.cvcConfig.loadExistingConfiguration();
+                }
+            },
+            'reading-span': async () => {
+                if (window.readingSpanConfig) {
+                    await window.readingSpanConfig.loadExistingConfiguration();
                 }
             }
         };
@@ -2667,6 +2687,21 @@ function connectTaskIntegration() {
                     await window.loadCVCTask(participantId);
                 } else {
                     alert('CVC task integration not loaded');
+                }
+            } else if (selectedTask === 'reading-span') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the Reading Span integration function
+                if (window.loadReadingSpanTask) {
+                    await window.loadReadingSpanTask(participantId);
+                } else {
+                    alert('Reading Span task integration not loaded');
                 }
             } else {
                 alert('This task is not yet implemented');
