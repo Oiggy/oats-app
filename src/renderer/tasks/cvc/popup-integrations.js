@@ -98,6 +98,7 @@ class CVCTask {
         
         console.log('Stimulus list loaded:', this.stimulusList.length, 'items');
         console.log('First few items:', this.stimulusList.slice(0, 5));
+        console.log('Using stimulus list:', this.config.parameters.stimulus.list_selection);
     }
 
     createTaskModal() {
@@ -330,9 +331,13 @@ class CVCTask {
                     <span style="color: #495057;">Real Words (Main):</span>
                     <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.main_real_words}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
                     <span style="color: #495057;">Letter Display Duration:</span>
                     <span style="font-weight: 600; color: #212529;">${this.config.parameters.timing.letter_display_duration}ms</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                    <span style="color: #495057;">Stimulus List:</span>
+                    <span style="font-weight: 600; color: #212529;">List ${this.config.parameters.stimulus.list_selection}</span>
                 </div>
             </div>
             
@@ -364,7 +369,9 @@ class CVCTask {
         
         this.updateStatus('Practice phase');
         this.showResponseHint(true);
-        this.runTrial();
+        
+        // For practice, use hardcoded stimuli instead of vmtcvc.txt
+        this.runPracticeTrial();
     }
 
     startMain() {
@@ -379,26 +386,69 @@ class CVCTask {
         this.runTrial();
     }
 
-    runTrial() {
-        // Check if we've completed enough real words
+    runPracticeTrial() {
+        // Check if we've completed enough real words for practice
         if (this.realWordsCompleted >= this.targetRealWords) {
-            if (this.currentPhase === 'practice') {
-                this.endPractice();
-            } else {
-                this.endMain();
-            }
+            this.endPractice();
             return;
         }
 
-        // Get current stimulus - choose List 1 or List 2
-        const stimulus = this.stimulusList[this.currentTrialIndex % this.stimulusList.length];
-        
-        // Use List 1 (you could also randomize or configure this)
-        this.currentLetter = stimulus.letter1;
-        this.currentFlag = stimulus.flag1;
+        // Hardcoded practice sequence: M-U-D (3 real words)
+        const practiceSequence = [
+            { letter: 'M', flag: 0 },   // M
+            { letter: 'U', flag: 0 },   // U  
+            { letter: 'D', flag: -1 },  // D (completes MUD)
+            { letter: 'P', flag: 0 },   // P
+            { letter: 'E', flag: 0 },   // E
+            { letter: 'N', flag: -1 },  // N (completes PEN)
+            { letter: 'C', flag: 0 },   // C
+            { letter: 'A', flag: 0 },   // A
+            { letter: 'T', flag: -1 }   // T (completes CAT)
+        ];
+
+        // Check if we've exceeded the practice sequence
+        if (this.currentTrialIndex >= practiceSequence.length) {
+            this.endPractice();
+            return;
+        }
+
+        // Get current practice stimulus
+        const stimulus = practiceSequence[this.currentTrialIndex];
+        this.currentLetter = stimulus.letter;
+        this.currentFlag = stimulus.flag;
         this.responseGiven = false;
         
-        console.log('Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag);
+        console.log('Practice Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag);
+        
+        // Display only the single letter
+        this.showLetter();
+        this.letterOnsetTime = performance.now();
+        
+        // Schedule processing and next trial
+        this.trialTimer = setTimeout(() => {
+            this.processTrial();
+            this.currentTrialIndex++;
+            this.runPracticeTrial();
+        }, this.config.parameters.timing.letter_display_duration);
+    }
+
+    runTrial() {
+        // Check if we've completed enough real words
+        if (this.realWordsCompleted >= this.targetRealWords) {
+            this.endMain();
+            return;
+        }
+
+        // Get current stimulus - use configured list selection
+        const stimulus = this.stimulusList[this.currentTrialIndex % this.stimulusList.length];
+        const useList2 = this.config.parameters.stimulus.list_selection === 2;
+        
+        // Choose between List 1 and List 2 based on configuration
+        this.currentLetter = useList2 ? stimulus.letter2 : stimulus.letter1;
+        this.currentFlag = useList2 ? stimulus.flag2 : stimulus.flag1;
+        this.responseGiven = false;
+        
+        console.log('Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag, '(List', this.config.parameters.stimulus.list_selection + ')');
         
         // Display only the single letter
         this.showLetter();
@@ -469,13 +519,14 @@ class CVCTask {
             this.realWordsCompleted++;
         }
         
-        // Save trial data for main phase
+        // Save trial data for main phase (not practice)
         if (this.currentPhase === 'main') {
             this.results.push({
                 trial: this.currentTrialIndex + 1,
                 phase: this.currentPhase,
                 letter: this.currentLetter,
                 flag: this.currentFlag,
+                stimulus_list: this.config.parameters.stimulus.list_selection,
                 is_real_word: isRealWord,
                 response_given: this.responseGiven,
                 reaction_time_ms: reactionTime,
@@ -506,8 +557,8 @@ class CVCTask {
             ">
                 You identified ${this.realWordsCompleted} real words during practice.
                 <br><br>
-                Now you'll begin the main phase. The task works the same way.
-                Remember: Press SPACE when the last three letters form a real word.
+                Now you'll begin the main phase using <strong>Stimulus List ${this.config.parameters.stimulus.list_selection}</strong>. 
+                The task works the same way. Remember: Press SPACE when the last three letters form a real word.
             </div>
             
             <button onclick="window.cvcTaskInstance.startMain()" style="
@@ -560,7 +611,8 @@ class CVCTask {
                 margin-bottom: 32px;
                 max-width: 600px;
             ">
-                You have completed the CVC task. Here's your performance summary:
+                You have completed the CVC task using <strong>Stimulus List ${this.config.parameters.stimulus.list_selection}</strong>. 
+                Here's your performance summary:
             </div>
             
             <div style="
@@ -726,7 +778,8 @@ class CVCTask {
         content += `Practice Real Words: ${config.trials.practice_real_words}\n`;
         content += `Main Trials: ${config.trials.main}\n`;
         content += `Main Real Words: ${config.trials.main_real_words}\n`;
-        content += `Letter Display Duration: ${config.timing.letter_display_duration}ms\n\n`;
+        content += `Letter Display Duration: ${config.timing.letter_display_duration}ms\n`;
+        content += `Stimulus List Used: List ${config.stimulus.list_selection}\n\n`;
         
         // Performance Summary
         const totalTrials = this.stats.hits + this.stats.misses + this.stats.falseAlarms + this.stats.correctRejections;
@@ -743,20 +796,21 @@ class CVCTask {
         
         // Trial-by-trial data
         content += 'DETAILED TRIAL DATA\n';
-        content += '-'.repeat(80) + '\n';
-        content += 'Trial | Letter | Flag | RealWord | Response | RT(ms) | Outcome\n';
-        content += '-'.repeat(80) + '\n';
+        content += '-'.repeat(90) + '\n';
+        content += 'Trial | Letter | Flag | List | RealWord | Response | RT(ms) | Outcome\n';
+        content += '-'.repeat(90) + '\n';
         
         for (const trial of this.results) {
             const trialNum = trial.trial.toString().padStart(5);
             const letter = trial.letter.padEnd(6);
             const flag = trial.flag.toString().padStart(4);
+            const list = trial.stimulus_list.toString().padStart(4);
             const realWord = trial.is_real_word ? 'Yes' : 'No';
             const response = trial.response_given ? 'Yes' : 'No';
             const rt = trial.reaction_time_ms ? trial.reaction_time_ms.toFixed(1).padStart(8) : 'N/A'.padStart(8);
             const outcome = trial.outcome.padEnd(15);
             
-            content += `${trialNum} | ${letter} | ${flag} | ${realWord.padEnd(8)} | ${response.padEnd(8)} | ${rt} | ${outcome}\n`;
+            content += `${trialNum} | ${letter} | ${flag} | ${list} | ${realWord.padEnd(8)} | ${response.padEnd(8)} | ${rt} | ${outcome}\n`;
         }
         
         content += '\n' + '='.repeat(60) + '\n';

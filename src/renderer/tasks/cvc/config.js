@@ -2,13 +2,16 @@ class CVCConfig {
     constructor() {
         this.defaultConfig = {
             trials: {
-                practice: 10,
-                practice_real_words: 5,
-                main: 50,
-                main_real_words: 25
+                practice: 6,
+                practice_real_words: 3,
+                main: 44,
+                main_real_words: 22
             },
             timing: {
                 letter_display_duration: 2000
+            },
+            stimulus: {
+                list_selection: 1  // 1 or 2
             },
             data: {
                 enable_crash_recovery_logs: true
@@ -33,6 +36,7 @@ class CVCConfig {
                 <div class="config-tabs">
                     <button class="config-tab active" data-tab="trials">Trials</button>
                     <button class="config-tab" data-tab="timing">Timing</button>
+                    <button class="config-tab" data-tab="stimulus">Stimulus</button>
                     <button class="config-tab" data-tab="data">Data</button>
                 </div>
 
@@ -46,20 +50,20 @@ class CVCConfig {
                                 <label for="practice-trials">Number of Practice Trials</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="practice-trials">−</button>
-                                    <input type="number" id="practice-trials" name="practice_trials" min="1" max="100" value="${this.currentConfig.trials.practice}" readonly>
+                                    <input type="number" id="practice-trials" name="practice_trials" min="1" max="6" value="${this.currentConfig.trials.practice}" readonly>
                                     <button type="button" data-action="increase" data-target="practice-trials">+</button>
                                 </div>
-                                <div class="help-text">Range: 1-100</div>
+                                <div class="help-text">Range: 1-6 (hardcoded for practice)</div>
                             </div>
                             
                             <div class="config-group">
                                 <label for="practice-real-words">Real Words to Present (Practice)</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="practice-real-words">−</button>
-                                    <input type="number" id="practice-real-words" name="practice_real_words" min="1" max="50" value="${this.currentConfig.trials.practice_real_words}" readonly>
+                                    <input type="number" id="practice-real-words" name="practice_real_words" min="1" max="3" value="${this.currentConfig.trials.practice_real_words}" readonly>
                                     <button type="button" data-action="increase" data-target="practice-real-words">+</button>
                                 </div>
-                                <div class="help-text">Range: 1-50</div>
+                                <div class="help-text">Range: 1-3 (hardcoded for practice)</div>
                             </div>
                         </div>
                     </div>
@@ -72,20 +76,20 @@ class CVCConfig {
                                 <label for="main-trials">Number of Main Trials</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="main-trials">−</button>
-                                    <input type="number" id="main-trials" name="main_trials" min="1" max="500" value="${this.currentConfig.trials.main}" readonly>
+                                    <input type="number" id="main-trials" name="main_trials" min="1" max="44" value="${this.currentConfig.trials.main}" readonly>
                                     <button type="button" data-action="increase" data-target="main-trials">+</button>
                                 </div>
-                                <div class="help-text">Range: 1-500</div>
+                                <div class="help-text">Range: 1-44 (max based on stimulus list length)</div>
                             </div>
                             
                             <div class="config-group">
                                 <label for="main-real-words">Real Words to Present (Main)</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="main-real-words">−</button>
-                                    <input type="number" id="main-real-words" name="main_real_words" min="1" max="250" value="${this.currentConfig.trials.main_real_words}" readonly>
+                                    <input type="number" id="main-real-words" name="main_real_words" min="1" max="22" value="${this.currentConfig.trials.main_real_words}" readonly>
                                     <button type="button" data-action="increase" data-target="main-real-words">+</button>
                                 </div>
-                                <div class="help-text">Range: 1-250</div>
+                                <div class="help-text">Range: 1-22 (max real words available per list)</div>
                             </div>
                         </div>
                     </div>
@@ -106,6 +110,30 @@ class CVCConfig {
                                 <input type="range" id="letter-display-duration" name="letter_display_duration" min="500" max="5000" step="100" value="${this.currentConfig.timing.letter_display_duration}" class="config-slider">
                             </div>
                             <div class="help-text">Duration each letter stays on screen before the next one appears (Range: 500-5000ms)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stimulus Tab -->
+                <div class="config-tab-content" id="stimulus-tab">
+                    <div class="config-card">
+                        <h3>Stimulus List Selection</h3>
+                        
+                        <div class="config-group">
+                            <label for="list-selection">Choose Stimulus List</label>
+                            <div class="radio-group">
+                                <label class="radio-option">
+                                    <input type="radio" name="list_selection" value="1" ${this.currentConfig.stimulus.list_selection === 1 ? 'checked' : ''}>
+                                    <span class="radio-label">List 1</span>
+                                    <div class="radio-description">Use first stimulus list (columns 1 & 2)</div>
+                                </label>
+                                <label class="radio-option">
+                                    <input type="radio" name="list_selection" value="2" ${this.currentConfig.stimulus.list_selection === 2 ? 'checked' : ''}>
+                                    <span class="radio-label">List 2</span>
+                                    <div class="radio-description">Use second stimulus list (columns 3 & 4)</div>
+                                </label>
+                            </div>
+                            <div class="help-text">Both lists contain 22 real words (-1 flags) each. Select which list to use for this session.</div>
                         </div>
                     </div>
                 </div>
@@ -134,6 +162,58 @@ class CVCConfig {
                     <span class="button-loading" aria-hidden="true">Saving...</span>
                 </button>
             </div>
+
+            <style>
+                .radio-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    margin-top: 8px;
+                }
+                
+                .radio-option {
+                    display: flex;
+                    align-items: flex-start;
+                    padding: 12px;
+                    border: 2px solid #e9ecef;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                
+                .radio-option:hover {
+                    border-color: #007bff;
+                    background-color: #f8f9ff;
+                }
+                
+                .radio-option input[type="radio"] {
+                    margin: 0 12px 0 0;
+                    width: 18px;
+                    height: 18px;
+                }
+                
+                .radio-option input[type="radio"]:checked {
+                    accent-color: #007bff;
+                }
+                
+                .radio-option:has(input:checked) {
+                    border-color: #007bff;
+                    background-color: #f8f9ff;
+                }
+                
+                .radio-label {
+                    font-weight: 600;
+                    color: #212529;
+                    margin-bottom: 4px;
+                    display: block;
+                }
+                
+                .radio-description {
+                    font-size: 13px;
+                    color: #6c757d;
+                    line-height: 1.4;
+                }
+            </style>
         `;
     }
 
@@ -205,6 +285,14 @@ class CVCConfig {
                 });
             }
         });
+
+        // Radio buttons for list selection
+        const radioButtons = modalContent.querySelectorAll('input[name="list_selection"]');
+        radioButtons.forEach(radio => {
+            radio.addEventListener('change', () => {
+                console.log('List selection changed to:', radio.value);
+            });
+        });
     }
 
     switchTab(tabName) {
@@ -258,6 +346,9 @@ class CVCConfig {
     }
 
     collectConfigFromUI() {
+        // Get selected list
+        const selectedList = document.querySelector('input[name="list_selection"]:checked');
+        
         return {
             trials: {
                 practice: parseInt(document.getElementById('practice-trials').value),
@@ -267,6 +358,9 @@ class CVCConfig {
             },
             timing: {
                 letter_display_duration: parseInt(document.getElementById('letter-display-duration').value)
+            },
+            stimulus: {
+                list_selection: selectedList ? parseInt(selectedList.value) : 1
             },
             data: {
                 enable_crash_recovery_logs: document.getElementById('crash-recovery-logs').checked
@@ -396,6 +490,12 @@ class CVCConfig {
         // Update timing
         document.getElementById('letter-display-duration').value = this.currentConfig.timing.letter_display_duration;
         document.getElementById('letter-duration-value').textContent = this.currentConfig.timing.letter_display_duration + ' ms';
+
+        // Update stimulus list selection
+        const listRadio = document.querySelector(`input[name="list_selection"][value="${this.currentConfig.stimulus.list_selection}"]`);
+        if (listRadio) {
+            listRadio.checked = true;
+        }
 
         // Update data
         document.getElementById('crash-recovery-logs').checked = this.currentConfig.data.enable_crash_recovery_logs;
