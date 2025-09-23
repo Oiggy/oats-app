@@ -1,0 +1,244 @@
+/* CVC Task Specific Styles */
+.cvc-task-container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    width: 90%;
+    max-width: 800px;
+    min-height: 500px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.cvc-task-header {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    padding: 20px 30px;
+    border-radius: 16px 16px 0 0;
+    text-align: center;
+}
+
+.cvc-letter-display {
+    font-size: 120px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin: 40px 0;
+    font-family: 'Courier New', monospace;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    min-height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.cvc-letter-display.flash {
+    background-color: rgba(74, 172, 254, 0.1);
+    border-radius: 20px;
+}
+
+.cvc-config-display {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: left;
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.cvc-config-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.cvc-config-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.cvc-config-value {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.cvc-phase-indicator {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    background: rgba(255,255,255,0.2);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.cvc-progress-indicator {
+    margin: 20px 0;
+    font-size: 16px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.cvc-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    margin: 30px 0;
+    width: 100%;
+    max-width: 600px;
+}
+
+.cvc-stat-card {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.cvc-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    border-color: #4facfe;
+}
+
+.cvc-stat-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 8px;
+    font-family: 'SF Mono', Consolas, monospace;
+}
+
+.cvc-stat-label {
+    font-size: 14px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.cvc-response-hint {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.cvc-instructions {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #34495e;
+    margin-bottom: 30px;
+    max-width: 600px;
+}
+
+.cvc-instructions strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.cvc-button-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 25px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin: 10px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+}
+
+.cvc-button-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.cvc-button-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .cvc-task-container {
+        width: 95%;
+        margin: 10px;
+    }
+    
+    .cvc-letter-display {
+        font-size: 80px;
+        margin: 20px 0;
+    }
+    
+    .cvc-stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+    }
+    
+    .cvc-stat-value {
+        font-size: 24px;
+    }
+    
+    .cvc-response-hint {
+        bottom: 20px;
+        left: 20px;
+        right: 20px;
+        transform: none;
+        text-align: center;
+        font-size: 12px;
+        padding: 10px 20px;
+    }
+}
+
+/* Animation for letter transitions */
+@keyframes letterFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.cvc-letter-display {
+    animation: letterFadeIn 0.2s ease-out;
+}
+
+/* Feedback animations */
+@keyframes correctResponse {
+    0% { background-color: transparent; }
+    50% { background-color: rgba(40, 167, 69, 0.2); }
+    100% { background-color: transparent; }
+}
+
+@keyframes incorrectResponse {
+    0% { background-color: transparent; }
+    50% { background-color: rgba(220, 53, 69, 0.2); }
+    100% { background-color: transparent; }
+}
+
+.cvc-letter-display.correct {
+    animation: correctResponse 0.5s ease-in-out;
+}
+
+.cvc-letter-display.incorrect {
+    animation: incorrectResponse 0.5s ease-in-out;
+}

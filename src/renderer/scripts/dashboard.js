@@ -2653,6 +2653,21 @@ function connectTaskIntegration() {
                 } else {
                     alert('Stroop Color-Word task integration not loaded');
                 }
+            } else if (selectedTask === 'cvc') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the CVC integration function
+                if (window.loadCVCTask) {
+                    await window.loadCVCTask(participantId);
+                } else {
+                    alert('CVC task integration not loaded');
+                }
             } else {
                 alert('This task is not yet implemented');
             }
