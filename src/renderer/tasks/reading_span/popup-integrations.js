@@ -1,3 +1,4 @@
+// Reading Span Task Popup Integration
 class ReadingSpanTask {
     constructor(participantId) {
         this.participantId = participantId;
@@ -9,10 +10,12 @@ class ReadingSpanTask {
         this.currentSentenceIndex = 0;
         this.currentBlockSentences = [];
         this.results = [];
-        this.mediaRecorder = null;
-        this.audioStream = null;
-        this.recordingChunks = [];
         this.sessionStartTime = new Date();
+        
+        // Initialize NativeAudioRecorder - will be loaded in init()
+        this.audioRecorder = null;
+        this.isAudioSetup = false;
+        this.currentRecordingPromise = null;
         
         // Hardcoded practice sentences
         this.practiceSentences = {
@@ -48,6 +51,11 @@ class ReadingSpanTask {
 
     async init() {
         try {
+            // Load NativeAudioRecorder class first
+            const path = window.require('path');
+            const NativeAudioRecorder = window.require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'reading_span', 'native_audio_recorder.js'));
+            this.audioRecorder = new NativeAudioRecorder();
+            
             await this.loadConfiguration();
             await this.loadStimulusData();
             await this.setupAudioPermissions();
@@ -145,20 +153,21 @@ class ReadingSpanTask {
 
     async setupAudioPermissions() {
         try {
-            this.audioStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 44100
-                } 
-            });
-            console.log('Audio permissions granted');
+            console.log('Setting up audio with NativeAudioRecorder...');
             
-            this.audioStream.getAudioTracks().forEach(track => {
-                track.enabled = false;
-            });
+            // Test audio using NativeAudioRecorder
+            const testResult = await this.audioRecorder.testAudio();
+            
+            if (!testResult) {
+                throw new Error('Microphone test failed. Please ensure sox is installed and microphone is connected.');
+            }
+            
+            this.isAudioSetup = true;
+            console.log('NativeAudioRecorder initialized successfully');
+            
         } catch (error) {
-            throw new Error('Microphone access denied. Please allow microphone permissions and try again.');
+            console.error('Audio setup error:', error);
+            throw new Error('Microphone access denied or sox not installed. Please check your setup and try again.');
         }
     }
 
@@ -216,104 +225,50 @@ class ReadingSpanTask {
                     color: #212529;
                     margin: 0;
                 ">Reading Span Task</h1>
-                <span style="
-                    font-size: 14px;
-                    color: #6c757d;
-                    font-weight: 500;
-                ">Participant: ${this.participantId}</span>
-                <button class="reading-span-close-btn" style="
+                <button onclick="window.readingSpanTaskInstance.closeTask()" style="
                     background: none;
                     border: none;
                     font-size: 24px;
                     color: #6c757d;
                     cursor: pointer;
-                    width: 30px;
-                    height: 30px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    border-radius: 4px;
-                ">&times;</button>
+                    padding: 4px 8px;
+                    line-height: 1;
+                    transition: color 0.15s ease;
+                " onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#6c757d'">
+                    ×
+                </button>
             </div>
-            <div class="reading-span-task-content" style="
+            
+            <div class="reading-span-task-body" style="
                 flex: 1;
-                padding: 40px 24px;
+                overflow-y: auto;
+                padding: 32px 24px;
                 display: flex;
                 flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                text-align: center;
-                overflow-y: auto;
-            " id="reading-span-task-content">
-                <!-- Content will be dynamically updated -->
-            </div>
-            <div class="reading-span-task-footer" style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 16px 24px;
-                border-top: 1px solid #e9ecef;
-                background-color: #f8f9fa;
-                border-radius: 0 0 12px 12px;
-                flex-shrink: 0;
             ">
-                <span class="reading-span-status-text" style="
+                <div id="reading-span-status-text" style="
                     font-size: 14px;
                     color: #6c757d;
-                " id="reading-span-status-text">Ready to start</span>
-                <div style="display: flex; gap: 8px;">
-                    <button class="reading-span-exit-btn" style="
-                        background-color: #dc3545;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        font-size: 14px;
-                        cursor: pointer;
-                    ">Exit Task</button>
-                </div>
+                    margin-bottom: 20px;
+                    font-weight: 500;
+                ">Initializing...</div>
+                
+                <div id="reading-span-task-content" style="
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                "></div>
             </div>
         `;
 
-        // Append to overlay
         this.modalOverlay.appendChild(this.modalContent);
         document.body.appendChild(this.modalOverlay);
-
-        // Bind events
-        this.bindEvents();
-
-        // Focus the modal
-        this.modalContent.focus();
-    }
-
-    bindEvents() {
-        // Close button
-        const closeBtn = this.modalContent.querySelector('.reading-span-close-btn');
-        closeBtn.addEventListener('click', () => this.closeTask());
-
-        // Exit button
-        const exitBtn = this.modalContent.querySelector('.reading-span-exit-btn');
-        exitBtn.addEventListener('click', () => this.closeTask());
-
-        // Close on overlay click
-        this.modalOverlay.addEventListener('click', (e) => {
-            if (e.target === this.modalOverlay) {
-                this.closeTask();
-            }
-        });
-
-        // Prevent close button hover style
-        const closeBtn2 = this.modalContent.querySelector('.reading-span-close-btn');
-        closeBtn2.addEventListener('mouseenter', () => {
-            closeBtn2.style.backgroundColor = '#f8f9fa';
-        });
-        closeBtn2.addEventListener('mouseleave', () => {
-            closeBtn2.style.backgroundColor = '';
-        });
     }
 
     showWelcomeScreen() {
-        this.updateStatus('Ready to start');
+        this.updateStatus('Welcome');
         
         const content = `
             <h2 style="
@@ -328,12 +283,39 @@ class ReadingSpanTask {
                 line-height: 1.6;
                 color: #495057;
                 margin-bottom: 32px;
-                max-width: 700px;
+                max-width: 600px;
+                text-align: left;
             ">
-                You will read sentences one at a time. Your job is to <strong>remember the final word of each sentence</strong>. 
-                At the end of each block, you will be asked to <strong>say the final words aloud in the same order</strong>. 
-                Practice will come first, then the main task.
+                <p><strong>Instructions:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>You will read sentences one at a time</li>
+                    <li>After each sentence, remember the last word</li>
+                    <li>At the end of each set, recall all the last words in order</li>
+                    <li>Click the recall buttons to record your responses</li>
+                </ul>
+                
+                <p style="margin-top: 20px;"><strong>Audio Recording:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>This task uses native audio recording</li>
+                    <li>Your responses will be recorded as WAV files</li>
+                    <li>Please ensure your microphone is working properly</li>
+                </ul>
             </div>
+            
+            <button onclick="window.readingSpanTaskInstance.testMicrophone()" style="
+                background-color: #17a2b8;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 6px;
+                font-size: 16px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: background-color 0.15s ease;
+                margin: 8px;
+            " onmouseover="this.style.backgroundColor='#138496'" onmouseout="this.style.backgroundColor='#17a2b8'">
+                🎤 Test Microphone
+            </button>
             
             <button onclick="window.readingSpanTaskInstance.startPractice()" style="
                 background-color: #007bff;
@@ -354,13 +336,43 @@ class ReadingSpanTask {
         this.updateContent(content);
     }
 
+    async testMicrophone() {
+        const testBtn = event.target;
+        const originalText = testBtn.textContent;
+        
+        testBtn.textContent = '🎤 Testing...';
+        testBtn.disabled = true;
+        
+        try {
+            const testResult = await this.audioRecorder.testAudio();
+            
+            if (testResult) {
+                testBtn.textContent = '✅ Microphone OK';
+            } else {
+                testBtn.textContent = '❌ Microphone Error';
+            }
+            
+            setTimeout(() => {
+                testBtn.textContent = originalText;
+                testBtn.disabled = false;
+            }, 3000);
+            
+        } catch (error) {
+            testBtn.textContent = '❌ Setup Error';
+            console.error('Microphone test failed:', error);
+            
+            setTimeout(() => {
+                testBtn.textContent = originalText;
+                testBtn.disabled = false;
+            }, 3000);
+        }
+    }
+
     startPractice() {
         this.currentPhase = 'practice';
         this.currentSeries = 1;
         this.currentBlock = 1;
         this.currentSentenceIndex = 0;
-        
-        this.updateStatus('Practice phase');
         this.loadCurrentBlock();
         this.showNextSentence();
     }
@@ -370,8 +382,6 @@ class ReadingSpanTask {
         this.currentSeries = 1;
         this.currentBlock = 1;
         this.currentSentenceIndex = 0;
-        
-        this.updateStatus('Main phase');
         this.loadCurrentBlock();
         this.showNextSentence();
     }
@@ -381,118 +391,99 @@ class ReadingSpanTask {
             this.currentBlockSentences = this.practiceSentences[this.currentSeries]?.[this.currentBlock] || [];
         } else {
             this.currentBlockSentences = this.stimulusData.filter(item => 
-                item.series === this.currentSeries && item.block === this.currentBlock
+                item.series === this.currentSeries && 
+                item.block === this.currentBlock
             );
         }
         
-        console.log(`Loaded block ${this.currentSeries}-${this.currentBlock}:`, this.currentBlockSentences.length, 'sentences');
+        console.log(`Loaded block: Series ${this.currentSeries}, Block ${this.currentBlock}`, 
+                    this.currentBlockSentences.length, 'sentences');
     }
 
     showNextSentence() {
         if (this.currentSentenceIndex >= this.currentBlockSentences.length) {
-            this.showRecallPage();
+            this.showRecallScreen();
             return;
         }
 
         const sentence = this.currentBlockSentences[this.currentSentenceIndex];
-        const progressText = `Series ${this.currentSeries}, Block ${this.currentBlock} - Sentence ${this.currentSentenceIndex + 1}/${this.currentBlockSentences.length}`;
+        this.updateStatus(`${this.currentPhase === 'practice' ? 'Practice' : 'Main'} - Series ${this.currentSeries}, Block ${this.currentBlock}, Sentence ${this.currentSentenceIndex + 1}/${this.currentBlockSentences.length}`);
         
         const content = `
             <div style="
-                font-size: 14px;
-                color: #6c757d;
-                margin-bottom: 30px;
-                font-weight: 500;
-            ">${progressText}</div>
-            
-            <div style="
                 font-size: 22px;
-                line-height: 1.6;
+                line-height: 1.8;
                 color: #212529;
-                margin: 40px 0;
-                max-width: 800px;
-                font-weight: 400;
                 text-align: center;
-            ">${sentence.sentence}</div>
+                max-width: 700px;
+                padding: 40px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #dee2e6;
+            ">
+                ${sentence.sentence}
+            </div>
         `;
         
         this.updateContent(content);
         
         const duration = this.currentPhase === 'practice' 
-            ? this.config.parameters.timing.practice_sentence_duration
+            ? this.config.parameters.timing.practice_sentence_duration 
             : this.config.parameters.timing.main_sentence_duration;
-
+        
         setTimeout(() => {
             this.currentSentenceIndex++;
             this.showNextSentence();
         }, duration);
     }
 
-    async showRecallPage() {
-        await this.prepareRecording();
+    async showRecallScreen() {
+        this.updateStatus(`${this.currentPhase === 'practice' ? 'Practice' : 'Main'} - Recall Phase`);
         
         const recallButtons = this.currentBlockSentences.map((sentence, index) => `
             <button class="recall-button" data-index="${index}" data-target="${sentence.target}" style="
                 background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
                 color: white;
                 border: none;
-                padding: 12px 20px;
+                padding: 16px 32px;
                 border-radius: 8px;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: 500;
                 cursor: pointer;
-                transition: all 0.3s ease;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                min-height: 50px;
-            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,123,255,0.3)'" 
-               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                <span style="font-size: 16px;">🎤</span>
-                Recall ${index + 1}
+                transition: all 0.2s ease;
+                box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+                min-width: 180px;
+            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,123,255,0.4)'" 
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,123,255,0.3)'">
+                <span style="font-size: 16px;">🎤</span> Recall ${index + 1}
             </button>
         `).join('');
-
-        const progressText = `Series ${this.currentSeries}, Block ${this.currentBlock}`;
-
+        
         const content = `
-            <div style="
-                font-size: 14px;
-                color: #6c757d;
-                margin-bottom: 20px;
-                font-weight: 500;
-            ">${progressText}</div>
-            
             <h3 style="
                 font-size: 20px;
                 font-weight: 600;
                 color: #212529;
-                margin-bottom: 16px;
-            ">Recall Phase</h3>
+                margin-bottom: 24px;
+            ">Recall the final words in order</h3>
             
             <div style="
-                background: #e3f2fd;
-                border: 1px solid #2196f3;
-                border-radius: 8px;
-                padding: 16px;
-                margin: 20px 0;
-                max-width: 600px;
+                font-size: 14px;
+                color: #6c757d;
+                margin-bottom: 24px;
             ">
-                <p style="
-                    margin: 0;
-                    font-size: 14px;
-                    color: #1565c0;
-                    font-weight: 500;
-                ">Click each Recall button in order, and say the final word of the sentence aloud.</p>
+                ${this.currentPhase === 'practice' 
+                    ? 'Click each button to practice recall (no recording)' 
+                    : `Click each button to record your recall (${this.config.parameters.timing.recall_time_duration / 1000}s each)`
+                }
             </div>
             
             <div style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-                gap: 12px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 16px;
+                justify-content: center;
                 margin: 24px 0;
-                max-width: 500px;
             ">
                 ${recallButtons}
             </div>
@@ -511,11 +502,44 @@ class ReadingSpanTask {
                 align-items: center;
                 justify-content: center;
             ">
-                Click a recall button to start recording
+                ${this.currentPhase === 'practice' 
+                    ? 'Click a recall button to practice' 
+                    : '🎤 Initializing microphone...'
+                }
             </div>
         `;
         
         this.updateContent(content);
+        
+        // *** ONLY preload microphone for MAIN phase ***
+        if (this.currentPhase === 'main') {
+            console.log('Preloading microphone for recall phase...');
+            await this.audioRecorder.preloadMicrophone();
+            
+            // *** NEW: Do a dummy recording to fully initialize the audio pipeline ***
+            console.log('Performing dummy recording to warm up audio system...');
+            const os = window.require('os');
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            
+            const tmpPath = path.join(os.tmpdir(), `dummy_warmup_${Date.now()}.wav`);
+            
+            try {
+                // Do a 1-second dummy recording
+                await this.audioRecorder.startRecording(tmpPath, 1000);
+                // Delete the dummy file
+                await fs.unlink(tmpPath).catch(() => {});
+                console.log('Audio system fully warmed up');
+            } catch (error) {
+                console.warn('Dummy recording failed, but continuing:', error);
+            }
+            
+            // Update timer display to show ready state
+            const timerDisplay = document.getElementById('recall-timer-display');
+            if (timerDisplay) {
+                timerDisplay.innerHTML = 'Click a recall button to start recording';
+            }
+        }
         
         // Set up recall button handlers
         document.querySelectorAll('.recall-button').forEach(button => {
@@ -528,14 +552,6 @@ class ReadingSpanTask {
         this.checkRecallCompletion();
     }
 
-    async prepareRecording() {
-        if (this.audioStream) {
-            this.audioStream.getAudioTracks().forEach(track => {
-                track.enabled = true;
-            });
-        }
-    }
-
     async handleRecallButtonClick(button) {
         const index = parseInt(button.dataset.index);
         const targetWord = button.dataset.target;
@@ -546,7 +562,7 @@ class ReadingSpanTask {
             return;
         }
         
-        // Disable other buttons while this one is recording
+        // Disable other buttons while this one is active
         document.querySelectorAll('.recall-button').forEach(btn => {
             if (btn !== button && !btn.disabled) {
                 btn.style.opacity = '0.5';
@@ -555,11 +571,18 @@ class ReadingSpanTask {
             }
         });
         
-        // Start recording for this button
-        await this.startRecording();
-        button.classList.add('recording');
-        button.innerHTML = `<span style="font-size: 16px;">🔴</span> Recording ${index + 1}...`;
-        button.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+        // *** ONLY start recording for MAIN phase ***
+        if (isMainPhase) {
+            await this.startRecording(targetWord, true);
+            button.classList.add('recording');
+            button.innerHTML = `<span style="font-size: 16px;">🔴</span> Recording ${index + 1}...`;
+            button.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+        } else {
+            // Practice phase - just show active state without recording
+            button.classList.add('recording');
+            button.innerHTML = `<span style="font-size: 16px;">✓</span> Practicing ${index + 1}...`;
+            button.style.background = 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)';
+        }
         
         // Start individual countdown for this button
         const duration = this.config.parameters.timing.recall_time_duration;
@@ -605,7 +628,7 @@ class ReadingSpanTask {
 
     async finishIndividualRecording(button, targetWord, isMainPhase, index) {
         // Stop recording
-        await this.stopRecording(targetWord, isMainPhase);
+        await this.stopRecording();
         
         // Update button appearance
         button.classList.remove('recording');
@@ -668,95 +691,78 @@ class ReadingSpanTask {
         }
     }
 
-    async startRecording() {
+    async startRecording(targetWord, saveToFile = false) {
+        // Skip if practice phase
+        if (this.currentPhase === 'practice') {
+            console.log('Skipping recording for practice phase');
+            return;
+        }
+        
         try {
-            this.recordingChunks = [];
+            console.log('Starting native audio recording...');
             
-            this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
+            // Get output path for this recording
+            const filename = `recall_series${this.currentSeries}_block${this.currentBlock}_${targetWord}.wav`;
+            const outputPath = await this.getAudioOutputPath(filename);
+            const recordingDuration = this.config.parameters.timing.recall_time_duration;
             
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.recordingChunks.push(event.data);
-                }
-            };
+            // Start recording using NativeAudioRecorder
+            this.currentRecordingPromise = this.audioRecorder.startRecording(
+                outputPath,
+                recordingDuration,
+                this.config.parameters.audio?.recording_level || 50
+            );
             
-            this.mediaRecorder.start();
-            console.log('Recording started');
+            // Store result info for later
+            if (saveToFile && this.currentPhase === 'main') {
+                this.results.push({
+                    phase: this.currentPhase,
+                    series: this.currentSeries,
+                    block: this.currentBlock,
+                    target_word: targetWord,
+                    audio_file: filename,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            
         } catch (error) {
             console.error('Error starting recording:', error);
         }
     }
 
-    async stopRecording(targetWord, saveToFile = false) {
-        return new Promise((resolve) => {
-            if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
-                resolve();
-                return;
+    async stopRecording() {
+        try {
+            if (this.currentRecordingPromise) {
+                // Wait for the recording to complete
+                await this.currentRecordingPromise;
+                console.log('Recording stopped');
+                this.currentRecordingPromise = null;
             }
-            
-            this.mediaRecorder.onstop = async () => {
-                try {
-                    const audioBlob = new Blob(this.recordingChunks, { type: 'audio/webm;codecs=opus' });
-                    
-                    if (saveToFile && this.currentPhase === 'main') {
-                        await this.saveAudioFile(audioBlob, targetWord);
-                    }
-                    
-                    console.log('Recording stopped and processed');
-                    resolve();
-                } catch (error) {
-                    console.error('Error processing recording:', error);
-                    resolve();
-                }
-            };
-            
-            this.mediaRecorder.stop();
-        });
+        } catch (error) {
+            console.error('Error stopping recording:', error);
+        }
     }
 
-    async saveAudioFile(audioBlob, targetWord) {
-        try {
-            const os = window.require('os');
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
+    async getAudioOutputPath(filename) {
+        const os = window.require('os');
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
 
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
-            } else if (process.platform === 'darwin') {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            }
-
-            const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const sessionDir = path.join(baseDir, 'Sessions', this.participantId, `rst_${timestamp}`);
-            
-            await fs.mkdir(sessionDir, { recursive: true });
-
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            
-            const filename = `recall_${targetWord}.wav`;
-            const filePath = path.join(sessionDir, filename);
-            
-            await fs.writeFile(filePath, buffer);
-            console.log(`Audio saved: ${filePath}`);
-            
-            this.results.push({
-                phase: this.currentPhase,
-                series: this.currentSeries,
-                block: this.currentBlock,
-                target_word: targetWord,
-                audio_file: filename,
-                timestamp: new Date().toISOString()
-            });
-            
-        } catch (error) {
-            console.error('Error saving audio file:', error);
+        let baseDir;
+        if (process.platform === 'win32') {
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
+        } else if (process.platform === 'darwin') {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
+        } else {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
         }
+
+        const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const sessionDir = path.join(baseDir, 'Sessions', this.participantId, `rst_${timestamp}`);
+        
+        await fs.mkdir(sessionDir, { recursive: true });
+
+        return path.join(sessionDir, filename);
     }
 
     endRecallPhase() {
@@ -967,7 +973,8 @@ class ReadingSpanTask {
         content += `Participant ID: ${this.participantId}\n`;
         content += `Task: Reading Span Task\n`;
         content += `Start Time: ${this.sessionStartTime.toLocaleString()}\n`;
-        content += `End Time: ${new Date().toLocaleString()}\n\n`;
+        content += `End Time: ${new Date().toLocaleString()}\n`;
+        content += `Audio Recording: Native (sox-based WAV files)\n\n`;
 
         content += 'TASK CONFIGURATION\n';
         content += '-'.repeat(30) + '\n';
@@ -976,7 +983,8 @@ class ReadingSpanTask {
         content += `Main Series: ${params.trials.main_series}\n`;
         content += `Practice Sentence Duration: ${params.timing.practice_sentence_duration}ms\n`;
         content += `Main Sentence Duration: ${params.timing.main_sentence_duration}ms\n`;
-        content += `Recall Time Duration: ${params.timing.recall_time_duration}ms\n\n`;
+        content += `Recall Time Duration: ${params.timing.recall_time_duration}ms\n`;
+        content += `Audio Recording Level: ${params.audio?.recording_level || 50}%\n\n`;
 
         content += 'PERFORMANCE SUMMARY\n';
         content += '-'.repeat(30) + '\n';
@@ -1021,11 +1029,9 @@ class ReadingSpanTask {
     }
 
     closeTask() {
-        if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
-        }
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-            this.mediaRecorder.stop();
+        // Stop any ongoing recording
+        if (this.audioRecorder && this.audioRecorder.isRecording) {
+            this.audioRecorder.stopRecording();
         }
         
         // Clear any remaining intervals
