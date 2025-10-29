@@ -6,8 +6,8 @@ class StroopColorWordConfig {
             timestamp: null,
             parameters: {
                 trials: {
-                    practice: 6,
-                    main: 10
+                    practice: 1,
+                    main: 2
                 },
                 timing: {
                     pre_stimulus_delay: 200,
@@ -56,7 +56,7 @@ class StroopColorWordConfig {
                                     <input type="number" id="practice-trials" name="practice_trials" min="0" max="50" value="6" readonly>
                                     <button type="button" data-action="increase" data-target="practice-trials">+</button>
                                 </div>
-                                <small class="help-text">Range: 0-50 trials</small>
+                                <small class="help-text">Range: 1-50 trials</small>
                             </div>
                             
                             <div class="config-group">
@@ -66,7 +66,7 @@ class StroopColorWordConfig {
                                     <input type="number" id="main-trials" name="main_trials" min="0" max="500" value="10" readonly>
                                     <button type="button" data-action="increase" data-target="main-trials">+</button>
                                 </div>
-                                <small class="help-text">Range: 0-500 trials</small>
+                                <small class="help-text">Range: 2-500 trials</small>
                             </div>
                         </div>
                     </div>
