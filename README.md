@@ -78,9 +78,9 @@ The modular structure makes it easy to add new functionality without affecting e
 
 ## Common Branch Types (Prefixes)
 
-feature/: For developing new features or functionality.
-bugfix/ or fix/: For fixing issues, often associated with a bug report.
-hotfix/: For urgent, critical fixes that need to go directly to production.
-release/: For preparing a new production release (e.g., release/v1.0.0).
-chore/ or docs/: For maintenance tasks, documentation updates, or dependency updates.
-experiment/ or test/: For testing ideas without affecting the main codebase. 
+- **feature/**: For developing new features or functionality.
+- **bugfix/ or fix/**: For fixing issues, often associated with a bug report.
+- **hotfix/**: For urgent, critical fixes that need to go directly to production.
+- **release/**: For preparing a new production release (e.g., release/v1.0.0).
+- **chore/ or docs/**: For maintenance tasks, documentation updates, or dependency updates.
+- **experiment/ or test/**: For testing ideas without affecting the main codebase. 
