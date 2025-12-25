@@ -21,6 +21,7 @@
    npm run dev
    ```
 
+
 ## Project Structure
 
 ```
@@ -42,6 +43,7 @@ oats-app/
 │           └── dashboard.js  # Dashboard logic
 ```
 
+
 ## Customizing Font Sizes
 
 Edit the `src/config/settings.js` file to adjust font sizes:
@@ -54,12 +56,14 @@ fonts: {
 }
 ```
 
+
 ## Building for Distribution
 
 - **Windows**: `npm run build-win`
 - **macOS**: `npm run build-mac`
 - **Linux**: `npm run build-linux`
 - **All platforms**: `npm run build`
+
 
 ## Next Steps
 
@@ -70,3 +74,13 @@ The dashboard is ready for additional features. You can:
 4. Customize the UI further
 
 The modular structure makes it easy to add new functionality without affecting existing code.
+
+
+## Common Branch Types (Prefixes)
+
+feature/: For developing new features or functionality.
+bugfix/ or fix/: For fixing issues, often associated with a bug report.
+hotfix/: For urgent, critical fixes that need to go directly to production.
+release/: For preparing a new production release (e.g., release/v1.0.0).
+chore/ or docs/: For maintenance tasks, documentation updates, or dependency updates.
+experiment/ or test/: For testing ideas without affecting the main codebase. 
