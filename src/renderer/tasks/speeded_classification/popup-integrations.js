@@ -124,9 +124,13 @@ class SpeededClassificationPopup {
     async loadAudioFiles() {
         const path = window.require('path');
         const fs = window.require('fs');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
-        // Look for audio files in the task folder
-        const audioDir = path.join(process.cwd(), 'src', 'renderer', 'tasks', 'speeded_classification', 'audio');
+        // Use app.getAppPath() to get the correct resource path in packaged app
+        const appPath = app.getAppPath();
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'speeded_classification', 'audio');
+        
+        console.log('Loading audio files from:', audioDir);
         
         for (const [type, phases] of Object.entries(this.stimuli)) {
             for (const [phase, stimuli] of Object.entries(phases)) {
@@ -137,6 +141,7 @@ class SpeededClassificationPopup {
                         // Check if file exists
                         if (fs.existsSync(audioPath)) {
                             await this.loadAudioBuffer(audioPath, stimulus.file);
+                            console.log(`Loaded audio file: ${stimulus.file}`);
                         } else {
                             console.warn(`Audio file not found: ${audioPath}`);
                             // Create a fallback tone for missing files

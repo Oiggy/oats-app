@@ -115,8 +115,13 @@ class AuditoryStroopPopup {
     async loadAudioFiles() {
         const path = window.require('path');
         const fs = window.require('fs');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
-        const audioDir = path.join(process.cwd(), 'src', 'renderer', 'tasks', 'auditory_stroop', 'audio');
+        // Use app.getAppPath() to get the correct resource path in packaged app
+        const appPath = app.getAppPath();
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'auditory_stroop', 'audio');
+        
+        console.log('Loading audio files from:', audioDir);
         
         for (const [phase, stimuli] of Object.entries(this.stimuli)) {
             for (const stimulus of stimuli) {
@@ -125,6 +130,7 @@ class AuditoryStroopPopup {
                 try {
                     if (fs.existsSync(audioPath)) {
                         await this.loadAudioBuffer(audioPath, stimulus.file);
+                        console.log(`Loaded audio file: ${stimulus.file}`);
                     } else {
                         console.warn(`Audio file not found: ${audioPath}`);
                         this.audioBuffers[stimulus.file] = await this.createFallbackAudio(stimulus);

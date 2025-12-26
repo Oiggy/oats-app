@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, systemPreferences } = require('electron');
 const path = require('path');
 
+require('@electron/remote/main').initialize();
+
 class OATSApp {
   constructor() {
     this.mainWindow = null;
@@ -56,7 +58,8 @@ class OATSApp {
       show: false,
       webPreferences: {
         nodeIntegration: true,
-        contextIsolation: false
+        contextIsolation: false,
+        enableRemoteModule: true
       },
       icon: path.join(__dirname, 'src/assets/icon.png')
     };
@@ -69,6 +72,7 @@ class OATSApp {
     }
 
     this.mainWindow = new BrowserWindow(windowOptions);
+    require('@electron/remote/main').enable(this.mainWindow.webContents);
     this.mainWindow.loadFile('src/renderer/pages/dashboard.html');
     this.mainWindow.setMenuBarVisibility(false);
     this.mainWindow.setTitle('');

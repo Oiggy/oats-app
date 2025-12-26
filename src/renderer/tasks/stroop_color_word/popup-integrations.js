@@ -1,7 +1,7 @@
 // Stroop Color-Word Task Popup Integration
 const path = require('path');
-const NativeAudioRecorder = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'native_audio_recorder.js'));
-const SpeechOnsetDetector = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'speech_onset_detector.js'));
+// const NativeAudioRecorder = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'native_audio_recorder.js'));
+// const SpeechOnsetDetector = require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'speech_onset_detector.js'));
 
 class StroopColorWordPopup {
     constructor() {
@@ -33,6 +33,16 @@ class StroopColorWordPopup {
     }
 
     async loadTask(participantId) {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const appPath = app.getAppPath();
+        
+        const NativeAudioRecorder = window.require(path.join(appPath, 'src', 'renderer', 'tasks', 'stroop_color_word', 'native_audio_recorder.js'));
+        const SpeechOnsetDetector = window.require(path.join(appPath, 'src', 'renderer', 'tasks', 'stroop_color_word', 'speech_onset_detector.js'));
+        
+        this.audioRecorder = new NativeAudioRecorder();
+        this.speechDetector = new SpeechOnsetDetector();
+        
         if (this.isOpen) return;
         
         this.participantId = participantId;
@@ -93,21 +103,25 @@ class StroopColorWordPopup {
         try {
             const path = window.require('path');
             const fs = window.require('fs').promises;
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
             
-            const stimuliPath = path.join(process.cwd(), 'src', 'renderer', 'tasks', 'stroop_color_word', 'stimulus_data.txt');
+            // Use app.getAppPath() to get the correct resource path in packaged app
+            const appPath = app.getAppPath();
+            const stimuliPath = path.join(appPath, 'src', 'renderer', 'tasks', 'stroop_color_word', 'stimulus_data.txt');
+            
             console.log('Attempting to load stimuli from:', stimuliPath);
             
             const stimuliData = await fs.readFile(stimuliPath, 'utf8');
             
             // Parse the COMMA-separated values (not tab-separated)
             const lines = stimuliData.trim().split('\n');
-            const headers = lines[0].split(','); // Changed from '\t' to ','
+            const headers = lines[0].split(',');
             
             console.log('Headers:', headers);
             
             this.stimuli = [];
             for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(','); // Changed from '\t' to ','
+                const values = lines[i].split(',');
                 const stimulus = {};
                 headers.forEach((header, index) => {
                     stimulus[header.trim()] = values[index]?.trim() || '';
@@ -120,9 +134,7 @@ class StroopColorWordPopup {
             
         } catch (error) {
             console.error('Error loading stimuli:', error);
-            // Create fallback stimuli
-            this.stimuli = this.createFallbackStimuli();
-            console.log('Using fallback stimuli');
+            throw error;
         }
     }
 

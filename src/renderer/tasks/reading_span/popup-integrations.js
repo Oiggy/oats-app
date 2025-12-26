@@ -53,7 +53,10 @@ class ReadingSpanTask {
         try {
             // Load NativeAudioRecorder class first
             const path = window.require('path');
-            const NativeAudioRecorder = window.require(path.join(process.cwd(), 'src', 'renderer', 'tasks', 'reading_span', 'native_audio_recorder.js'));
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const appPath = app.getAppPath();
+            
+            const NativeAudioRecorder = window.require(path.join(appPath, 'src', 'renderer', 'tasks', 'reading_span', 'native_audio_recorder.js'));
             this.audioRecorder = new NativeAudioRecorder();
             
             await this.loadConfiguration();
