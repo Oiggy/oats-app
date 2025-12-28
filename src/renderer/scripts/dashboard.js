@@ -1,4 +1,5 @@
 // Dashboard - All-in-one version for Electron compatibility
+// dashboard.js
 class Dashboard {
     constructor() {
         this.currentState = 'idle';
@@ -208,8 +209,14 @@ class Dashboard {
                 window.readingSpanConfig = new ReadingSpanConfig();
             }
             return window.readingSpanConfig.generateConfigHTML();
-        }
-        
+        } else if (this.selectedTaskValue === 'hint-practice') {
+            // Initialize Practice Sentence config
+            if (!window.practiceSentenceConfig) {
+                window.practiceSentenceConfig = new PracticeSentenceConfig();
+            }
+            return window.practiceSentenceConfig.generateConfigHTML();
+        } 
+  
         // Fallback for other tasks
         return `
             <div class="modal-header">
@@ -491,6 +498,11 @@ class Dashboard {
                 if (window.readingSpanConfig) {
                     window.readingSpanConfig.bindConfigEvents();
                 }
+            },
+            'hint-practice': () => {
+                if (window.practiceSentenceConfig) {
+                    window.practiceSentenceConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -746,6 +758,12 @@ class Dashboard {
             'reading-span': async () => {
                 if (window.readingSpanConfig) {
                     await window.readingSpanConfig.loadExistingConfiguration();
+                }
+            },
+            'hint-practice': async () => {
+                if (window.practiceSentenceConfig) {
+                    await window.practiceSentenceConfig.loadExistingConfiguration();
+                    window.practiceSentenceConfig.updateUIFromConfig();
                 }
             }
         };
@@ -2702,6 +2720,21 @@ function connectTaskIntegration() {
                     await window.loadReadingSpanTask(participantId);
                 } else {
                     alert('Reading Span task integration not loaded');
+                }
+            } else if (selectedTask === 'hint-practice') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the Practice Sentence integration function
+                if (window.loadPracticeSentenceTask) {
+                    await window.loadPracticeSentenceTask(participantId);
+                } else {
+                    alert('Practice Sentence task integration not loaded');
                 }
             } else {
                 alert('This task is not yet implemented');
