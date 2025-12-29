@@ -215,7 +215,13 @@ class Dashboard {
                 window.practiceSentenceConfig = new PracticeSentenceConfig();
             }
             return window.practiceSentenceConfig.generateConfigHTML();
-        } 
+        } else if (this.selectedTaskValue === 'cast-practice') {
+            // Initialize Practice CaST config
+            if (!window.practiceCastConfig) {
+                window.practiceCastConfig = new PracticeCastConfig();
+            }
+            return window.practiceCastConfig.generateConfigHTML();
+        }
   
         // Fallback for other tasks
         return `
@@ -503,6 +509,11 @@ class Dashboard {
                 if (window.practiceSentenceConfig) {
                     window.practiceSentenceConfig.bindConfigEvents();
                 }
+            },
+            'cast-practice': () => {
+                if (window.practiceCastConfig) {
+                    window.practiceCastConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -764,6 +775,12 @@ class Dashboard {
                 if (window.practiceSentenceConfig) {
                     await window.practiceSentenceConfig.loadExistingConfiguration();
                     window.practiceSentenceConfig.updateUIFromConfig();
+                }
+            },
+            'cast-practice': async () => {
+                if (window.practiceCastConfig) {
+                    await window.practiceCastConfig.loadExistingConfiguration();
+                    window.practiceCastConfig.updateUIFromConfig();
                 }
             }
         };
@@ -2736,8 +2753,21 @@ function connectTaskIntegration() {
                 } else {
                     alert('Practice Sentence task integration not loaded');
                 }
-            } else {
-                alert('This task is not yet implemented');
+            } else if (selectedTask === 'cast-practice') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the Practice CaST integration function
+                if (window.loadPracticeCastTask) {
+                    await window.loadPracticeCastTask(participantId);
+                } else {
+                    alert('Practice CaST task integration not loaded');
+                }
             }
         });
     }

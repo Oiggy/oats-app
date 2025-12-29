@@ -1,6 +1,4 @@
-// popup-integrations.js
-
-class PracticeSentenceTask {
+class PracticeCastTask {
     constructor(participantId) {
         this.participantId = participantId;
         this.config = null;
@@ -33,7 +31,7 @@ class PracticeSentenceTask {
             this.createTaskModal();
             this.showInstructionPage();
         } catch (error) {
-            console.error('Error initializing Practice Sentence task:', error);
+            console.error('Error initializing Practice CaST task:', error);
             alert('Failed to initialize task. Please check configuration.');
         }
     }
@@ -52,11 +50,11 @@ class PracticeSentenceTask {
             baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
         }
         
-        const configPath = path.join(baseDir, 'cfg_practice_sentence_task.json');
+        const configPath = path.join(baseDir, 'cfg_practice_cast_task.json');
         const configData = await fs.readFile(configPath, 'utf8');
         this.config = JSON.parse(configData);
         
-        console.log('Practice Sentence Configuration loaded:', this.config);
+        console.log('Practice CaST Configuration loaded:', this.config);
     }
 
     async initializeAudioContext() {
@@ -77,8 +75,8 @@ class PracticeSentenceTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_sentence', 'audio');
-        const textPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_sentence', 'sentence_list.txt');
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_cast', 'audio');
+        const textPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_cast', 'cast_list.txt');
         
         console.log('Loading from:', audioDir);
         
@@ -148,7 +146,7 @@ class PracticeSentenceTask {
         
         // Create modal content
         this.modalContent = document.createElement('div');
-        this.modalContent.className = 'task-modal-content practice-sentence-modal';
+        this.modalContent.className = 'task-modal-content practice-cast-modal';
         
         this.modalOverlay.appendChild(this.modalContent);
         document.body.appendChild(this.modalOverlay);
@@ -159,14 +157,14 @@ class PracticeSentenceTask {
         
         const instructionText = `Read this to the participant:
 
-In this practice, you will hear sentences in noise.
+In this part of the test, you will hear some audio recordings.
 After each one, please repeat exactly what you heard.
 We'll start with a few practice items now.`;
         
         this.modalContent.innerHTML = `
-            <div class="practice-sentence-instruction-page">
+            <div class="practice-cast-instruction-page">
                 <div class="instruction-content">
-                    <h1 class="task-title">Practice Sentence</h1>
+                    <h1 class="task-title">Practice CaST</h1>
                     
                     <div class="instruction-text">
                         ${instructionText.replace(/\n/g, '<br>')}
@@ -202,9 +200,9 @@ We'll start with a few practice items now.`;
         this.currentPage = 'player';
         
         this.modalContent.innerHTML = `
-            <div class="practice-sentence-player-page">
+            <div class="practice-cast-player-page">
                 <div class="player-content">
-                    <h1 class="task-title">Practice Sentence</h1>
+                    <h1 class="task-title">Practice CaST</h1>
                     
                     <div class="item-counter" id="item-counter">
                         Item 1 of ${this.totalItems}
@@ -410,25 +408,25 @@ We'll start with a few practice items now.`;
     }
 
     cleanup() {
-        console.log('Practice Sentence task cleanup completed');
-        window.practiceSentenceTaskInstance = null;
+        console.log('Practice CaST task cleanup completed');
+        window.practiceCastTaskInstance = null;
     }
 }
 
-// Global function to load and start the Practice Sentence task
-async function loadPracticeSentenceTask(participantId) {
+// Global function to load and start the Practice CaST task
+async function loadPracticeCastTask(participantId) {
     try {
-        console.log('Loading Practice Sentence task for participant:', participantId);
+        console.log('Loading Practice CaST task for participant:', participantId);
         
         // Create and initialize task instance
-        window.practiceSentenceTaskInstance = new PracticeSentenceTask(participantId);
-        await window.practiceSentenceTaskInstance.init();
+        window.practiceCastTaskInstance = new PracticeCastTask(participantId);
+        await window.practiceCastTaskInstance.init();
         
     } catch (error) {
-        console.error('Error loading Practice Sentence task:', error);
-        alert('Error loading Practice Sentence task. Please check the configuration and try again.');
+        console.error('Error loading Practice CaST task:', error);
+        alert('Error loading Practice CaST task. Please check the configuration and try again.');
     }
 }
 
 // Make it globally available
-window.loadPracticeSentenceTask = loadPracticeSentenceTask;
+window.loadPracticeCastTask = loadPracticeCastTask;
