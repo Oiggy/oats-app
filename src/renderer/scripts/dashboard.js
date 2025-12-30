@@ -6,6 +6,9 @@ class Dashboard {
         this.currentSubject = null;
         this.selectedTask = null;
         this.toasts = new Set();
+        this.developerMode = false;
+        this.developerName = null;
+        this.devModeStartTime = null;
         
         this.init();
     }
@@ -13,7 +16,497 @@ class Dashboard {
     async init() {
         this.setupEventListeners();
         this.initializeDashboard();
+        this.setupDeveloperMode();
         console.log('OATS Dashboard initialized');
+    }
+
+    setupDeveloperMode() {
+        // Add developer mode indicator to the page
+        const devModeIndicator = document.createElement('div');
+        devModeIndicator.id = 'dev-mode-indicator';
+        devModeIndicator.innerHTML = `
+            <div class="dev-mode-badge" id="dev-mode-badge">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M5.5 2a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-1 0v-11a.5.5 0 0 1 .5-.5zm5 0a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-1 0v-11a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M0 2.5A.5.5 0 0 1 .5 2h15a.5.5 0 0 1 0 1h-15a.5.5 0 0 1-.5-.5z"/>
+                </svg>
+                <span id="dev-mode-text">DEV</span>
+            </div>
+            <style>
+                #dev-mode-indicator {
+                    position: fixed;
+                    top: 16px;
+                    right: 16px;
+                    z-index: 9999;
+                }
+                
+                .dev-mode-badge {
+                    background: #6e6e73;
+                    color: white;
+                    padding: 6px 12px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                }
+                
+                .dev-mode-badge:hover {
+                    background: #86868b;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                }
+                
+                .dev-mode-badge.active {
+                    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+                }
+                
+                .dev-mode-badge.active:hover {
+                    background: linear-gradient(135deg, #ff7b7b 0%, #fe6a7f 100%);
+                }
+            </style>
+        `;
+        document.body.appendChild(devModeIndicator);
+
+        // Click handler for the badge
+        const badge = document.getElementById('dev-mode-badge');
+        badge.addEventListener('click', () => {
+            if (this.developerMode) {
+                this.exitDeveloperMode();
+            } else {
+                this.showDeveloperModeLogin();
+            }
+        });
+    }
+
+    showDeveloperModeLogin() {
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalContent = modalOverlay.querySelector('.modal-content');
+        
+        modalContent.innerHTML = `
+            <form id="dev-login-form">
+                <div class="modal-header">
+                    <h2 class="modal-title">Developer Mode Access</h2>
+                    <button type="button" class="modal-close" id="dev-login-close" aria-label="Close">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M4.646 4.646a.5.5 0 0 1 .708 0L10 9.293l4.646-4.647a.5.5 0 0 1 .708.708L10.707 10l4.647 4.646a.5.5 0 0 1-.708.708L10 10.707l-4.646 4.647a.5.5 0 0 1-.708-.708L9.293 10 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="dev-login-content">
+                        <div class="dev-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                            </svg>
+                        </div>
+                        
+                        <p class="dev-description">
+                            Enter your credentials to enable developer mode. 
+                            This will allow quick testing by auto-filling the biodata form.
+                        </p>
+
+                        <div class="dev-form-group">
+                            <label for="dev-name">Developer Name</label>
+                            <input type="text" id="dev-name" name="dev_name" 
+                                placeholder="Enter your name" required autofocus>
+                        </div>
+
+                        <div class="dev-form-group">
+                            <label for="dev-password">Password</label>
+                            <input type="password" id="dev-password" name="dev_password" 
+                                placeholder="Enter password" required>
+                        </div>
+
+                        <div class="error-message" id="dev-login-error"></div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="button-secondary" id="dev-login-cancel">Cancel</button>
+                    <button type="submit" class="button-primary" id="dev-login-submit">
+                        <span class="button-text">Login</span>
+                        <span class="button-loading" aria-hidden="true">Verifying...</span>
+                    </button>
+                </div>
+            </form>
+
+            <style>
+                .dev-login-content {
+                    text-align: center;
+                    padding: 0 24px 24px 24px;
+                }
+
+                .dev-icon {
+                    width: 80px;
+                    height: 80px;
+                    margin: 0 auto 24px;
+                    background: linear-gradient(135deg, #007aff 0%, #5856d6 100%);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                }
+
+                .dev-description {
+                    font-size: 14px;
+                    color: #6e6e73;
+                    line-height: 1.5;
+                    margin-bottom: 32px;
+                }
+
+                .dev-form-group {
+                    margin-bottom: 20px;
+                    text-align: left;
+                }
+
+                .dev-form-group label {
+                    display: block;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: #1d1d1f;
+                    margin-bottom: 8px;
+                }
+
+                .dev-form-group input {
+                    width: 100%;
+                    padding: 12px 16px;
+                    border: 1.5px solid #d2d2d7;
+                    border-radius: 8px;
+                    font-size: 15px;
+                    transition: all 0.2s ease;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+
+                .dev-form-group input:focus {
+                    outline: none;
+                    border-color: #007aff;
+                    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+                }
+
+                .dev-form-group input::placeholder {
+                    color: #86868b;
+                }
+
+                .error-message {
+                    color: #ff3b30;
+                    font-size: 13px;
+                    margin-top: 16px;
+                    padding: 12px;
+                    background: #fff5f5;
+                    border-radius: 8px;
+                    border: 1px solid #ffdddd;
+                    min-height: 20px;
+                    text-align: left;
+                    display: none;
+                }
+
+                .error-message:not(:empty) {
+                    display: block;
+                }
+
+                #dev-login-form .modal-footer {
+                    padding: 20px 24px;
+                    border-top: 1px solid #e5e5e7;
+                    display: flex;
+                    gap: 12px;
+                    justify-content: flex-end;
+                    background: #fafafa;
+                }
+            </style>
+        `;
+
+        modalOverlay.classList.add('open');
+        modalOverlay.setAttribute('aria-hidden', 'false');
+
+        // Event listeners
+        document.getElementById('dev-login-close').addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        document.getElementById('dev-login-cancel').addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        document.getElementById('dev-login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleDeveloperModeLogin();
+        });
+
+        // Focus on name input
+        setTimeout(() => {
+            document.getElementById('dev-name').focus();
+        }, 100);
+    }
+
+    async handleDeveloperModeLogin() {
+        const nameInput = document.getElementById('dev-name');
+        const passwordInput = document.getElementById('dev-password');
+        const errorEl = document.getElementById('dev-login-error');
+        const submitBtn = document.getElementById('dev-login-submit');
+
+        const name = nameInput.value.trim();
+        const password = passwordInput.value;
+
+        // Clear previous errors
+        errorEl.textContent = '';
+
+        if (!name || !password) {
+            errorEl.textContent = '⚠️ Please enter both name and password.';
+            return;
+        }
+
+        // Show loading state
+        submitBtn.classList.add('loading');
+        submitBtn.disabled = true;
+
+        // Add small delay for better UX
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        try {
+            // Load credentials
+            const credentials = await this.loadDevCredentials();
+            
+            // Verify password
+            if (password === credentials.DEV_PASSWORD) {
+                // Successful login
+                this.developerName = name;
+                this.developerMode = true;
+                this.devModeStartTime = new Date();
+                
+                // Log entry
+                await this.logDeveloperModeEvent('ENTER', name);
+                
+                // Update UI
+                this.updateDeveloperModeBadge(true, name);
+                this.closeModal();
+                this.showToast(`Developer Mode enabled for ${name}`, 'success');
+                
+                console.log(`🔧 Developer Mode ENABLED for ${name}`);
+                
+                // Auto-fill biodata if in idle state
+                if (this.currentState === 'idle') {
+                    setTimeout(() => {
+                        this.autoFillBiodata();
+                    }, 500);
+                }
+            } else {
+                // Failed login
+                errorEl.textContent = '❌ Invalid password. Please try again.';
+                passwordInput.value = '';
+                passwordInput.focus();
+                
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+            }
+        } catch (error) {
+            console.error('Developer mode login error:', error);
+            
+            // Provide helpful error message
+            let errorMessage = '❌ Configuration error. ';
+            
+            if (error.message.includes('not found')) {
+                errorMessage += 'Please run: npm run setup-dev';
+            } else if (error.message.includes('DEV_PASSWORD')) {
+                errorMessage += 'Invalid credentials file format.';
+            } else {
+                errorMessage += 'Please check dev-credentials.js file.';
+            }
+            
+            errorEl.textContent = errorMessage;
+            
+            submitBtn.classList.remove('loading');
+            submitBtn.disabled = false;
+        }
+    }
+
+    async loadDevCredentials() {
+        try {
+            const path = window.require('path');
+            const fs = window.require('fs');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            
+            // Get the correct path to dev-credentials.js
+            const appPath = app.getAppPath();
+            const credentialsPath = path.join(appPath, 'src', 'config', 'dev-credentials.js');
+            
+            console.log('Loading credentials from:', credentialsPath);
+            
+            // Check if file exists
+            if (!fs.existsSync(credentialsPath)) {
+                throw new Error('dev-credentials.js not found. Please run: npm run setup-dev');
+            }
+            
+            // Load the credentials
+            delete require.cache[require.resolve(credentialsPath)]; // Clear cache
+            const credentials = window.require(credentialsPath);
+            
+            if (!credentials.DEV_PASSWORD) {
+                throw new Error('DEV_PASSWORD not found in credentials file');
+            }
+            
+            return credentials;
+        } catch (error) {
+            console.error('Failed to load dev-credentials.js:', error);
+            throw error;
+        }
+    }
+
+    async exitDeveloperMode() {
+        if (!this.developerMode) return;
+
+        const confirmExit = confirm(`Exit Developer Mode?\n\nLogged in as: ${this.developerName}`);
+        
+        if (confirmExit) {
+            // Log exit
+            await this.logDeveloperModeEvent('EXIT', this.developerName);
+            
+            // Reset developer mode
+            this.developerMode = false;
+            const duration = this.calculateSessionDuration();
+            const devName = this.developerName;
+            this.developerName = null;
+            this.devModeStartTime = null;
+            
+            // Update UI
+            this.updateDeveloperModeBadge(false);
+            this.showToast(`Developer Mode disabled (Session: ${duration})`, 'info');
+            
+            console.log(`🔧 Developer Mode session ended for ${devName} (Duration: ${duration})`);
+        }
+    }
+
+    updateDeveloperModeBadge(active, name = null) {
+        const badge = document.getElementById('dev-mode-badge');
+        const text = document.getElementById('dev-mode-text');
+        
+        if (active) {
+            badge.classList.add('active');
+            text.textContent = name ? name.substring(0, 10) : 'DEV MODE';
+        } else {
+            badge.classList.remove('active');
+            text.textContent = 'DEV';
+        }
+    }
+
+    calculateSessionDuration() {
+        if (!this.devModeStartTime) return '0m';
+        
+        const now = new Date();
+        const durationMs = now - this.devModeStartTime;
+        const minutes = Math.floor(durationMs / 60000);
+        const seconds = Math.floor((durationMs % 60000) / 1000);
+        
+        if (minutes > 0) {
+            return `${minutes}m ${seconds}s`;
+        }
+        return `${seconds}s`;
+    }
+
+    async logDeveloperModeEvent(action, name) {
+        try {
+            const os = window.require('os');
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            
+            // Determine log directory
+            let logDir;
+            if (process.platform === 'win32') {
+                logDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'dev-mode-logs');
+            } else if (process.platform === 'darwin') {
+                logDir = path.join(os.homedir(), 'Documents', 'Oats', 'dev-mode-logs');
+            } else {
+                logDir = path.join(os.homedir(), 'Documents', 'Oats', 'dev-mode-logs');
+            }
+            
+            // Create directory if it doesn't exist
+            await fs.mkdir(logDir, { recursive: true });
+            
+            // Create log entry
+            const timestamp = new Date().toISOString();
+            const date = new Date().toISOString().split('T')[0];
+            const logFile = path.join(logDir, `dev-mode-${date}.log`);
+            
+            let logEntry = `[${timestamp}] ${action} - ${name}`;
+            
+            if (action === 'EXIT' && this.devModeStartTime) {
+                const duration = this.calculateSessionDuration();
+                logEntry += ` (Duration: ${duration})`;
+            }
+            
+            logEntry += '\n';
+            
+            // Append to log file
+            await fs.appendFile(logFile, logEntry, 'utf8');
+            
+            console.log(`📝 Developer mode logged: ${logEntry.trim()}`);
+        } catch (error) {
+            console.error('Failed to log developer mode event:', error);
+        }
+    }
+
+    autoFillBiodata() {
+        // Generate a test participant ID with timestamp
+        const timestamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+        const testParticipantId = `DEV_${timestamp}`;
+        
+        // Simulate biodata form completion
+        const testBiodata = {
+            participant_id: testParticipantId,
+            experimenter_initials: this.developerName ? this.developerName.substring(0, 4).toUpperCase() : 'DEV',
+            age: '25',
+            dominant_hand: 'right',
+            gender: 'prefer_not_say',
+            education: 'bachelor',
+            primary_schooling_country: 'US',
+            native_language: 'english',
+            lang_l1_percent: 100,
+            lang_l2_percent: 0,
+            lang_other_percent: 0,
+            vision_today: 'normal',
+            color_vision: 'no',
+            hearing_today: 'normal',
+            tinnitus: 'no',
+            sleep_hours: '7-8',
+            caffeine: '1',
+            consent_participation: 'yes'
+        };
+
+        // Store the form data
+        this.currentFormData = testBiodata;
+        
+        // Update UI
+        this.handleBiodataSuccess(testParticipantId, testBiodata);
+        
+        this.showToast(`Auto-filled biodata for: ${testParticipantId}`, 'success');
+    }
+
+    handleBiodataButtonClick() {
+        console.log('Opening biodata form...');
+        
+        // If developer mode is enabled, auto-fill instead of showing form
+        if (this.developerMode) {
+            this.autoFillBiodata();
+            return;
+        }
+        
+        // Show loading state
+        const biodataBtn = document.getElementById('biodata-btn');
+        biodataBtn.classList.add('loading');
+        biodataBtn.disabled = true;
+
+        // Simulate brief loading delay
+        setTimeout(() => {
+            this.openBiodataForm();
+            biodataBtn.classList.remove('loading');
+            biodataBtn.disabled = false;
+        }, 500);
     }
 
     setupEventListeners() {

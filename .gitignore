@@ -26,6 +26,7 @@ node_modules/
 .stylelintcache
 .parcel-cache/
 .nyc_output/
+src/config/dev-credentials.js
 
 # --- Env files (keep an .env.example committed) ---
 .env
