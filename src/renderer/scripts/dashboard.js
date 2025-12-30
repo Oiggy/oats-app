@@ -89,13 +89,13 @@ class Dashboard {
         
         modalContent.innerHTML = `
             <form id="dev-login-form">
-                <div class="modal-header">
-                    <h2 class="modal-title">Developer Mode Access</h2>
-                    <button type="button" class="modal-close" id="dev-login-close" aria-label="Close">
+                <div class="modal-header dev-modal-header">
+                    <button type="button" class="modal-close dev-modal-close" id="dev-login-close" aria-label="Close">
                         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M4.646 4.646a.5.5 0 0 1 .708 0L10 9.293l4.646-4.647a.5.5 0 0 1 .708.708L10.707 10l4.647 4.646a.5.5 0 0 1-.708.708L10 10.707l-4.646 4.647a.5.5 0 0 1-.708-.708L9.293 10 4.646 5.354a.5.5 0 0 1 0-.708z"/>
                         </svg>
                     </button>
+                    <h2 class="modal-title dev-modal-title">Developer Mode Access</h2>
                 </div>
 
                 <div class="modal-body">
@@ -137,6 +137,46 @@ class Dashboard {
             </form>
 
             <style>
+                /* Custom header for developer mode modal */
+                .dev-modal-header {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px 24px;
+                    border-bottom: 1px solid #e5e5e7;
+                }
+
+                .dev-modal-close {
+                    position: absolute;
+                    left: 16px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: none;
+                    border: none;
+                    padding: 8px;
+                    cursor: pointer;
+                    border-radius: 6px;
+                    color: #6e6e73;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .dev-modal-close:hover {
+                    background-color: #f5f5f7;
+                    color: #1d1d1f;
+                }
+
+                .dev-modal-title {
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: #1d1d1f;
+                    margin: 0;
+                    text-align: center;
+                }
+
                 .dev-login-content {
                     text-align: center;
                     padding: 0 24px 24px 24px;
