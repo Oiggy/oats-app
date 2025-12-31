@@ -754,6 +754,12 @@ class Dashboard {
                 window.practiceCastConfig = new PracticeCastConfig();
             }
             return window.practiceCastConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'cst') {
+            // Initialize CST config
+            if (!window.cstConfig) {
+                window.cstConfig = new CSTConfig();
+            }
+            return window.cstConfig.generateConfigHTML();
         }
   
         // Fallback for other tasks
@@ -1047,6 +1053,11 @@ class Dashboard {
                 if (window.practiceCastConfig) {
                     window.practiceCastConfig.bindConfigEvents();
                 }
+            },
+            'cst': () => {
+                if (window.cstConfig) {
+                    window.cstConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -1314,6 +1325,12 @@ class Dashboard {
                 if (window.practiceCastConfig) {
                     await window.practiceCastConfig.loadExistingConfiguration();
                     window.practiceCastConfig.updateUIFromConfig();
+                }
+            },
+            'cst': async () => {
+                if (window.cstConfig) {
+                    await window.cstConfig.loadExistingConfiguration();
+                    window.cstConfig.updateUIFromConfig();
                 }
             }
         };
@@ -3300,6 +3317,21 @@ function connectTaskIntegration() {
                     await window.loadPracticeCastTask(participantId);
                 } else {
                     alert('Practice CaST task integration not loaded');
+                }
+            } else if (selectedTask === 'cst') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the CST integration function
+                if (window.loadCSTTask) {
+                    await window.loadCSTTask(participantId);
+                } else {
+                    alert('CST task integration not loaded');
                 }
             }
         });
