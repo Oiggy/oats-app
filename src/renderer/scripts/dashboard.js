@@ -760,6 +760,12 @@ class Dashboard {
                 window.cstConfig = new CSTConfig();
             }
             return window.cstConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'hint') {
+            // Initialize HINT config
+            if (!window.hintConfig) {
+                window.hintConfig = new HINTConfig();
+            }
+            return window.hintConfig.generateConfigHTML();
         }
   
         // Fallback for other tasks
@@ -1058,6 +1064,11 @@ class Dashboard {
                 if (window.cstConfig) {
                     window.cstConfig.bindConfigEvents();
                 }
+            },
+            'hint': () => {
+                if (window.hintConfig) {
+                    window.hintConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -1331,6 +1342,12 @@ class Dashboard {
                 if (window.cstConfig) {
                     await window.cstConfig.loadExistingConfiguration();
                     window.cstConfig.updateUIFromConfig();
+                }
+            },
+            'hint': async () => {
+                if (window.hintConfig) {
+                    await window.hintConfig.loadExistingConfiguration();
+                    window.hintConfig.updateUIFromConfig();
                 }
             }
         };
@@ -3332,6 +3349,21 @@ function connectTaskIntegration() {
                     await window.loadCSTTask(participantId);
                 } else {
                     alert('CST task integration not loaded');
+                }
+            } else if (selectedTask === 'hint') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the HINT integration function
+                if (window.loadHINTTask) {
+                    await window.loadHINTTask(participantId);
+                } else {
+                    alert('HINT task integration not loaded');
                 }
             }
         });
