@@ -1,0 +1,671 @@
+class CaSTWordTask {
+    constructor(participantId) {
+        this.participantId = participantId;
+        this.config = null;
+        this.audioContext = null;
+        this.audioBuffers = {};
+        this.currentSource = null;
+        
+        // Task state
+        this.currentPage = 'instruction';
+        this.currentIndex = 0;
+        this.csvData = [];
+        this.audioFiles = {};
+        this.totalItems = 0;
+        
+        // Response timer
+        this.responseTimer = null;
+        this.responseMs = 0;
+        this.responseRunning = false;
+        
+        // UI elements
+        this.modalOverlay = null;
+        this.modalContent = null;
+        
+        // Save tracking
+        this.resultsSaved = false;
+    }
+
+    async init() {
+        try {
+            await this.loadConfiguration();
+            await this.initializeAudioContext();
+            await this.loadCSVData();
+            await this.loadAudioFiles();
+            this.createTaskModal();
+            this.showInstructionPage();
+        } catch (error) {
+            console.error('Error initializing CaST Word task:', error);
+            alert('Failed to initialize task. Please check configuration.');
+        }
+    }
+
+    async loadConfiguration() {
+        const os = window.require('os');
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+        
+        let baseDir;
+        if (process.platform === 'win32') {
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
+        } else {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+        }
+        
+        const configPath = path.join(baseDir, 'cfg_cast_word_task.json');
+        const configData = await fs.readFile(configPath, 'utf8');
+        this.config = JSON.parse(configData);
+        
+        console.log('CaST Word Configuration loaded:', this.config);
+    }
+
+    async initializeAudioContext() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+            }
+        } catch (error) {
+            console.error('Failed to initialize audio context:', error);
+            this.audioContext = null;
+        }
+    }
+
+    async loadCSVData() {
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        
+        const appPath = app.getAppPath();
+        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_word', 'cast_word_list.csv');
+        
+        try {
+            const csvContent = await fs.readFile(csvPath, 'utf8');
+            this.csvData = this.parseCSV(csvContent);
+            console.log('CSV data loaded:', this.csvData.length, 'rows');
+        } catch (error) {
+            console.error('Error loading CSV:', error);
+            this.csvData = [];
+        }
+    }
+
+    parseCSV(content) {
+        const lines = content.trim().split('\n');
+        if (lines.length < 2) return [];
+        
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+                
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            
+            result.push(current.trim());
+            return result;
+        }
+        
+        const headers = parseCSVLine(lines[0]);
+        console.log('CSV Headers:', headers);
+        
+        const rows = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+            const values = parseCSVLine(lines[i]);
+            const row = {};
+            
+            headers.forEach((header, index) => {
+                row[header] = values[index] || '';
+            });
+            
+            // Ensure Correct/Wrong exists
+            if (!row['Correct/Wrong']) {
+                row['Correct/Wrong'] = '';
+            }
+            
+            rows.push(row);
+        }
+        
+        return rows;
+    }
+
+    async loadAudioFiles() {
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        
+        const appPath = app.getAppPath();
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_word', 'audio');
+        
+        try {
+            // Load all audio files into a map by filename
+            const files = await fs.readdir(audioDir);
+            
+            for (const file of files) {
+                if (file.toLowerCase().endsWith('.wav')) {
+                    const fullPath = path.join(audioDir, file);
+                    await this.loadAudioBuffer(fullPath, file);
+                }
+            }
+            
+            console.log('Audio files loaded:', Object.keys(this.audioBuffers).length);
+        } catch (error) {
+            console.error('Error loading audio files:', error);
+        }
+        
+        this.totalItems = this.csvData.length;
+    }
+
+    async loadAudioBuffer(filePath, filename) {
+        const fs = window.require('fs').promises;
+        
+        try {
+            const audioData = await fs.readFile(filePath);
+            const arrayBuffer = audioData.buffer.slice(
+                audioData.byteOffset,
+                audioData.byteOffset + audioData.byteLength
+            );
+            
+            const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            this.audioBuffers[filename] = audioBuffer;
+        } catch (error) {
+            console.error(`Error loading audio buffer for ${filePath}:`, error);
+        }
+    }
+
+    createTaskModal() {
+        this.modalOverlay = document.createElement('div');
+        this.modalOverlay.className = 'task-modal-overlay';
+        
+        this.modalContent = document.createElement('div');
+        this.modalContent.className = 'task-modal-content cast-word-modal';
+        
+        this.modalOverlay.appendChild(this.modalContent);
+        document.body.appendChild(this.modalOverlay);
+    }
+
+    showInstructionPage() {
+        this.currentPage = 'instruction';
+        
+        const instructionText = `Read this to the participant:
+
+In this part (CaST Word), you will hear single words in noise.
+After each one, please repeat what you heard.`;
+        
+        this.modalContent.innerHTML = `
+            <div class="cast-word-instruction-page">
+                <div class="instruction-content">
+                    <h1 class="task-title">CaST Word</h1>
+                    
+                    <div class="instruction-text">
+                        ${instructionText.replace(/\n/g, '<br>')}
+                    </div>
+                    
+                    <div class="instruction-buttons">
+                        <button class="task-btn task-btn-secondary" id="back-to-main-btn">
+                            Main Menu
+                        </button>
+                        <button class="task-btn task-btn-primary" id="start-cast-word-btn">
+                            Start
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('back-to-main-btn').addEventListener('click', () => {
+            this.saveResults();
+            this.closeTask();
+        });
+        
+        document.getElementById('start-cast-word-btn').addEventListener('click', () => {
+            if (this.totalItems === 0) {
+                alert('No audio/CSV items found.');
+                return;
+            }
+            this.showPlayerPage();
+        });
+    }
+
+    showPlayerPage() {
+        this.currentPage = 'player';
+        
+        this.modalContent.innerHTML = `
+            <div class="cast-word-player-page">
+                <div class="player-content">
+                    <h1 class="task-title">CaST Word</h1>
+                    
+                    <div class="top-row">
+                        <div class="snr-summary" id="snr-summary"></div>
+                    </div>
+                    
+                    <div class="item-counter" id="item-counter">
+                        Item 1 of ${this.totalItems}
+                    </div>
+                    
+                    <div class="snr-label" id="snr-label">SNR: —</div>
+                    
+                    <div class="word-display" id="word-display">
+                        ${this.csvData[0]['Word'] || '—'}
+                    </div>
+                    
+                    <div class="correct-checkbox-container">
+                        <label class="correct-checkbox">
+                            <input type="checkbox" id="correct-checkbox">
+                            <span>Correct</span>
+                        </label>
+                    </div>
+                    
+                    <div class="status-display" id="status-display">
+                        &nbsp;
+                    </div>
+                    
+                    <div class="response-timer" id="response-timer">
+                        Response time: —
+                    </div>
+                    
+                    <div class="player-controls">
+                        <button class="control-btn" id="back-btn">Back</button>
+                        <button class="control-btn" id="play-btn">Play</button>
+                        <button class="control-btn" id="stop-btn">Stop</button>
+                        <button class="control-btn" id="next-btn">Play Next</button>
+                    </div>
+                    
+                    <div class="bottom-controls">
+                        <button class="task-btn task-btn-secondary" id="main-menu-btn">
+                            Main Menu
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('back-btn').addEventListener('click', () => this.handleBack());
+        document.getElementById('play-btn').addEventListener('click', () => this.handlePlay());
+        document.getElementById('stop-btn').addEventListener('click', () => this.handleStop());
+        document.getElementById('next-btn').addEventListener('click', () => this.handleNext());
+        document.getElementById('main-menu-btn').addEventListener('click', () => {
+            this.saveResults();
+            this.closeTask();
+        });
+        
+        // Checkbox event
+        const checkbox = document.getElementById('correct-checkbox');
+        checkbox.addEventListener('change', () => {
+            this.handleCheckboxChange();
+        });
+        
+        this.refreshPlayerUI();
+    }
+
+refreshPlayerUI() {
+        if (this.totalItems === 0) return;
+        
+        const row = this.csvData[this.currentIndex];
+        
+        // Update counter
+        document.getElementById('item-counter').textContent = 
+            `Item ${this.currentIndex + 1} of ${this.totalItems}`;
+        
+        // Update SNR
+        const snr = row['SNR'] || '';
+        const snrText = snr ? `SNR: ${snr} dB` : 'SNR: — dB';
+        document.getElementById('snr-label').textContent = snrText;
+        
+        // Update word
+        const word = row['Word'] || '—';
+        document.getElementById('word-display').textContent = word;
+        
+        // Update checkbox
+        const checkbox = document.getElementById('correct-checkbox');
+        const isCorrect = row['Correct/Wrong'] === '1';
+        checkbox.checked = isCorrect;
+        
+        // Update SNR summary
+        this.updateSNRSummary();
+        
+        this.stopAudio();
+        this.resetResponseTimer();
+    }
+
+    handleCheckboxChange() {
+        const checkbox = document.getElementById('correct-checkbox');
+        this.csvData[this.currentIndex]['Correct/Wrong'] = checkbox.checked ? '1' : '0';
+        this.updateSNRSummary();
+    }
+
+    updateSNRSummary() {
+        const summaryDiv = document.getElementById('snr-summary');
+        if (!summaryDiv) return;
+        
+        const snrCounts = {};
+        
+        // Calculate counts for all items
+        for (const row of this.csvData) {
+            const snr = row['SNR'] || '';
+            if (!snr) continue;
+            
+            if (!snrCounts[snr]) {
+                snrCounts[snr] = { total: 0, correct: 0 };
+            }
+            
+            snrCounts[snr].total += 1;
+            
+            if (row['Correct/Wrong'] === '1') {
+                snrCounts[snr].correct += 1;
+            }
+        }
+        
+        // Sort SNRs in descending order
+        const sortedSNRs = Object.keys(snrCounts).sort((a, b) => parseInt(b) - parseInt(a));
+        
+        // Build summary text
+        const lines = sortedSNRs.map(snr => {
+            const { total, correct } = snrCounts[snr];
+            const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
+            return `SNR ${snr}: ${correct}/${total} (${percent}%)`;
+        });
+        
+        summaryDiv.innerHTML = lines.join('<br>');
+    }
+
+    handleBack() {
+        this.stopResponseTimer();
+        
+        if (this.currentIndex > 0) {
+            this.currentIndex--;
+            this.refreshPlayerUI();
+        } else {
+            this.stopAudio();
+            this.saveResults();
+            this.showInstructionPage();
+        }
+    }
+
+    handlePlay() {
+        if (this.totalItems === 0) return;
+        
+        const row = this.csvData[this.currentIndex];
+        let filename = row['File Name'] || '';
+        
+        // Add .wav extension if not present
+        if (filename && !filename.toLowerCase().endsWith('.wav')) {
+            filename += '.wav';
+        }
+        
+        const audioBuffer = this.audioBuffers[filename];
+        
+        if (!audioBuffer) {
+            console.error('Audio buffer not found for:', filename);
+            this.updateStatus('Error: Audio not loaded');
+            alert(`Audio file not found: ${filename}`);
+            return;
+        }
+        
+        this.resetResponseTimer();
+        this.updateStatus('Playing…');
+        
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+            } catch (e) {}
+        }
+        
+        this.currentSource = this.audioContext.createBufferSource();
+        this.currentSource.buffer = audioBuffer;
+        
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = this.config.parameters.audio.volume;
+        this.currentSource.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+        
+        this.currentSource.onended = () => {
+            this.updateStatus('Audio finished ✓');
+            this.startResponseTimer();
+        };
+        
+        this.currentSource.start(0);
+    }
+
+    handleStop() {
+        this.stopAudio();
+        this.updateStatus('Stopped');
+        this.stopResponseTimer();
+    }
+
+    handleNext() {
+        this.stopResponseTimer();
+        
+        if (this.currentIndex < this.totalItems - 1) {
+            this.currentIndex++;
+            this.refreshPlayerUI();
+            // Auto-play next
+            setTimeout(() => this.handlePlay(), 100);
+        } else {
+            this.saveResults();
+            alert('Task finished.');
+        }
+    }
+
+    stopAudio() {
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+            } catch (e) {}
+            this.currentSource = null;
+        }
+    }
+
+    updateStatus(message) {
+        const statusEl = document.getElementById('status-display');
+        if (statusEl) {
+            statusEl.textContent = message;
+        }
+    }
+
+    // Response timer methods
+    startResponseTimer() {
+        this.responseMs = 0;
+        this.responseRunning = true;
+        this.updateResponseDisplay();
+        
+        this.responseTimer = setInterval(() => {
+            if (this.responseRunning) {
+                this.responseMs += 100;
+                this.updateResponseDisplay();
+            }
+        }, 100);
+    }
+
+    stopResponseTimer() {
+        if (this.responseTimer) {
+            clearInterval(this.responseTimer);
+            this.responseTimer = null;
+        }
+        this.responseRunning = false;
+    }
+
+    resetResponseTimer() {
+        this.stopResponseTimer();
+        this.responseMs = 0;
+        const timerEl = document.getElementById('response-timer');
+        if (timerEl) {
+            timerEl.textContent = 'Response time: —';
+        }
+        this.updateStatus(' ');
+    }
+
+    updateResponseDisplay() {
+        const timerEl = document.getElementById('response-timer');
+        if (timerEl) {
+            timerEl.textContent = `Response time: ${this.formatTime(this.responseMs)}`;
+        }
+    }
+
+    formatTime(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        const millis = ms % 1000;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+    }
+
+    async saveResults() {
+        if (this.resultsSaved) {
+            console.log('Results already saved, skipping...');
+            return;
+        }
+        
+        try {
+            const os = window.require('os');
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            
+            // Determine base directory
+            let baseDir;
+            if (process.platform === 'win32') {
+                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+            } else {
+                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+            }
+            
+            // Create output directory
+            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_word');
+            await fs.mkdir(outputDir, { recursive: true });
+            
+            // Create output file
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const outputPath = path.join(outputDir, `CaST_word_${this.participantId}_${timestamp}.txt`);
+            
+            // Build output content
+            let output = [];
+            
+            // Header
+            output.push('='.repeat(60));
+            output.push('CaST Word (Connected Speech Test - Single Words) Results');
+            output.push('='.repeat(60));
+            output.push('');
+            output.push(`Participant ID: ${this.participantId}`);
+            output.push(`Date: ${new Date().toLocaleString()}`);
+            output.push(`Task: CaST Word`);
+            output.push('');
+            
+            // Trial data
+            output.push('='.repeat(60));
+            output.push('TRIAL DATA');
+            output.push('='.repeat(60));
+            output.push('');
+            
+            for (let i = 0; i < this.csvData.length; i++) {
+                const row = this.csvData[i];
+                
+                output.push(`Item ${i + 1}`);
+                output.push(`  SNR: ${row['SNR'] || '—'}`);
+                output.push(`  Number: ${row['Number'] || '—'}`);
+                output.push(`  Word: ${row['Word'] || ''}`);
+                output.push(`  File Name: ${row['File Name'] || ''}`);
+                output.push(`  Correct: ${row['Correct/Wrong'] === '1' ? 'Yes' : 'No'}`);
+                output.push('');
+            }
+            
+            // Summary statistics
+            output.push('='.repeat(60));
+            output.push('SUMMARY STATISTICS');
+            output.push('='.repeat(60));
+            output.push('');
+            
+            const snrSummary = this.calculateSNRSummary();
+            const sortedSNRs = Object.keys(snrSummary).sort((a, b) => parseInt(b) - parseInt(a));
+            
+            for (const snr of sortedSNRs) {
+                const stats = snrSummary[snr];
+                const percent = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(1) : '0.0';
+                output.push(`SNR ${snr} dB: ${stats.correct}/${stats.total} words correct (${percent}%)`);
+            }
+            
+            output.push('');
+            output.push('='.repeat(60));
+            output.push('END OF RESULTS');
+            output.push('='.repeat(60));
+            
+            // Write to file
+            await fs.writeFile(outputPath, output.join('\n'), 'utf8');
+            
+            console.log('CaST Word results saved to:', outputPath);
+            
+            // Mark as saved
+            this.resultsSaved = true;
+            
+        } catch (error) {
+            console.error('Error saving results:', error);
+            alert('Error saving results. Please check console for details.');
+        }
+    }
+
+    calculateSNRSummary() {
+        const summary = {};
+        
+        for (const row of this.csvData) {
+            const snr = row['SNR'] || '—';
+            
+            if (!summary[snr]) {
+                summary[snr] = { total: 0, correct: 0 };
+            }
+            
+            summary[snr].total += 1;
+            
+            if (row['Correct/Wrong'] === '1') {
+                summary[snr].correct += 1;
+            }
+        }
+        
+        return summary;
+    }
+
+    closeTask() {
+        this.stopAudio();
+        this.stopResponseTimer();
+        
+        if (this.modalOverlay && this.modalOverlay.parentNode) {
+            this.modalOverlay.parentNode.removeChild(this.modalOverlay);
+        }
+        
+        this.cleanup();
+    }
+
+    cleanup() {
+        console.log('CaST Word task cleanup completed');
+        window.castWordTaskInstance = null;
+    }
+}
+
+// Global function to load and start the CaST Word task
+async function loadCaSTWordTask(participantId) {
+    try {
+        console.log('Loading CaST Word task for participant:', participantId);
+        
+        window.castWordTaskInstance = new CaSTWordTask(participantId);
+        await window.castWordTaskInstance.init();
+        
+    } catch (error) {
+        console.error('Error loading CaST Word task:', error);
+        alert('Error loading CaST Word task. Please check the configuration and try again.');
+    }
+}
+
+window.loadCaSTWordTask = loadCaSTWordTask;

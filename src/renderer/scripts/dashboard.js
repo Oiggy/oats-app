@@ -766,6 +766,12 @@ class Dashboard {
                 window.hintConfig = new HINTConfig();
             }
             return window.hintConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'cast-word') {
+            // Initialize CaST Word config
+            if (!window.castWordConfig) {
+                window.castWordConfig = new CaSTWordConfig();
+            }
+            return window.castWordConfig.generateConfigHTML();
         }
   
         // Fallback for other tasks
@@ -1069,6 +1075,11 @@ class Dashboard {
                 if (window.hintConfig) {
                     window.hintConfig.bindConfigEvents();
                 }
+            },
+            'cast-word': () => {
+                if (window.castWordConfig) {
+                    window.castWordConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -1348,6 +1359,12 @@ class Dashboard {
                 if (window.hintConfig) {
                     await window.hintConfig.loadExistingConfiguration();
                     window.hintConfig.updateUIFromConfig();
+                }
+            },
+            'cast-word': async () => {
+                if (window.castWordConfig) {
+                    await window.castWordConfig.loadExistingConfiguration();
+                    window.castWordConfig.updateUIFromConfig();
                 }
             }
         };
@@ -3364,6 +3381,21 @@ function connectTaskIntegration() {
                     await window.loadHINTTask(participantId);
                 } else {
                     alert('HINT task integration not loaded');
+                }
+            } else if (selectedTask === 'cast-word') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the CaST Word integration function
+                if (window.loadCaSTWordTask) {
+                    await window.loadCaSTWordTask(participantId);
+                } else {
+                    alert('CaST Word task integration not loaded');
                 }
             }
         });
