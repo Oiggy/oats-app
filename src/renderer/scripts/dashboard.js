@@ -772,6 +772,12 @@ class Dashboard {
                 window.castWordConfig = new CaSTWordConfig();
             }
             return window.castWordConfig.generateConfigHTML();
+        } else if (this.selectedTaskValue === 'cast-nonword') {
+            // Initialize CaST Non-word config
+            if (!window.castNonwordConfig) {
+                window.castNonwordConfig = new CaSTNonwordConfig();
+            }
+            return window.castNonwordConfig.generateConfigHTML();
         }
   
         // Fallback for other tasks
@@ -1080,6 +1086,11 @@ class Dashboard {
                 if (window.castWordConfig) {
                     window.castWordConfig.bindConfigEvents();
                 }
+            },
+            'cast-nonword': () => {
+                if (window.castNonwordConfig) {
+                    window.castNonwordConfig.bindConfigEvents();
+                }
             }
         };
 
@@ -1365,6 +1376,12 @@ class Dashboard {
                 if (window.castWordConfig) {
                     await window.castWordConfig.loadExistingConfiguration();
                     window.castWordConfig.updateUIFromConfig();
+                }
+            },
+            'cast-nonword': async () => {
+                if (window.castNonwordConfig) {
+                    await window.castNonwordConfig.loadExistingConfiguration();
+                    window.castNonwordConfig.updateUIFromConfig();
                 }
             }
         };
@@ -3396,6 +3413,21 @@ function connectTaskIntegration() {
                     await window.loadCaSTWordTask(participantId);
                 } else {
                     alert('CaST Word task integration not loaded');
+                }
+            } else if (selectedTask === 'cast-nonword') {
+                // Get participant ID
+                const participantId = getParticipantId();
+                
+                if (!participantId) {
+                    alert('Please complete the pre-task survey first');
+                    return;
+                }
+                
+                // Call the CaST Non-word integration function
+                if (window.loadCaSTNonwordTask) {
+                    await window.loadCaSTNonwordTask(participantId);
+                } else {
+                    alert('CaST Non-word task integration not loaded');
                 }
             }
         });
