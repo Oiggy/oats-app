@@ -83,4 +83,5 @@ The modular structure makes it easy to add new functionality without affecting e
 - **hotfix/**: For urgent, critical fixes that need to go directly to production.
 - **release/**: For preparing a new production release (e.g., release/v1.0.0).
 - **chore/ or docs/**: For maintenance tasks, documentation updates, or dependency updates.
-- **experiment/ or test/**: For testing ideas without affecting the main codebase. 
+- **experiment/ or test/**: For testing ideas without affecting the main codebase.
+- **obsolete/**: For branches no longer in use. 
