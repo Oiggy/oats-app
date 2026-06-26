@@ -81,7 +81,7 @@ class HINTTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'hint', 'hint_list.csv');
+        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'hint', 'HINT_List.csv');
         
         try {
             const csvContent = await fs.readFile(csvPath, 'utf8');
@@ -154,25 +154,22 @@ class HINTTask {
         return rows;
     }
 
+
     async loadAudioFiles() {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'hint', 'audio');
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'hint', 'HINT_audio');
         
         try {
-            const files = await fs.readdir(audioDir);
-            this.audioFiles = files
-                .filter(f => f.toLowerCase().endsWith('.wav'))
-                .sort((a, b) => {
-                    const numA = this.extractFirstNumber(a);
-                    const numB = this.extractFirstNumber(b);
-                    if (numA !== numB) return numA - numB;
-                    return a.localeCompare(b);
-                })
-                .map(f => path.join(audioDir, f));
+            this.audioFiles = this.csvData.map(row => {
+                const snr = String(row['SNR']).padStart(2, '0');
+                const list = String(row['List Number']).padStart(2, '0');
+                const sentence = String(row['Sentence Number']).padStart(2, '0');
+                return path.join(audioDir, `SNR${snr}`, `L${list}_S${sentence}_mix.wav`);
+            });
             
             console.log('Audio files found:', this.audioFiles.length);
             
@@ -225,8 +222,8 @@ class HINTTask {
         
         const instructionText = `Read this to the participant:
 
-In this part (HINT), you will hear sentences in noise.
-After each one, please repeat exactly what you heard.`;
+            In this task, you will hear sentences spoken in background noise.
+            After each sentence, please repeat back exactly what you heard`;
         
         this.modalContent.innerHTML = `
             <div class="hint-instruction-page">
@@ -341,8 +338,10 @@ refreshPlayerUI() {
         const row = this.csvData[this.currentIndex];
         
         // Update counter
+        const sentenceNum = row['Sentence Number'] || '';
+        const totalInList = this.csvData.filter(r => r['SNR'] === row['SNR']).length;
         document.getElementById('item-counter').textContent = 
-            `Item ${this.currentIndex + 1} of ${this.totalItems}`;
+            `Item ${this.currentIndex + 1} of ${this.totalItems}  |  Sentence ${sentenceNum} of ${totalInList}`;
         
         // Update SNR
         const snr = row['SNR'] || '';
@@ -496,13 +495,13 @@ refreshPlayerUI() {
         const currentRow = this.csvData[this.currentIndex];
         const currentSNR = currentRow['SNR'] || '—';
         
-        // Find first 5 items with this SNR
+        // Find first half items with this SNR
         const first5Indices = [];
         for (let i = 0; i < this.csvData.length; i++) {
             const snr = this.csvData[i]['SNR'] || '—';
             if (snr === currentSNR) {
                 first5Indices.push(i);
-                if (first5Indices.length === 5) break;
+                if (first5Indices.length === 4) break;
             }
         }
         
@@ -670,7 +669,6 @@ refreshPlayerUI() {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             
-            // Determine base directory
             let baseDir;
             if (process.platform === 'win32') {
                 baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
@@ -678,18 +676,14 @@ refreshPlayerUI() {
                 baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
             }
             
-            // Create output directory
             const outputDir = path.join(baseDir, 'Speech_in_Noise', 'HINT');
             await fs.mkdir(outputDir, { recursive: true });
             
-            // Create output file
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const outputPath = path.join(outputDir, `HINT_${this.participantId}_${timestamp}.txt`);
             
-            // Build output content
             let output = [];
             
-            // Header
             output.push('='.repeat(60));
             output.push('HINT (Hearing In Noise Test) Results');
             output.push('='.repeat(60));
@@ -699,7 +693,6 @@ refreshPlayerUI() {
             output.push(`Task: HINT`);
             output.push('');
             
-            // Trial data
             output.push('='.repeat(60));
             output.push('TRIAL DATA');
             output.push('='.repeat(60));
@@ -707,7 +700,6 @@ refreshPlayerUI() {
             
             for (let i = 0; i < this.csvData.length; i++) {
                 const row = this.csvData[i];
-                
                 output.push(`Item ${i + 1}`);
                 output.push(`  SNR: ${row['SNR'] || '—'}`);
                 output.push(`  List Number: ${row['List Number'] || '—'}`);
@@ -718,7 +710,6 @@ refreshPlayerUI() {
                 output.push('');
             }
             
-            // Summary statistics
             output.push('='.repeat(60));
             output.push('SUMMARY STATISTICS');
             output.push('='.repeat(60));
@@ -735,18 +726,91 @@ refreshPlayerUI() {
             output.push('END OF RESULTS');
             output.push('='.repeat(60));
             
-            // Write to file
             await fs.writeFile(outputPath, output.join('\n'), 'utf8');
-            
             console.log('HINT results saved to:', outputPath);
+
+            // Save CSV results file
+            const csvOutputPath = path.join(outputDir, `HINT_${this.participantId}_${timestamp}.csv`);
+            const csvLines = [];
+            csvLines.push('SNR,List Number,Sentence Number,Sentence,Key Words,Correct Key Words');
+            for (const row of this.csvData) {
+                const snr = row['SNR'] || '';
+                const listNum = row['List Number'] || '';
+                const sentNum = row['Sentence Number'] || '';
+                const sentence = `"${(row['Sentence '] || row['Sentence'] || '').trim()}"`;
+                const keywords = `"${(row['Key Words'] || '').trim()}"`;
+                const correct = `"${(row['Correct Key Words'] || '').trim()}"`;
+                csvLines.push(`${snr},${listNum},${sentNum},${sentence},${keywords},${correct}`);
+            }
+            await fs.writeFile(csvOutputPath, csvLines.join('\n'), 'utf8');
+            console.log('HINT CSV results saved to:', csvOutputPath);
+
+            // Save summary file
+            await this.saveSummaryFile(snrSummary);
             
-            // Mark as saved
             this.resultsSaved = true;
             
         } catch (error) {
             console.error('Error saving results:', error);
             alert('Error saving results. Please check console for details.');
         }
+    }
+
+    async saveSummaryFile(snrSummary) {
+        const os = window.require('os');
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+
+        let baseDir;
+        if (process.platform === 'win32') {
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+        } else {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+        }
+
+        const outputDir = path.join(baseDir, 'Speech_in_Noise');
+        await fs.mkdir(outputDir, { recursive: true });
+
+        const summaryPath = path.join(outputDir, `SIN_Summary_${this.participantId}.csv`);
+        const snrLevels = [25, 20, 15, 10, 5, 0];
+
+        let data = {};
+        snrLevels.forEach(snr => {
+            data[snr] = { 'Non-words': '', 'Words': '', 'HINT': '', 'CST': '' };
+        });
+
+        try {
+            const existing = await fs.readFile(summaryPath, 'utf8');
+            const lines = existing.trim().split('\n');
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const snr = parseInt(values[0]);
+                if (data[snr] !== undefined) {
+                    data[snr]['Non-words'] = values[1] || '';
+                    data[snr]['Words'] = values[2] || '';
+                    data[snr]['HINT'] = values[3] || '';
+                    data[snr]['CST'] = values[4] || '';
+                }
+            }
+        } catch (e) {
+            // File doesn't exist yet, use empty structure
+        }
+
+        for (const [snr, stats] of Object.entries(snrSummary)) {
+            const snrNum = parseInt(snr);
+            if (data[snrNum] !== undefined) {
+                data[snrNum]['HINT'] = stats.correct;
+            }
+        }
+
+        const summaryLines = ['SNR,Non-words,Words,HINT,CST'];
+        snrLevels.forEach(snr => {
+            const row = data[snr];
+            summaryLines.push(`${snr},${row['Non-words']},${row['Words']},${row['HINT']},${row['CST']}`);
+        });
+
+        await fs.writeFile(summaryPath, summaryLines.join('\n'), 'utf8');
+        console.log('Summary file saved to:', summaryPath);
     }
 
     calculateSNRSummary() {

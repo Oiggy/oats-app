@@ -349,4 +349,25 @@
     .control-btn {
         min-width: 120px;
     }
+
 }
+
+    .next-topic-banner {
+        background-color: #fff3cd;
+        border: 2px solid #f0a500;
+        border-radius: 10px;
+        padding: 12px 20px;
+        margin: 12px 0;
+        text-align: center;
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: #7a5000;
+    }
+
+    .next-topic-sub {
+        font-size: 0.85rem;
+        font-weight: normal;
+        margin-top: 4px;
+        color: #9a6800;
+    }
+

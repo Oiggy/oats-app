@@ -84,7 +84,7 @@ class CSTTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'cst_list.csv');
+        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'CST_List.csv');
         
         try {
             const csvContent = await fs.readFile(csvPath, 'utf8');
@@ -172,25 +172,26 @@ class CSTTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'audio');
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'CST_audio');
         
         try {
-            // Recursively collect all .wav files
-            this.audioFiles = await this.collectAudioFilesRecursively(audioDir);
-            
-            // Sort naturally by folder and filename numbers
-            this.audioFiles.sort((a, b) => this.compareAudioPaths(a, b, audioDir));
-            
+            this.audioFiles = this.csvData.map(row => {
+                const snr = String(row['SNR']).padStart(2, '0');
+                const topic = (row['Topic'] || '').trim();
+                const list = String(row['Passage Pair']).padStart(2, '0');
+                const sentence = String(row['Sentence Number']).padStart(2, '0');
+                return path.join(audioDir, `SNR${snr}`, `${topic}_L${list}_S${sentence}_mix.wav`);
+            });
+
             console.log('Audio files found:', this.audioFiles.length);
-            
-            // Preload audio buffers
+
             for (const filePath of this.audioFiles) {
                 await this.loadAudioBuffer(filePath);
             }
         } catch (error) {
             console.error('Error loading audio files:', error);
         }
-        
+
         this.totalItems = Math.min(this.csvData.length, this.audioFiles.length);
     }
 
@@ -281,8 +282,9 @@ createTaskModal() {
         
         const instructionText = `Read this to the participant:
 
-In this part (CST), you will hear sentences in noise.
-After each one, please repeat exactly what you heard.`;
+            You will hear sentences about a topic in background noise.
+            I will show you the topic on a card before each set.
+            After each sentence, please repeat exactly what you heard.`;
         
         this.modalContent.innerHTML = `
             <div class="cst-instruction-page">
@@ -347,6 +349,11 @@ After each one, please repeat exactly what you heard.`;
                         ${this.csvData[0]['Sentence'] || '—'}
                     </div>
                     
+                    <div class="next-topic-banner" id="next-topic-banner" style="display: none;">
+                        <span id="next-topic-text"></span>
+                        <div class="next-topic-sub">Please show the topic card to the participant</div>
+                    </div>
+
                     <div class="keywords-container" id="keywords-container">
                         <div class="keywords-header">
                             <h3>Key Words</h3>
@@ -402,9 +409,12 @@ After each one, please repeat exactly what you heard.`;
         console.log('Current row:', row);
         
         // Update counter
+        const sentenceNum = row['Sentence Number'] || '';
+        const totalInList = this.csvData.filter(r => r['Topic'] === row['Topic']).length;
         document.getElementById('item-counter').textContent = 
-            `Item ${this.currentIndex + 1} of ${this.totalItems}`;
+            `Item ${this.currentIndex + 1} of ${this.totalItems}  |  Sentence ${sentenceNum} of ${totalInList}`;
         
+            
         // Update SNR - handle empty values
         const snr = row['SNR'] || row['snr'] || '';
         const snrText = snr ? `SNR: ${snr} dB` : 'SNR: — dB';
@@ -434,6 +444,20 @@ After each one, please repeat exactly what you heard.`;
         // Update skip hint
         this.updateSkipHint();
         
+        const nextTopicBanner = document.getElementById('next-topic-banner');
+        const nextTopicText = document.getElementById('next-topic-text');
+        const currentTopic = row['Topic'] || '';
+        const nextRow = this.csvData[this.currentIndex + 1];
+        const nextTopic = nextRow ? (nextRow['Topic'] || '') : null;
+
+        if (nextTopic && nextTopic !== currentTopic) {
+            nextTopicText.textContent = `Next topic: ${nextTopic}`;
+            nextTopicBanner.style.display = 'block';
+        } else {
+            nextTopicBanner.style.display = 'none';
+        }
+
+
         this.stopAudio();
         this.resetResponseTimer();
     }
@@ -580,13 +604,13 @@ After each one, please repeat exactly what you heard.`;
         const currentRow = this.csvData[this.currentIndex];
         const currentSNR = currentRow['SNR'] || '—';
         
-        // Find first 5 items with this SNR
+        // Find first half items with this SNR
         const first5Indices = [];
         for (let i = 0; i < this.csvData.length; i++) {
             const snr = this.csvData[i]['SNR'] || '—';
             if (snr === currentSNR) {
                 first5Indices.push(i);
-                if (first5Indices.length === 5) break;
+                if (first5Indices.length === 4) break;
             }
         }
         
@@ -744,97 +768,162 @@ After each one, please repeat exactly what you heard.`;
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
     }
 
-async saveResults() {
-    // Prevent double-saving
-    if (this.resultsSaved) {
-        console.log('Results already saved, skipping...');
-        return;
+    async saveResults() {
+        if (this.resultsSaved) {
+            console.log('Results already saved, skipping...');
+            return;
+        }
+        
+        try {
+            const os = window.require('os');
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            
+            let baseDir;
+            if (process.platform === 'win32') {
+                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+            } else {
+                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+            }
+            
+            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CST');
+            await fs.mkdir(outputDir, { recursive: true });
+            
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const outputPath = path.join(outputDir, `CST_${this.participantId}_${timestamp}.txt`);
+            
+            let output = [];
+            
+            output.push('='.repeat(60));
+            output.push('CST (Connected Speech Test) Results');
+            output.push('='.repeat(60));
+            output.push('');
+            output.push(`Participant ID: ${this.participantId}`);
+            output.push(`Date: ${new Date().toLocaleString()}`);
+            output.push(`Task: CST`);
+            output.push('');
+            
+            output.push('='.repeat(60));
+            output.push('TRIAL DATA');
+            output.push('='.repeat(60));
+            output.push('');
+            
+            for (let i = 0; i < this.csvData.length; i++) {
+                const row = this.csvData[i];
+                output.push(`Item ${i + 1}`);
+                output.push(`  SNR: ${row['SNR'] || '—'}`);
+                output.push(`  Topic: ${row['Topic'] || '—'}`);
+                output.push(`  Passage Pair: ${row['Passage Pair'] || '—'}`);
+                output.push(`  Sentence Number: ${row['Sentence Number'] || '—'}`);
+                output.push(`  Sentence: ${row['Sentence'] || ''}`);
+                output.push(`  Key Words: ${row['Key Words'] || ''}`);
+                output.push(`  Correct Key Words: ${row['Correct Key Words'] || ''}`);
+                output.push('');
+            }
+            
+            output.push('='.repeat(60));
+            output.push('SUMMARY STATISTICS');
+            output.push('='.repeat(60));
+            output.push('');
+            
+            const snrSummary = this.calculateSNRSummary();
+            for (const [snr, stats] of Object.entries(snrSummary)) {
+                const percent = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(1) : '0.0';
+                output.push(`SNR ${snr} dB: ${stats.correct}/${stats.total} keywords correct (${percent}%)`);
+            }
+            
+            output.push('');
+            output.push('='.repeat(60));
+            output.push('END OF RESULTS');
+            output.push('='.repeat(60));
+            
+            await fs.writeFile(outputPath, output.join('\n'), 'utf8');
+            console.log('CST results saved to:', outputPath);
+
+            // Save CSV results file
+            const csvOutputPath = path.join(outputDir, `CST_${this.participantId}_${timestamp}.csv`);
+            const csvLines = [];
+            csvLines.push('SNR,Topic,Passage Pair,Sentence Number,Sentence,Key Words,Correct Key Words');
+            for (const row of this.csvData) {
+                const snr = row['SNR'] || '';
+                const topic = row['Topic'] || '';
+                const passage = row['Passage Pair'] || '';
+                const sentNum = row['Sentence Number'] || '';
+                const sentence = `"${(row['Sentence'] || '').trim()}"`;
+                const keywords = `"${(row['Key Words'] || '').trim()}"`;
+                const correct = `"${(row['Correct Key Words'] || '').trim()}"`;
+                csvLines.push(`${snr},${topic},${passage},${sentNum},${sentence},${keywords},${correct}`);
+            }
+            await fs.writeFile(csvOutputPath, csvLines.join('\n'), 'utf8');
+            console.log('CST CSV results saved to:', csvOutputPath);
+
+            // Save summary file
+            await this.saveSummaryFile(snrSummary);
+            
+            this.resultsSaved = true;
+            
+        } catch (error) {
+            console.error('Error saving results:', error);
+            alert('Error saving results. Please check console for details.');
+        }
     }
-    
-    try {
+
+    async saveSummaryFile(snrSummary) {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
-        
-        // Determine base directory
+
         let baseDir;
         if (process.platform === 'win32') {
             baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
         } else {
             baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
         }
-        
-        // Create output directory
-        const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CST');
+
+        const outputDir = path.join(baseDir, 'Speech_in_Noise');
         await fs.mkdir(outputDir, { recursive: true });
-        
-        // Create output file with timestamp
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const outputPath = path.join(outputDir, `CST_${this.participantId}_${timestamp}.txt`);
-        
-        // Build output content
-        let output = [];
-        
-        // Header
-        output.push('='.repeat(60));
-        output.push('CST (Connected Speech Test) Results');
-        output.push('='.repeat(60));
-        output.push('');
-        output.push(`Participant ID: ${this.participantId}`);
-        output.push(`Date: ${new Date().toLocaleString()}`);
-        output.push(`Task: CST`);
-        output.push('');
-        
-        // Trial data
-        output.push('='.repeat(60));
-        output.push('TRIAL DATA');
-        output.push('='.repeat(60));
-        output.push('');
-        
-        for (let i = 0; i < this.csvData.length; i++) {
-            const row = this.csvData[i];
-            
-            output.push(`Item ${i + 1}`);
-            output.push(`  SNR: ${row['SNR'] || '—'}`);
-            output.push(`  Topic: ${row['Topic'] || '—'}`);
-            output.push(`  Passage Pair: ${row['Passage Pair'] || '—'}`);
-            output.push(`  Sentence Number: ${row['Sentence Number'] || '—'}`);
-            output.push(`  Sentence: ${row['Sentence'] || ''}`);
-            output.push(`  Key Words: ${row['Key Words'] || ''}`);
-            output.push(`  Correct Key Words: ${row['Correct Key Words'] || ''}`);
-            output.push('');
+
+        const summaryPath = path.join(outputDir, `SIN_Summary_${this.participantId}.csv`);
+        const snrLevels = [25, 20, 15, 10, 5, 0];
+
+        let data = {};
+        snrLevels.forEach(snr => {
+            data[snr] = { 'Non-words': '', 'Words': '', 'HINT': '', 'CST': '' };
+        });
+
+        try {
+            const existing = await fs.readFile(summaryPath, 'utf8');
+            const lines = existing.trim().split('\n');
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const snr = parseInt(values[0]);
+                if (data[snr] !== undefined) {
+                    data[snr]['Non-words'] = values[1] || '';
+                    data[snr]['Words'] = values[2] || '';
+                    data[snr]['HINT'] = values[3] || '';
+                    data[snr]['CST'] = values[4] || '';
+                }
+            }
+        } catch (e) {
+            // File doesn't exist yet, use empty structure
         }
-        
-        // Summary statistics
-        output.push('='.repeat(60));
-        output.push('SUMMARY STATISTICS');
-        output.push('='.repeat(60));
-        output.push('');
-        
-        const snrSummary = this.calculateSNRSummary();
+
         for (const [snr, stats] of Object.entries(snrSummary)) {
-            const percent = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(1) : '0.0';
-            output.push(`SNR ${snr} dB: ${stats.correct}/${stats.total} keywords correct (${percent}%)`);
+            const snrNum = parseInt(snr);
+            if (data[snrNum] !== undefined) {
+                data[snrNum]['CST'] = stats.correct;
+            }
         }
-        
-        output.push('');
-        output.push('='.repeat(60));
-        output.push('END OF RESULTS');
-        output.push('='.repeat(60));
-        
-        // Write to file
-        await fs.writeFile(outputPath, output.join('\n'), 'utf8');
-        
-        console.log('CST results saved to:', outputPath);
-        
-        // Mark as saved
-        this.resultsSaved = true;
-        
-    } catch (error) {
-        console.error('Error saving results:', error);
-        alert('Error saving results. Please check console for details.');
+
+        const summaryLines = ['SNR,Non-words,Words,HINT,CST'];
+        snrLevels.forEach(snr => {
+            const row = data[snr];
+            summaryLines.push(`${snr},${row['Non-words']},${row['Words']},${row['HINT']},${row['CST']}`);
+        });
+
+        await fs.writeFile(summaryPath, summaryLines.join('\n'), 'utf8');
+        console.log('Summary file saved to:', summaryPath);
     }
-}
 
     calculateSNRSummary() {
         const summary = {};

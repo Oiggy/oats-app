@@ -31,7 +31,7 @@ class PracticeCastTask {
             this.createTaskModal();
             this.showInstructionPage();
         } catch (error) {
-            console.error('Error initializing Practice CaST task:', error);
+            console.error('Error initializing Practice task:', error);
             alert('Failed to initialize task. Please check configuration.');
         }
     }
@@ -54,7 +54,7 @@ class PracticeCastTask {
         const configData = await fs.readFile(configPath, 'utf8');
         this.config = JSON.parse(configData);
         
-        console.log('Practice CaST Configuration loaded:', this.config);
+        console.log('Practice Configuration loaded:', this.config);
     }
 
     async initializeAudioContext() {
@@ -73,50 +73,31 @@ class PracticeCastTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        
+
         const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_cast', 'audio');
-        const textPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_cast', 'cast_list.txt');
-        
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'practice_cast', 'PRACTICE_audio');
+
         console.log('Loading from:', audioDir);
-        
-        // Load audio files
+
         try {
             const files = await fs.readdir(audioDir);
-            this.audioFiles = files
-                .filter(f => f.endsWith('.wav'))
-                .sort((a, b) => {
-                    // Sort by leading number: "1_xxx.wav", "2_xxx.wav", etc.
-                    const numA = parseInt(a.split('_')[0]) || 0;
-                    const numB = parseInt(b.split('_')[0]) || 0;
-                    return numA - numB;
-                })
-                .map(f => path.join(audioDir, f));
-            
+            const mixFiles = files
+                .filter(f => f.endsWith('_mix.wav'))
+                .sort();
+
+            this.audioFiles = mixFiles.map(f => path.join(audioDir, f));
+            this.textItems = mixFiles.map(f => f.replace('_mix.wav', ''));
+
             console.log('Audio files found:', this.audioFiles.length);
-            
-            // Preload audio buffers
+
             for (const filePath of this.audioFiles) {
                 await this.loadAudioBuffer(filePath);
             }
         } catch (error) {
             console.error('Error loading audio files:', error);
         }
-        
-        // Load text items
-        try {
-            const textContent = await fs.readFile(textPath, 'utf8');
-            this.textItems = textContent
-                .split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-            
-            console.log('Text items found:', this.textItems.length);
-        } catch (error) {
-            console.error('Error loading text file:', error);
-        }
-        
-        this.totalItems = Math.min(this.audioFiles.length, this.textItems.length);
+
+        this.totalItems = this.audioFiles.length;
         console.log('Total items:', this.totalItems);
     }
 
@@ -157,14 +138,13 @@ class PracticeCastTask {
         
         const instructionText = `Read this to the participant:
 
-In this part of the test, you will hear some audio recordings.
-After each one, please repeat exactly what you heard.
-We'll start with a few practice items now.`;
+        "We will start with a few practice items. You will hear words in background noise. 
+        After each one, please repeat exactly what you heard."`;
         
         this.modalContent.innerHTML = `
             <div class="practice-cast-instruction-page">
                 <div class="instruction-content">
-                    <h1 class="task-title">Practice CaST</h1>
+                    <h1 class="task-title">Practice</h1>
                     
                     <div class="instruction-text">
                         ${instructionText.replace(/\n/g, '<br>')}
@@ -202,7 +182,7 @@ We'll start with a few practice items now.`;
         this.modalContent.innerHTML = `
             <div class="practice-cast-player-page">
                 <div class="player-content">
-                    <h1 class="task-title">Practice CaST</h1>
+                    <h1 class="task-title">Practice</h1>
                     
                     <div class="item-counter" id="item-counter">
                         Item 1 of ${this.totalItems}
@@ -408,23 +388,23 @@ We'll start with a few practice items now.`;
     }
 
     cleanup() {
-        console.log('Practice CaST task cleanup completed');
+        console.log('Practice task cleanup completed');
         window.practiceCastTaskInstance = null;
     }
 }
 
-// Global function to load and start the Practice CaST task
+// Global function to load and start the Practice task
 async function loadPracticeCastTask(participantId) {
     try {
-        console.log('Loading Practice CaST task for participant:', participantId);
+        console.log('Loading Practice task for participant:', participantId);
         
         // Create and initialize task instance
         window.practiceCastTaskInstance = new PracticeCastTask(participantId);
         await window.practiceCastTaskInstance.init();
         
     } catch (error) {
-        console.error('Error loading Practice CaST task:', error);
-        alert('Error loading Practice CaST task. Please check the configuration and try again.');
+        console.error('Error loading Practice task:', error);
+        alert('Error loading Practice task. Please check the configuration and try again.');
     }
 }
 
