@@ -28,6 +28,13 @@ class HINTTask {
         
         // Save tracking
         this.resultsSaved = false;
+
+        // Recording
+        this.mediaRecorder = null;
+        this.recordingChunks = [];
+        this.isRecording = false;
+        this.currentTake = 0;
+        this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     }
 
     async init() {
@@ -267,12 +274,9 @@ class HINTTask {
             <div class="hint-player-page">
                 <div class="player-content">
                     <h1 class="task-title">HINT</h1>
-                    
+
                     <div class="top-row">
                         <div class="left-col">
-                            <div class="skip-hint" id="skip-hint" style="display: none;">
-                                You can skip this level
-                            </div>
                             <div class="snr-summary" id="snr-summary"></div>
                         </div>
                     </div>
@@ -295,10 +299,18 @@ class HINTTask {
                         <div class="keywords-grid" id="keywords-grid"></div>
                     </div>
                     
+                    <div class="skip-hint" id="skip-hint" style="display: none; color: red; font-weight: bold; text-align: center; margin: 4px 0;">
+                        ⚠ Low score — you may stop the task if needed
+                    </div>
+
+                    <div class="recording-indicator" id="recording-indicator" style="display:none; color: red; font-weight: bold; text-align: center;">
+                        ● Recording
+                    </div>
+
                     <div class="status-display" id="status-display">
                         &nbsp;
                     </div>
-                    
+
                     <div class="response-timer" id="response-timer">
                         Response time: —
                     </div>
@@ -323,7 +335,8 @@ class HINTTask {
         document.getElementById('play-btn').addEventListener('click', () => this.handlePlay());
         document.getElementById('stop-btn').addEventListener('click', () => this.handleStop());
         document.getElementById('next-btn').addEventListener('click', () => this.handleNext());
-        document.getElementById('main-menu-btn').addEventListener('click', () => {
+        document.getElementById('main-menu-btn').addEventListener('click', async () => {
+            await this.stopAndSaveRecording();
             this.saveResults();
             this.closeTask();
         });
@@ -355,10 +368,13 @@ refreshPlayerUI() {
         // Build keywords
         this.buildKeywordsArea(row['Key Words'] || '');
         
+        // Reset take counter for new item
+        this.currentTake = 0;
+
         // Update SNR summary and skip hint
         this.updateSNRSummary();
         this.updateSkipHint();
-        
+
         this.stopAudio();
         this.resetResponseTimer();
     }
@@ -374,7 +390,8 @@ refreshPlayerUI() {
         
         grid.innerHTML = '';
         this.keywordCheckboxes = [];
-        
+        grid.style.gridTemplateColumns = keywords.length > 4 ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)';
+
         if (keywords.length === 0) {
             grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #999; font-size: 12px;">No keywords for this item</div>';
             return;
@@ -451,40 +468,37 @@ refreshPlayerUI() {
     updateSNRSummary() {
         const summaryDiv = document.getElementById('snr-summary');
         if (!summaryDiv) return;
-        
+
+        const snrOrder = [25, 20, 15, 10, 5, 0];
         const snrCounts = {};
-        const snrOrder = [];
-        
+        snrOrder.forEach(snr => { snrCounts[snr] = { total: 0, correct: 0 }; });
+
         // Calculate counts up to current index (inclusive)
         for (let i = 0; i <= this.currentIndex; i++) {
             const row = this.csvData[i];
-            const snr = row['SNR'] || '—';
-            
-            if (!snrCounts[snr]) {
-                snrCounts[snr] = { total: 0, correct: 0 };
-                snrOrder.push(snr);
-            }
-            
+            const snr = Number(row['SNR']);
+            if (!(snr in snrCounts)) continue;
+
             const totalKeywords = this.parseKeywords(row['Key Words'] || '').length;
             let correctKeywords;
-            
+
             if (i < this.currentIndex) {
                 correctKeywords = this.parseKeywords(row['Correct Key Words'] || '').length;
             } else {
                 correctKeywords = this.keywordCheckboxes.filter(cb => cb.checked).length;
             }
-            
+
             snrCounts[snr].total += totalKeywords;
             snrCounts[snr].correct += correctKeywords;
         }
-        
-        // Build summary text
+
+        // Build summary text — show all levels from the start
         const lines = snrOrder.map(snr => {
             const { total, correct } = snrCounts[snr];
             const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
             return `SNR ${snr}: ${correct}/${total} (${percent}%)`;
         });
-        
+
         summaryDiv.innerHTML = lines.join('<br>');
     }
 
@@ -524,10 +538,11 @@ refreshPlayerUI() {
         }
     }
 
-    handleBack() {
+    async handleBack() {
         this.saveKeywordStates();
         this.stopResponseTimer();
-        
+        await this.stopAndSaveRecording();
+
         if (this.currentIndex > 0) {
             this.currentIndex--;
             this.refreshPlayerUI();
@@ -538,57 +553,63 @@ refreshPlayerUI() {
         }
     }
 
-    handlePlay() {
+    async handlePlay() {
         if (this.totalItems === 0) return;
-        
+
         this.resetResponseTimer();
         this.updateStatus('Playing…');
-        
+
         const audioPath = this.audioFiles[this.currentIndex];
         const audioBuffer = this.audioBuffers[audioPath];
-        
+
         if (!audioBuffer) {
             console.error('Audio buffer not found for:', audioPath);
             this.updateStatus('Error: Audio not loaded');
             return;
         }
-        
+
+        if (this.isRecording) {
+            await this.stopAndSaveRecording();
+        }
+        this.startRecording();
+
         if (this.currentSource) {
             try {
                 this.currentSource.stop();
             } catch (e) {}
         }
-        
+
         this.currentSource = this.audioContext.createBufferSource();
         this.currentSource.buffer = audioBuffer;
-        
+
         const gainNode = this.audioContext.createGain();
         gainNode.gain.value = this.config.parameters.audio.volume;
         this.currentSource.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
-        
+
         this.currentSource.onended = () => {
             this.updateStatus('Audio finished ✓');
             this.startResponseTimer();
         };
-        
+
         this.currentSource.start(0);
     }
 
-    handleStop() {
+    async handleStop() {
         this.stopAudio();
         this.updateStatus('Stopped');
         this.stopResponseTimer();
+        await this.stopAndSaveRecording();
     }
 
-    handleNext() {
+    async handleNext() {
         this.saveKeywordStates();
         this.stopResponseTimer();
-        
+        await this.stopAndSaveRecording();
+
         if (this.currentIndex < this.totalItems - 1) {
             this.currentIndex++;
             this.refreshPlayerUI();
-            // Auto-play next
             setTimeout(() => this.handlePlay(), 100);
         } else {
             this.saveResults();
@@ -833,14 +854,149 @@ refreshPlayerUI() {
         return summary;
     }
 
+    discardRecording() {
+        if (!this.mediaRecorder || !this.isRecording) return;
+        this.mediaRecorder.ondataavailable = null;
+        this.mediaRecorder.onstop = null;
+        this.mediaRecorder.stop();
+        this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        this.recordingChunks = [];
+        this.isRecording = false;
+        this.hideRecordingIndicator();
+    }
+
+    async startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.recordingChunks = [];
+            this.currentTake += 1;
+            this.mediaRecorder = new MediaRecorder(stream);
+            this.mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) this.recordingChunks.push(e.data);
+            };
+            this.mediaRecorder.start();
+            this.isRecording = true;
+            const indicator = document.getElementById('recording-indicator');
+            if (indicator) indicator.style.display = 'block';
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
+        }
+    }
+
+    hideRecordingIndicator() {
+        const indicator = document.getElementById('recording-indicator');
+        if (indicator) indicator.style.display = 'none';
+    }
+
+    encodeWAV(audioBuffer) {
+        const numChannels = audioBuffer.numberOfChannels;
+        const sampleRate = audioBuffer.sampleRate;
+        const bitDepth = 16;
+
+        const channels = [];
+        for (let i = 0; i < numChannels; i++) channels.push(audioBuffer.getChannelData(i));
+        const length = channels[0].length;
+        const interleaved = new Float32Array(length * numChannels);
+        for (let i = 0; i < length; i++) {
+            for (let ch = 0; ch < numChannels; ch++) {
+                interleaved[i * numChannels + ch] = channels[ch][i];
+            }
+        }
+
+        const dataLength = interleaved.length * 2;
+        const buffer = new ArrayBuffer(44 + dataLength);
+        const view = new DataView(buffer);
+        const writeString = (offset, str) => {
+            for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataLength, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * bitDepth / 8, true);
+        view.setUint16(32, numChannels * bitDepth / 8, true);
+        view.setUint16(34, bitDepth, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataLength, true);
+
+        let offset = 44;
+        for (let i = 0; i < interleaved.length; i++) {
+            const s = Math.max(-1, Math.min(1, interleaved[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            offset += 2;
+        }
+
+        return Buffer.from(buffer);
+    }
+
+    async stopAndSaveRecording() {
+        if (!this.mediaRecorder || !this.isRecording) return;
+
+        const takeIndex = this.currentTake;
+        const rowIndex = this.currentIndex;
+
+        return new Promise((resolve) => {
+            this.mediaRecorder.onstop = async () => {
+                try {
+                    const blob = new Blob(this.recordingChunks, { type: 'audio/webm' });
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const decodeContext = new AudioContext();
+                    const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+                    await decodeContext.close();
+                    const wavBuffer = this.encodeWAV(audioBuffer);
+
+                    const os = window.require('os');
+                    const path = window.require('path');
+                    const fs = window.require('fs').promises;
+
+                    let baseDir;
+                    if (process.platform === 'win32') {
+                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+                    } else {
+                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+                    }
+
+                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'HINT', 'recordings', this.sessionTimestamp);
+                    await fs.mkdir(recordingsDir, { recursive: true });
+
+                    const row = this.csvData[rowIndex];
+                    const itemNum = String(rowIndex + 1).padStart(2, '0');
+                    const snr = String(row['SNR'] || '').padStart(2, '0');
+                    const list = String(row['List Number'] || '').padStart(2, '0');
+                    const sentence = String(row['Sentence Number'] || '').padStart(2, '0');
+                    const fileName = `HINT_${this.participantId}_${itemNum}_SNR${snr}_L${list}_S${sentence}_take${takeIndex}.wav`;
+                    const filePath = path.join(recordingsDir, fileName);
+
+                    await fs.writeFile(filePath, wavBuffer);
+                    console.log('Recording saved:', filePath);
+                } catch (error) {
+                    console.error('Error saving recording:', error);
+                }
+
+                this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                this.isRecording = false;
+                this.hideRecordingIndicator();
+                resolve();
+            };
+
+            this.mediaRecorder.stop();
+        });
+    }
+
     closeTask() {
         this.stopAudio();
         this.stopResponseTimer();
-        
+
         if (this.modalOverlay && this.modalOverlay.parentNode) {
             this.modalOverlay.parentNode.removeChild(this.modalOverlay);
         }
-        
+
         this.cleanup();
     }
 
