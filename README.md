@@ -57,6 +57,15 @@ fonts: {
 ```
 
 
+## ASIO Audio Support (Windows)
+
+OATS can optionally play stimuli and record the microphone through a
+professional audio interface's ASIO driver instead of the default OS audio
+path, for lower and more consistent latency. This is opt-in, Windows-only,
+and off by default — see [docs/asio-support.md](docs/asio-support.md) for
+setup and limitations.
+
+
 ## Building for Distribution
 
 - **Windows**: `npm run build-win`

@@ -12,13 +12,16 @@ class SpeededClassificationPopup {
         this.audioContext = null;
         this.stimuli = {};
         this.audioBuffers = {};
+        this.audioFilePaths = {};
+        this.asioEngine = null;
         this.responseStartTime = null;
     }
 
     async loadTask(participantId) {
         if (this.isOpen) return;
-        
+
         this.participantId = participantId;
+        this.loadAsioEngine();
         await this.loadConfiguration();
         await this.initializeAudioContext();
         await this.loadStimuli();
@@ -74,6 +77,22 @@ class SpeededClassificationPopup {
                 }
             }
         };
+    }
+
+    // Loads the shared ASIO audio engine. Only actually used for playback
+    // when a technician has enabled ASIO in cfg_audio_asio.json on a Windows
+    // machine with a working driver; otherwise stimuli keep playing through
+    // the regular Web Audio path below.
+    loadAsioEngine() {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const appPath = app.getAppPath();
+            this.asioEngine = window.require(path.join(appPath, 'src', 'shared', 'audio', 'asio-engine.js'));
+        } catch (error) {
+            console.warn('ASIO audio engine unavailable:', error.message);
+            this.asioEngine = null;
+        }
     }
 
     async initializeAudioContext() {
@@ -140,6 +159,7 @@ class SpeededClassificationPopup {
                     try {
                         // Check if file exists
                         if (fs.existsSync(audioPath)) {
+                            this.audioFilePaths[stimulus.file] = audioPath;
                             await this.loadAudioBuffer(audioPath, stimulus.file);
                             console.log(`Loaded audio file: ${stimulus.file}`);
                         } else {
@@ -863,6 +883,11 @@ class SpeededClassificationPopup {
 
     async playStimulus(stimulus) {
         try {
+            if (this.asioEngine && this.asioEngine.isEnabled() && this.audioFilePaths[stimulus.file]) {
+                await this.asioEngine.playFile(this.audioFilePaths[stimulus.file], this.config.parameters.audio.volume);
+                return;
+            }
+
             if (this.audioContext && this.audioBuffers[stimulus.file]) {
                 const source = this.audioContext.createBufferSource();
                 const gainNode = this.audioContext.createGain();

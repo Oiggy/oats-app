@@ -4,6 +4,7 @@ class HINTTask {
         this.config = null;
         this.audioContext = null;
         this.audioBuffers = {};
+        this.asioEngine = null;
         this.currentSource = null;
         
         // Task state
@@ -32,6 +33,7 @@ class HINTTask {
 
     async init() {
         try {
+            this.loadAsioEngine();
             await this.loadConfiguration();
             await this.initializeAudioContext();
             await this.loadCSVData();
@@ -61,6 +63,22 @@ class HINTTask {
         this.config = JSON.parse(configData);
         
         console.log('HINT Configuration loaded:', this.config);
+    }
+
+    // Loads the shared ASIO audio engine. Only actually used for playback
+    // when a technician has enabled ASIO in cfg_audio_asio.json on a Windows
+    // machine with a working driver; otherwise stimuli keep playing through
+    // the regular Web Audio path below.
+    loadAsioEngine() {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const appPath = app.getAppPath();
+            this.asioEngine = window.require(path.join(appPath, 'src', 'shared', 'audio', 'asio-engine.js'));
+        } catch (error) {
+            console.warn('ASIO audio engine unavailable:', error.message);
+            this.asioEngine = null;
+        }
     }
 
     async initializeAudioContext() {
@@ -546,14 +564,30 @@ refreshPlayerUI() {
         this.updateStatus('Playing…');
         
         const audioPath = this.audioFiles[this.currentIndex];
+
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
+            this.asioEngine.clearOutputQueue();
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
+                .then(() => {
+                    this.updateStatus('Audio finished ✓');
+                    this.startResponseTimer();
+                })
+                .catch((error) => {
+                    console.error('ASIO playback error:', error);
+                    this.updateStatus('Audio finished ✓');
+                    this.startResponseTimer();
+                });
+            return;
+        }
+
         const audioBuffer = this.audioBuffers[audioPath];
-        
+
         if (!audioBuffer) {
             console.error('Audio buffer not found for:', audioPath);
             this.updateStatus('Error: Audio not loaded');
             return;
         }
-        
+
         if (this.currentSource) {
             try {
                 this.currentSource.stop();
@@ -598,6 +632,9 @@ refreshPlayerUI() {
     }
 
     stopAudio() {
+        if (this.asioEngine) {
+            this.asioEngine.clearOutputQueue();
+        }
         if (this.currentSource) {
             try {
                 this.currentSource.stop();

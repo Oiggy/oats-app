@@ -4,6 +4,7 @@ class PracticeCastTask {
         this.config = null;
         this.audioContext = null;
         this.audioBuffers = {};
+        this.asioEngine = null;
         this.currentSource = null;
         
         // Task state
@@ -25,6 +26,7 @@ class PracticeCastTask {
 
     async init() {
         try {
+            this.loadAsioEngine();
             await this.loadConfiguration();
             await this.initializeAudioContext();
             await this.loadStimuli();
@@ -55,6 +57,22 @@ class PracticeCastTask {
         this.config = JSON.parse(configData);
         
         console.log('Practice CaST Configuration loaded:', this.config);
+    }
+
+    // Loads the shared ASIO audio engine. Only actually used for playback
+    // when a technician has enabled ASIO in cfg_audio_asio.json on a Windows
+    // machine with a working driver; otherwise stimuli keep playing through
+    // the regular Web Audio path below.
+    loadAsioEngine() {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const appPath = app.getAppPath();
+            this.asioEngine = window.require(path.join(appPath, 'src', 'shared', 'audio', 'asio-engine.js'));
+        } catch (error) {
+            console.warn('ASIO audio engine unavailable:', error.message);
+            this.asioEngine = null;
+        }
     }
 
     async initializeAudioContext() {
@@ -262,15 +280,32 @@ We'll start with a few practice items now.`;
         this.resetResponseTimer();
         this.updateStatus('Playing…');
         
-        const filename = this.audioFiles[this.currentIndex].split(/[/\\]/).pop();
+        const audioPath = this.audioFiles[this.currentIndex];
+
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
+            this.asioEngine.clearOutputQueue();
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
+                .then(() => {
+                    this.updateStatus('Audio finished ✓');
+                    this.startResponseTimer();
+                })
+                .catch((error) => {
+                    console.error('ASIO playback error:', error);
+                    this.updateStatus('Audio finished ✓');
+                    this.startResponseTimer();
+                });
+            return;
+        }
+
+        const filename = audioPath.split(/[/\\]/).pop();
         const audioBuffer = this.audioBuffers[filename];
-        
+
         if (!audioBuffer) {
             console.error('Audio buffer not found for:', filename);
             this.updateStatus('Error: Audio not loaded');
             return;
         }
-        
+
         // Stop any currently playing audio
         if (this.currentSource) {
             try {
@@ -317,6 +352,9 @@ We'll start with a few practice items now.`;
     }
 
     stopAudio() {
+        if (this.asioEngine) {
+            this.asioEngine.clearOutputQueue();
+        }
         if (this.currentSource) {
             try {
                 this.currentSource.stop();

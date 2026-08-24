@@ -42,5 +42,8 @@
     "fft-js": "^0.0.12",
     "node-record-lpcm16": "^1.0.1",
     "wav": "^1.0.2"
+  },
+  "optionalDependencies": {
+    "node-audio-asio": "github:distopik/node-audio-asio"
   }
 }
