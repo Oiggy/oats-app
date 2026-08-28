@@ -345,7 +345,7 @@ class HINTTask {
         this.refreshPlayerUI();
     }
 
-refreshPlayerUI() {
+    refreshPlayerUI() {
         if (this.totalItems === 0) return;
         
         const row = this.csvData[this.currentIndex];

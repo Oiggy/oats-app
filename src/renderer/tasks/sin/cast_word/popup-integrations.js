@@ -334,7 +334,7 @@ class CaSTWordTask {
         this.refreshPlayerUI();
     }
 
-refreshPlayerUI() {
+    refreshPlayerUI() {
         if (this.totalItems === 0) return;
         
         const row = this.csvData[this.currentIndex];
@@ -602,7 +602,7 @@ refreshPlayerUI() {
                 baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
             }
             
-            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'Words');
+            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_word');
             await fs.mkdir(outputDir, { recursive: true });
             
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -861,7 +861,7 @@ refreshPlayerUI() {
                         baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
                     }
 
-                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'Words', 'recordings', this.sessionTimestamp);
+                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_word', 'recordings', this.sessionTimestamp);
                     await fs.mkdir(recordingsDir, { recursive: true });
 
                     const row = this.csvData[rowIndex];

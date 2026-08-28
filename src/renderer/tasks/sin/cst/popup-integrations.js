@@ -273,7 +273,7 @@ class CSTTask {
         }
     }
 
-createTaskModal() {
+    createTaskModal() {
         this.modalOverlay = document.createElement('div');
         this.modalOverlay.className = 'task-modal-overlay';
         

@@ -268,7 +268,7 @@ class CaSTNonwordTask {
                     
                     <div class="snr-label" id="snr-label">SNR: —</div>
 
-                    <div class="word-display" id="word-display">
+                    <div class="nonword-display" id="nonword-display">
                         ${this.csvData[0]['Nonword'] || '—'}
                     </div>
 
@@ -334,7 +334,7 @@ class CaSTNonwordTask {
         this.refreshPlayerUI();
     }
 
-refreshPlayerUI() {
+    refreshPlayerUI() {
         if (this.totalItems === 0) return;
         
         const row = this.csvData[this.currentIndex];
@@ -350,7 +350,7 @@ refreshPlayerUI() {
         
         // Update non-word (handle both "Non-word" and "Nonword")
         const nonword = row['Nonword'] || '—';
-        document.getElementById('word-display').textContent = nonword;
+        document.getElementById('nonword-display').textContent = nonword;
 
         const pronunciation = row['Pronunciation'] || '';
         document.getElementById('pronunciation-display').textContent = pronunciation;
@@ -602,7 +602,7 @@ refreshPlayerUI() {
                 baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
             }
             
-            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'Nonwords');
+            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword');
             await fs.mkdir(outputDir, { recursive: true });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -869,7 +869,7 @@ refreshPlayerUI() {
                         baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
                     }
 
-                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'Nonwords', 'recordings', this.sessionTimestamp);
+                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword', 'recordings', this.sessionTimestamp);
                     await fs.mkdir(recordingsDir, { recursive: true });
 
                     const row = this.csvData[rowIndex];
