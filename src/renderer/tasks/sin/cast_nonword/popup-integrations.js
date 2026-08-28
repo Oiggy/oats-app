@@ -4,7 +4,6 @@ class CaSTNonwordTask {
         this.config = null;
         this.audioContext = null;
         this.audioBuffers = {};
-        this.audioFilePaths = {};
         this.asioEngine = null;
         this.currentSource = null;
         
@@ -26,6 +25,13 @@ class CaSTNonwordTask {
         
         // Save tracking
         this.resultsSaved = false;
+
+        // Recording
+        this.mediaRecorder = null;
+        this.recordingChunks = [];
+        this.isRecording = false;
+        this.currentTake = 0;
+        this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     }
 
     async init() {
@@ -96,7 +102,7 @@ class CaSTNonwordTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_nonword', 'cast_nonword_list.csv');
+        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_nonword', 'Nonwords_List_shuffled.csv');
         
         try {
             const csvContent = await fs.readFile(csvPath, 'utf8');
@@ -154,8 +160,8 @@ class CaSTNonwordTask {
             });
             
             // Ensure Correct/Wrong exists
-            if (!row['Correct/Wrong']) {
-                row['Correct/Wrong'] = '';
+            if (!row['Correct1/Wrong0']) {
+                row['Correct1/Wrong0'] = '';
             }
             
             rows.push(row);
@@ -166,33 +172,32 @@ class CaSTNonwordTask {
 
     async loadAudioFiles() {
         const path = window.require('path');
-        const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_nonword', 'audio');
+        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cast_nonword', 'NONWORD_audio');
         
         try {
-            // Load all audio files into a map by filename
-            const files = await fs.readdir(audioDir);
-            
-            for (const file of files) {
-                if (file.toLowerCase().endsWith('.wav')) {
-                    const fullPath = path.join(audioDir, file);
-                    this.audioFilePaths[file] = fullPath;
-                    await this.loadAudioBuffer(fullPath, file);
-                }
+            this.audioFiles = this.csvData.map(row => {
+                const snr = String(row['SNR']).padStart(2, '0');
+                const nonword = (row['Nonword'] || '').toLowerCase().trim();
+                return path.join(audioDir, `SNR${snr}`, `${nonword}_mix.wav`);
+            });
+
+            console.log('Audio files mapped:', this.audioFiles.length);
+
+            for (const filePath of this.audioFiles) {
+                await this.loadAudioBuffer(filePath);
             }
-            
-            console.log('Audio files loaded:', Object.keys(this.audioBuffers).length);
         } catch (error) {
             console.error('Error loading audio files:', error);
         }
-        
+
         this.totalItems = this.csvData.length;
     }
 
-    async loadAudioBuffer(filePath, filename) {
+
+    async loadAudioBuffer(filePath) {
         const fs = window.require('fs').promises;
         
         try {
@@ -203,7 +208,7 @@ class CaSTNonwordTask {
             );
             
             const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-            this.audioBuffers[filename] = audioBuffer;
+            this.audioBuffers[filePath] = audioBuffer;
         } catch (error) {
             console.error(`Error loading audio buffer for ${filePath}:`, error);
         }
@@ -225,13 +230,13 @@ class CaSTNonwordTask {
         
         const instructionText = `Read this to the participant:
 
-In this part (CaST Non-word), you will hear single non-words in noise.
-After each one, please repeat what you heard.`;
+        "In this task, you will some non-words in background noise. 
+        After each one, please repeat exactly what you heard."`;
         
         this.modalContent.innerHTML = `
             <div class="cast-nonword-instruction-page">
                 <div class="instruction-content">
-                    <h1 class="task-title">CaST Non-word</h1>
+                    <h1 class="task-title">Nonwords</h1>
                     
                     <div class="instruction-text">
                         ${instructionText.replace(/\n/g, '<br>')}
@@ -269,20 +274,24 @@ After each one, please repeat what you heard.`;
         this.modalContent.innerHTML = `
             <div class="cast-nonword-player-page">
                 <div class="player-content">
-                    <h1 class="task-title">CaST Non-word</h1>
-                    
+                    <h1 class="task-title">Nonwords</h1>
+
                     <div class="top-row">
                         <div class="snr-summary" id="snr-summary"></div>
                     </div>
-                    
+
                     <div class="item-counter" id="item-counter">
                         Item 1 of ${this.totalItems}
                     </div>
                     
                     <div class="snr-label" id="snr-label">SNR: —</div>
-                    
+
                     <div class="nonword-display" id="nonword-display">
-                        ${this.csvData[0]['Non-word'] || this.csvData[0]['Nonword'] || '—'}
+                        ${this.csvData[0]['Nonword'] || '—'}
+                    </div>
+
+                    <div class="pronunciation-display" id="pronunciation-display">
+                        ${this.csvData[0]['Pronunciation'] || ''}
                     </div>
                     
                     <div class="correct-checkbox-container">
@@ -292,10 +301,18 @@ After each one, please repeat what you heard.`;
                         </label>
                     </div>
                     
+                    <div class="skip-hint" id="skip-hint" style="display: none;">
+                        ⚠ Low score — you may stop the task if needed
+                    </div>
+
+                    <div class="recording-indicator" id="recording-indicator" style="display:none; color: red; font-weight: bold; text-align: center;">
+                        ● Recording
+                    </div>
+
                     <div class="status-display" id="status-display">
                         &nbsp;
                     </div>
-                    
+
                     <div class="response-timer" id="response-timer">
                         Response time: —
                     </div>
@@ -320,7 +337,8 @@ After each one, please repeat what you heard.`;
         document.getElementById('play-btn').addEventListener('click', () => this.handlePlay());
         document.getElementById('stop-btn').addEventListener('click', () => this.handleStop());
         document.getElementById('next-btn').addEventListener('click', () => this.handleNext());
-        document.getElementById('main-menu-btn').addEventListener('click', () => {
+        document.getElementById('main-menu-btn').addEventListener('click', async () => {
+            await this.stopAndSaveRecording();
             this.saveResults();
             this.closeTask();
         });
@@ -334,7 +352,7 @@ After each one, please repeat what you heard.`;
         this.refreshPlayerUI();
     }
 
-refreshPlayerUI() {
+    refreshPlayerUI() {
         if (this.totalItems === 0) return;
         
         const row = this.csvData[this.currentIndex];
@@ -349,16 +367,23 @@ refreshPlayerUI() {
         document.getElementById('snr-label').textContent = snrText;
         
         // Update non-word (handle both "Non-word" and "Nonword")
-        const nonword = row['Non-word'] || row['Nonword'] || '—';
+        const nonword = row['Nonword'] || '—';
         document.getElementById('nonword-display').textContent = nonword;
+
+        const pronunciation = row['Pronunciation'] || '';
+        document.getElementById('pronunciation-display').textContent = pronunciation;
         
         // Update checkbox
         const checkbox = document.getElementById('correct-checkbox');
-        const isCorrect = row['Correct/Wrong'] === '1';
+        const isCorrect = row['Correct1/Wrong0'] === '1';
         checkbox.checked = isCorrect;
         
-        // Update SNR summary
+        // Reset take counter for new item
+        this.currentTake = 0;
+
+        // Update SNR summary and skip hint
         this.updateSNRSummary();
+        this.updateSkipHint();
         
         this.stopAudio();
         this.resetResponseTimer();
@@ -366,8 +391,9 @@ refreshPlayerUI() {
 
     handleCheckboxChange() {
         const checkbox = document.getElementById('correct-checkbox');
-        this.csvData[this.currentIndex]['Correct/Wrong'] = checkbox.checked ? '1' : '0';
+        this.csvData[this.currentIndex]['Correct1/Wrong0'] = checkbox.checked ? '1' : '0';
         this.updateSNRSummary();
+        this.updateSkipHint();
     }
 
     updateSNRSummary() {
@@ -387,7 +413,7 @@ refreshPlayerUI() {
             
             snrCounts[snr].total += 1;
             
-            if (row['Correct/Wrong'] === '1') {
+            if (row['Correct1/Wrong0'] === '1') {
                 snrCounts[snr].correct += 1;
             }
         }
@@ -405,9 +431,38 @@ refreshPlayerUI() {
         summaryDiv.innerHTML = lines.join('<br>');
     }
 
-    handleBack() {
+    updateSkipHint() {
+        const skipHintDiv = document.getElementById('skip-hint');
+        if (!skipHintDiv) return;
+
+        const currentRow = this.csvData[this.currentIndex];
+        const currentSNR = currentRow['SNR'] || '';
+
+        const first10Indices = [];
+        for (let i = 0; i < this.csvData.length; i++) {
+            if (this.csvData[i]['SNR'] === currentSNR) {
+                first10Indices.push(i);
+                if (first10Indices.length === 10) break;
+            }
+        }
+
+        if (first10Indices.length < 10 || this.currentIndex <= first10Indices[first10Indices.length - 1]) {
+            skipHintDiv.style.display = 'none';
+            return;
+        }
+
+        let correct = 0;
+        for (const idx of first10Indices) {
+            if (this.csvData[idx]['Correct1/Wrong0'] === '1') correct++;
+        }
+
+        skipHintDiv.style.display = correct <= 2 ? 'block' : 'none';
+    }
+
+    async handleBack() {
         this.stopResponseTimer();
-        
+        await this.stopAndSaveRecording();
+
         if (this.currentIndex > 0) {
             this.currentIndex--;
             this.refreshPlayerUI();
@@ -418,23 +473,23 @@ refreshPlayerUI() {
         }
     }
 
-    handlePlay() {
+    async handlePlay() {
         if (this.totalItems === 0) return;
-        
-        const row = this.csvData[this.currentIndex];
-        let filename = row['File Name'] || '';
-        
-        // Add .wav extension if not present
-        if (filename && !filename.toLowerCase().endsWith('.wav')) {
-            filename += '.wav';
-        }
-        
-        if (this.asioEngine && this.asioEngine.isEnabled() && this.audioFilePaths[filename]) {
+
+        const audioPath = this.audioFiles[this.currentIndex];
+
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.resetResponseTimer();
             this.updateStatus('Playing…');
             this.asioEngine.clearOutputQueue();
 
-            this.asioEngine.playFile(this.audioFilePaths[filename], this.config.parameters.audio.volume)
+            // Save previous recording first, then start a new one
+            if (this.isRecording) {
+                await this.stopAndSaveRecording();
+            }
+            this.startRecording();
+
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then(() => {
                     this.updateStatus('Audio finished ✓');
                     this.startResponseTimer();
@@ -447,17 +502,23 @@ refreshPlayerUI() {
             return;
         }
 
-        const audioBuffer = this.audioBuffers[filename];
+        const audioBuffer = this.audioBuffers[audioPath];
 
         if (!audioBuffer) {
-            console.error('Audio buffer not found for:', filename);
+            console.error('Audio buffer not found for:', audioPath);
             this.updateStatus('Error: Audio not loaded');
-            alert(`Audio file not found: ${filename}`);
+            alert(`Audio file not found: ${audioPath}`);
             return;
         }
 
         this.resetResponseTimer();
         this.updateStatus('Playing…');
+
+        // Save previous recording first, then start a new one
+        if (this.isRecording) {
+            await this.stopAndSaveRecording();
+        }
+        this.startRecording();
 
         if (this.currentSource) {
             try {
@@ -481,19 +542,21 @@ refreshPlayerUI() {
         this.currentSource.start(0);
     }
 
-    handleStop() {
+    async handleStop() {
         this.stopAudio();
         this.updateStatus('Stopped');
         this.stopResponseTimer();
+        await this.stopAndSaveRecording();
     }
 
-    handleNext() {
+    async handleNext() {
         this.stopResponseTimer();
-        
+
+        await this.stopAndSaveRecording();
+
         if (this.currentIndex < this.totalItems - 1) {
             this.currentIndex++;
             this.refreshPlayerUI();
-            // Auto-play next
             setTimeout(() => this.handlePlay(), 100);
         } else {
             this.saveResults();
@@ -577,7 +640,6 @@ refreshPlayerUI() {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             
-            // Determine base directory
             let baseDir;
             if (process.platform === 'win32') {
                 baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
@@ -585,77 +647,135 @@ refreshPlayerUI() {
                 baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
             }
             
-            // Create output directory
             const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword');
             await fs.mkdir(outputDir, { recursive: true });
-            
-            // Create output file
+
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const outputPath = path.join(outputDir, `CaST_nonword_${this.participantId}_${timestamp}.txt`);
-            
-            // Build output content
+            const outputPath = path.join(outputDir, `Nonwords_${this.participantId}_${timestamp}.txt`);
+
             let output = [];
-            
-            // Header
+
             output.push('='.repeat(60));
-            output.push('CaST Non-word (Connected Speech Test - Non-words) Results');
+            output.push('Nonwords Results');
             output.push('='.repeat(60));
             output.push('');
             output.push(`Participant ID: ${this.participantId}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
-            output.push(`Task: CaST Non-word`);
+            output.push(`Task: Nonwords`);
             output.push('');
-            
-            // Trial data
+
             output.push('='.repeat(60));
             output.push('TRIAL DATA');
             output.push('='.repeat(60));
             output.push('');
-            
+
             for (let i = 0; i < this.csvData.length; i++) {
                 const row = this.csvData[i];
-                
                 output.push(`Item ${i + 1}`);
                 output.push(`  SNR: ${row['SNR'] || '—'}`);
                 output.push(`  Number: ${row['Number'] || '—'}`);
-                output.push(`  Non-word: ${row['Non-word'] || row['Nonword'] || ''}`);
-                output.push(`  File Name: ${row['File Name'] || ''}`);
-                output.push(`  Correct: ${row['Correct/Wrong'] === '1' ? 'Yes' : 'No'}`);
+                output.push(`  Nonword: ${row['Nonword'] || ''}`);
+                output.push(`  Pronunciation: ${row['Pronunciation'] || ''}`);
+                output.push(`  Correct: ${row['Correct1/Wrong0'] === '1' ? 'Yes' : 'No'}`);
                 output.push('');
             }
-            
-            // Summary statistics
+
             output.push('='.repeat(60));
             output.push('SUMMARY STATISTICS');
             output.push('='.repeat(60));
             output.push('');
-            
+
             const snrSummary = this.calculateSNRSummary();
             const sortedSNRs = Object.keys(snrSummary).sort((a, b) => parseInt(b) - parseInt(a));
-            
             for (const snr of sortedSNRs) {
                 const stats = snrSummary[snr];
                 const percent = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(1) : '0.0';
-                output.push(`SNR ${snr} dB: ${stats.correct}/${stats.total} non-words correct (${percent}%)`);
+                output.push(`SNR ${snr} dB: ${stats.correct}/${stats.total} nonwords correct (${percent}%)`);
             }
-            
+
             output.push('');
             output.push('='.repeat(60));
             output.push('END OF RESULTS');
             output.push('='.repeat(60));
-            
-            // Write to file
+
             await fs.writeFile(outputPath, output.join('\n'), 'utf8');
+            console.log('Nonwords results saved to:', outputPath);
+
+            // Save CSV results file
+            const csvOutputPath = path.join(outputDir, `Nonwords_${this.participantId}_${timestamp}.csv`);
+            const csvLines = ['SNR,Number,Nonword,Pronunciation,Correct1/Wrong0'];
+            for (const row of this.csvData) {
+                csvLines.push(`${row['SNR'] || ''},${row['Number'] || ''},${row['Nonword'] || ''},${row['Pronunciation'] || ''},${row['Correct1/Wrong0'] || ''}`);
+            }
+            await fs.writeFile(csvOutputPath, csvLines.join('\n'), 'utf8');
+            console.log('Nonwords CSV results saved to:', csvOutputPath);
+
+            // Save summary file
+            await this.saveSummaryFile(snrSummary);
             
-            console.log('CaST Non-word results saved to:', outputPath);
-            
-            // Mark as saved
             this.resultsSaved = true;
             
         } catch (error) {
             console.error('Error saving results:', error);
             alert('Error saving results. Please check console for details.');
         }
+    }
+
+    async saveSummaryFile(snrSummary) {
+        const os = window.require('os');
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+
+        let baseDir;
+        if (process.platform === 'win32') {
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+        } else {
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+        }
+
+        const outputDir = path.join(baseDir, 'Speech_in_Noise');
+        await fs.mkdir(outputDir, { recursive: true });
+
+        const summaryPath = path.join(outputDir, `SIN_Summary_${this.participantId}.csv`);
+        const snrLevels = [25, 20, 15, 10, 5, 0];
+
+        let data = {};
+        snrLevels.forEach(snr => {
+            data[snr] = { 'Non-words': '', 'Words': '', 'HINT': '', 'CST': '' };
+        });
+
+        try {
+            const existing = await fs.readFile(summaryPath, 'utf8');
+            const lines = existing.trim().split('\n');
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const snr = parseInt(values[0]);
+                if (data[snr] !== undefined) {
+                    data[snr]['Non-words'] = values[1] || '';
+                    data[snr]['Words'] = values[2] || '';
+                    data[snr]['HINT'] = values[3] || '';
+                    data[snr]['CST'] = values[4] || '';
+                }
+            }
+        } catch (e) {
+            // File doesn't exist yet
+        }
+
+        for (const [snr, stats] of Object.entries(snrSummary)) {
+            const snrNum = parseInt(snr);
+            if (data[snrNum] !== undefined) {
+                data[snrNum]['Non-words'] = stats.correct;
+            }
+        }
+
+        const summaryLines = ['SNR,Non-words,Words,HINT,CST'];
+        snrLevels.forEach(snr => {
+            const row = data[snr];
+            summaryLines.push(`${snr},${row['Non-words']},${row['Words']},${row['HINT']},${row['CST']}`);
+        });
+
+        await fs.writeFile(summaryPath, summaryLines.join('\n'), 'utf8');
+        console.log('Summary file saved to:', summaryPath);
     }
 
     calculateSNRSummary() {
@@ -670,12 +790,154 @@ refreshPlayerUI() {
             
             summary[snr].total += 1;
             
-            if (row['Correct/Wrong'] === '1') {
+            if (row['Correct1/Wrong0'] === '1') {
                 summary[snr].correct += 1;
             }
         }
         
         return summary;
+    }
+
+    discardRecording() {
+        if (!this.mediaRecorder || !this.isRecording) return;
+        this.mediaRecorder.ondataavailable = null;
+        this.mediaRecorder.onstop = null;
+        this.mediaRecorder.stop();
+        this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        this.recordingChunks = [];
+        this.isRecording = false;
+        this.hideRecordingIndicator();
+    }
+
+    async startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.recordingChunks = [];
+            this.currentTake += 1;
+            this.mediaRecorder = new MediaRecorder(stream);
+            this.mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) this.recordingChunks.push(e.data);
+            };
+            this.mediaRecorder.start();
+            this.isRecording = true;
+            const indicator = document.getElementById('recording-indicator');
+            if (indicator) indicator.style.display = 'block';
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
+        }
+    }
+
+    hideRecordingIndicator() {
+        const indicator = document.getElementById('recording-indicator');
+        if (indicator) indicator.style.display = 'none';
+    }
+
+    encodeWAV(audioBuffer) {
+        const numChannels = audioBuffer.numberOfChannels;
+        const sampleRate = audioBuffer.sampleRate;
+        const format = 1; // PCM
+        const bitDepth = 16;
+
+        // Interleave channels
+        const channels = [];
+        for (let i = 0; i < numChannels; i++) {
+            channels.push(audioBuffer.getChannelData(i));
+        }
+        const length = channels[0].length;
+        const interleaved = new Float32Array(length * numChannels);
+        for (let i = 0; i < length; i++) {
+            for (let ch = 0; ch < numChannels; ch++) {
+                interleaved[i * numChannels + ch] = channels[ch][i];
+            }
+        }
+
+        const dataLength = interleaved.length * 2; // 16-bit = 2 bytes per sample
+        const buffer = new ArrayBuffer(44 + dataLength);
+        const view = new DataView(buffer);
+
+        const writeString = (offset, str) => {
+            for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataLength, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, format, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * bitDepth / 8, true);
+        view.setUint16(32, numChannels * bitDepth / 8, true);
+        view.setUint16(34, bitDepth, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataLength, true);
+
+        // Write PCM samples
+        let offset = 44;
+        for (let i = 0; i < interleaved.length; i++) {
+            const s = Math.max(-1, Math.min(1, interleaved[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            offset += 2;
+        }
+
+        return Buffer.from(buffer);
+    }
+
+    async stopAndSaveRecording() {
+        if (!this.mediaRecorder || !this.isRecording) return;
+
+        const takeIndex = this.currentTake;
+        const rowIndex = this.currentIndex;
+
+        return new Promise((resolve) => {
+            this.mediaRecorder.onstop = async () => {
+                try {
+                    const blob = new Blob(this.recordingChunks, { type: 'audio/webm' });
+                    const arrayBuffer = await blob.arrayBuffer();
+
+                    // Decode webm to PCM, then encode as WAV
+                    const decodeContext = new AudioContext();
+                    const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+                    await decodeContext.close();
+                    const wavBuffer = this.encodeWAV(audioBuffer);
+
+                    const os = window.require('os');
+                    const path = window.require('path');
+                    const fs = window.require('fs').promises;
+
+                    let baseDir;
+                    if (process.platform === 'win32') {
+                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+                    } else {
+                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+                    }
+
+                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword', 'recordings', this.sessionTimestamp);
+                    await fs.mkdir(recordingsDir, { recursive: true });
+
+                    const row = this.csvData[rowIndex];
+                    const itemNum = String(rowIndex + 1).padStart(2, '0');
+                    const snr = String(row['SNR'] || '').padStart(2, '0');
+                    const nonword = (row['Nonword'] || '').toLowerCase().trim();
+                    const fileName = `Nonwords_${this.participantId}_${itemNum}_SNR${snr}_${nonword}_take${takeIndex}.wav`;
+                    const filePath = path.join(recordingsDir, fileName);
+
+                    await fs.writeFile(filePath, wavBuffer);
+                    console.log('Recording saved:', filePath);
+                } catch (error) {
+                    console.error('Error saving recording:', error);
+                }
+
+                this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                this.isRecording = false;
+                this.hideRecordingIndicator();
+                resolve();
+            };
+
+            this.mediaRecorder.stop();
+        });
     }
 
     closeTask() {

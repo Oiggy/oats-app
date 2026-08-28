@@ -17,6 +17,7 @@ class Dashboard {
         this.setupEventListeners();
         this.initializeDashboard();
         this.setupDeveloperMode();
+        await this.loadTaskVisibilitySettings();
         console.log('OATS Dashboard initialized');
     }
 
@@ -615,6 +616,87 @@ class Dashboard {
                 this.closeModal();
             }
         });
+
+        // Practice Sentence show/hide toggle
+        const showPracticeSentenceToggle = document.getElementById('show-practice-sentence-toggle');
+        if (showPracticeSentenceToggle) {
+            showPracticeSentenceToggle.addEventListener('change', (e) => {
+                this.applyPracticeSentenceVisibility(e.target.checked);
+                this.saveTaskVisibilitySettings(e.target.checked);
+            });
+        }
+    }
+
+    // Shows/hides the "Practice Sentence" option in the task dropdown.
+    applyPracticeSentenceVisibility(show) {
+        const option = document.querySelector('#task-dropdown option[value="hint-practice"]');
+        if (!option) return;
+        option.hidden = !show;
+
+        // If the option was selected while being hidden (e.g. toggled off
+        // mid-selection), reset the dropdown to the placeholder.
+        const taskDropdown = document.getElementById('task-dropdown');
+        if (!show && taskDropdown && taskDropdown.value === 'hint-practice') {
+            taskDropdown.value = '';
+            this.handleTaskSelection('');
+        }
+    }
+
+    getTaskConfigDir() {
+        const os = window.require('os');
+        const path = window.require('path');
+
+        if (process.platform === 'win32') {
+            return path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
+        }
+        return path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+    }
+
+    async loadTaskVisibilitySettings() {
+        const toggle = document.getElementById('show-practice-sentence-toggle');
+        let showPracticeSentence = true; // default: visible
+
+        try {
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            const configPath = path.join(this.getTaskConfigDir(), 'cfg_dashboard_settings.json');
+            const configData = await fs.readFile(configPath, 'utf8');
+            const config = JSON.parse(configData);
+            if (typeof config.showPracticeSentenceTask === 'boolean') {
+                showPracticeSentence = config.showPracticeSentenceTask;
+            }
+        } catch (error) {
+            console.log('No dashboard settings found, using defaults');
+        }
+
+        if (toggle) {
+            toggle.checked = showPracticeSentence;
+        }
+        this.applyPracticeSentenceVisibility(showPracticeSentence);
+    }
+
+    async saveTaskVisibilitySettings(showPracticeSentence) {
+        try {
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            const configDir = this.getTaskConfigDir();
+
+            await fs.mkdir(configDir, { recursive: true });
+
+            const configPath = path.join(configDir, 'cfg_dashboard_settings.json');
+
+            let config = {};
+            try {
+                config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+            } catch (error) {
+                // No existing file yet, start fresh
+            }
+
+            config.showPracticeSentenceTask = showPracticeSentence;
+            await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+        } catch (error) {
+            console.error('Error saving dashboard settings:', error);
+        }
     }
 
 
