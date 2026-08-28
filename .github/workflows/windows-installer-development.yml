@@ -1,7 +1,9 @@
-name: Build Windows Installer (Any Branch)
+name: Build Windows Installer (Development)
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - development
 
 jobs:
   build-windows-installer:
@@ -25,14 +27,10 @@ jobs:
         env:
           CI: true
 
-      - name: Compute branch-safe artifact name
-        shell: bash
-        run: echo "SAFE_BRANCH=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> "$GITHUB_ENV"
-
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: oats-windows-installer-${{ env.SAFE_BRANCH }}
+          name: oats-windows-installer-development
           path: |
             dist/*.exe
             dist/*.msi
