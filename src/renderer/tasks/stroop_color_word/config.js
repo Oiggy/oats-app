@@ -316,6 +316,29 @@ class StroopColorWordConfig {
         }
     }
 
+    async loadExistingConfiguration() {
+        try {
+            const os = window.require('os');
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+
+            let baseDir;
+            if (process.platform === 'win32') {
+                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
+            } else {
+                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+            }
+
+            const configPath = path.join(baseDir, 'cfg_stroop_color_word_task.json');
+            const configData = await fs.readFile(configPath, 'utf8');
+            const config = JSON.parse(configData);
+
+            this.applyConfigurationToForm(config);
+        } catch (error) {
+            console.log('No existing Stroop Color-Word configuration found, using defaults');
+        }
+    }
+
     async saveConfiguration(saveBtn) {
         saveBtn.classList.add('loading');
         saveBtn.disabled = true;

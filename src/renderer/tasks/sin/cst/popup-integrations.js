@@ -109,7 +109,7 @@ class CSTTask {
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
         
         const appPath = app.getAppPath();
-        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'CST_List.csv');
+        const csvPath = path.join(appPath, 'src', 'renderer', 'tasks', 'sin', 'cst', 'cst_list.csv');
         
         try {
             const csvContent = await fs.readFile(csvPath, 'utf8');

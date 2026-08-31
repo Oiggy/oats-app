@@ -5,6 +5,16 @@ const path = require('path');
 const { spawn } = require('child_process');
 const asioEngine = require('../../../shared/audio/asio-engine');
 
+function getSoxInstallMessage() {
+    if (process.platform === 'win32') {
+        return 'sox is not installed. Download it from https://sourceforge.net/projects/sox/ and add it to your PATH.';
+    }
+    if (process.platform === 'darwin') {
+        return 'sox is not installed. Please run: brew install sox';
+    }
+    return 'sox is not installed. Please install it via your package manager (e.g. sudo apt install sox).';
+}
+
 class NativeAudioRecorder {
     constructor() {
         this.isRecording = false;
@@ -36,7 +46,7 @@ class NativeAudioRecorder {
             // Check sox installation first
             const soxInstalled = await this.checkSoxInstallation();
             if (!soxInstalled) {
-                throw new Error('sox is not installed. Please run: brew install sox');
+                throw new Error(getSoxInstallMessage());
             }
 
             // Create a dummy recording stream to initialize the microphone
@@ -116,7 +126,7 @@ class NativeAudioRecorder {
                 // Check sox installation first
                 const soxInstalled = await this.checkSoxInstallation();
                 if (!soxInstalled) {
-                    throw new Error('sox is not installed. Please run: brew install sox');
+                    throw new Error(getSoxInstallMessage());
                 }
 
                 // Ensure output directory exists
@@ -206,7 +216,7 @@ class NativeAudioRecorder {
             // First check if sox is installed
             const soxInstalled = await this.checkSoxInstallation();
             if (!soxInstalled) {
-                console.error('sox is not installed. Please run: brew install sox');
+                console.error(getSoxInstallMessage());
                 return false;
             }
 
@@ -303,7 +313,7 @@ class NativeAudioRecorder {
                 // Check sox installation first
                 const soxInstalled = await this.checkSoxInstallation();
                 if (!soxInstalled) {
-                    throw new Error('sox is not installed. Please run: brew install sox');
+                    throw new Error(getSoxInstallMessage());
                 }
 
                 // Ensure output directory exists

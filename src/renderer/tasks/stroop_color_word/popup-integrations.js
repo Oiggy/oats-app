@@ -22,12 +22,13 @@ class StroopColorWordPopup {
         this.audioChunks = [];
         this.breakTrials = [];
         this.sessionTimestamp = null; // Add this line
-        this.audioRecorder = new NativeAudioRecorder();
+        // NativeAudioRecorder/SpeechOnsetDetector are only available after
+        // window.require(...) in loadTask(); instantiating them here would
+        // throw a ReferenceError before the object is ever constructed.
+        this.audioRecorder = null;
+        this.speechDetector = null;
         this.isAudioSetup = false;
         this.currentRecordingPromise = null;
-        this.audioRecorder = new NativeAudioRecorder();
-        this.speechDetector = new SpeechOnsetDetector();
-        this.isAudioSetup = false;
         this.currentTrialTiming = null;
         this.recordingPromises = [];
     }
