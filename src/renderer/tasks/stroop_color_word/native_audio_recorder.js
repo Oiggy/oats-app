@@ -5,6 +5,17 @@ const path = require('path');
 const { spawn } = require('child_process');
 const asioEngine = require('../../../shared/audio/asio-engine');
 
+// node-record-lpcm16 passes this straight through to sox's --type flag,
+// which (combined with --default-device) tells sox which audio driver to
+// record from. The library's own default ('wav') is a file format, not a
+// driver, and sox exits immediately with "error code 1" and no useful
+// message if it doesn't match the platform's actual driver.
+function getSoxAudioType() {
+    if (process.platform === 'win32') return 'waveaudio';
+    if (process.platform === 'darwin') return 'coreaudio';
+    return 'alsa';
+}
+
 function getSoxInstallMessage() {
     if (process.platform === 'win32') {
         return 'sox is not installed. Download it from https://sourceforge.net/projects/sox/ and add it to your PATH.';
@@ -57,10 +68,17 @@ class NativeAudioRecorder {
                 threshold: 0.5,
                 silence: '1.0',
                 verbose: false,
-                recordProgram: 'sox'
+                recordProgram: 'sox',
+                audioType: getSoxAudioType()
             });
 
-            // Start but don't save the audio yet
+            // Start but don't save the audio yet. Node throws an unhandled
+            // exception if a stream emits 'error' with no listener attached,
+            // so this needs one even though nothing is consuming the data yet.
+            this.preloadedStream.stream().on('error', (error) => {
+                console.error('Preloaded microphone stream error:', error);
+                this.isPreloaded = false;
+            });
             this.preloadedStream.stream().resume();
             this.isPreloaded = true;
 
@@ -143,7 +161,8 @@ class NativeAudioRecorder {
                     threshold: 0.5,
                     silence: '1.0',
                     verbose: false,
-                    recordProgram: 'sox'
+                    recordProgram: 'sox',
+                    audioType: getSoxAudioType()
                 });
 
                 // Pipe audio to file
@@ -227,7 +246,8 @@ class NativeAudioRecorder {
                 silence: '2.0',
                 threshold: 0.5,
                 verbose: true, // Enable verbose for debugging
-                recordProgram: 'sox'
+                recordProgram: 'sox',
+                audioType: getSoxAudioType()
             });
 
             let hasAudio = false;
@@ -330,7 +350,8 @@ class NativeAudioRecorder {
                     threshold: 0.5,
                     silence: '1.0',
                     verbose: false,
-                    recordProgram: 'sox'
+                    recordProgram: 'sox',
+                    audioType: getSoxAudioType()
                 });
 
                 // Pipe audio to file
