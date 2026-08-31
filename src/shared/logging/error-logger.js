@@ -16,10 +16,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// Always under Documents/Oats, on every platform (including Windows) — not
+// the platform-specific AppData/Roaming folder used elsewhere in this app —
+// so the log is somewhere a non-technical user will actually find it.
 function getLogDir() {
-    if (process.platform === 'win32') {
-        return path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'logs');
-    }
     return path.join(os.homedir(), 'Documents', 'Oats', 'logs');
 }
 

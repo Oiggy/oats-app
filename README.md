@@ -71,9 +71,9 @@ setup and limitations.
 Every run of the app writes runtime errors — renderer exceptions, unhandled
 promise rejections, main-process crashes, and anything reported via
 `console.error` in the task code — to a daily log file, so a bug can be
-diagnosed without DevTools having been open at the time:
-- **Windows**: `%APPDATA%/Roaming/Oats/logs/app-error-YYYY-MM-DD.log`
-- **macOS/Linux**: `~/Documents/Oats/logs/app-error-YYYY-MM-DD.log`
+diagnosed without DevTools having been open at the time. It's always under
+`Documents/Oats/logs/app-error-YYYY-MM-DD.log`, on every platform including
+Windows, so it's somewhere easy to find rather than a hidden system folder.
 
 This is separate from the developer-mode activity log described in
 [developer_mode.md](developer_mode.md).

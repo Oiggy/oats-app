@@ -116,55 +116,29 @@ class Dashboard {
         badge.addEventListener('click', () => {
             if (this.developerMode) {
                 this.exitDeveloperMode();
-            } else if (this.devCredentialsFileExists()) {
-                this.showDeveloperModeLogin();
             } else {
-                this.showDeveloperModeSetup();
+                this.showDeveloperModeActivation();
             }
         });
     }
 
-    // dev-credentials.js has to live somewhere writable at runtime, not
-    // inside the app's own install folder: a packaged build's app.getAppPath()
-    // points into a read-only asar archive, so writes there always fail once
-    // installed (even though it works fine under `npm start` from source).
-    // This mirrors the same Oats/... per-user folder every other local file
-    // (task configs, sessions, logs) already uses.
-    getDevCredentialsPath() {
-        const os = window.require('os');
-        const path = window.require('path');
-
-        const baseDir = process.platform === 'win32'
-            ? path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'config')
-            : path.join(os.homedir(), 'Documents', 'Oats', 'config');
-
-        return path.join(baseDir, 'dev-credentials.js');
-    }
-
-    // True once a developer password has been set up on this machine.
-    devCredentialsFileExists() {
-        try {
-            const fs = window.require('fs');
-            return fs.existsSync(this.getDevCredentialsPath());
-        } catch (error) {
-            console.error('Failed to check for dev-credentials.js:', error);
-            return false;
-        }
-    }
-
-    showDeveloperModeLogin() {
+    // Developer Mode has no password: it's a local convenience for quick
+    // testing, not an access-control boundary, so this just asks for a name
+    // (used for the activity log and to fill in biodata initials) and turns
+    // it straight on.
+    showDeveloperModeActivation() {
         const modalOverlay = document.getElementById('modal-overlay');
         const modalContent = modalOverlay.querySelector('.modal-content');
-        
+
         modalContent.innerHTML = `
-            <form id="dev-login-form">
+            <form id="dev-activate-form">
                 <div class="modal-header dev-modal-header">
-                    <button type="button" class="modal-close dev-modal-close" id="dev-login-close" aria-label="Close">
+                    <button type="button" class="modal-close dev-modal-close" id="dev-activate-close" aria-label="Close">
                         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M4.646 4.646a.5.5 0 0 1 .708 0L10 9.293l4.646-4.647a.5.5 0 0 1 .708.708L10.707 10l4.647 4.646a.5.5 0 0 1-.708.708L10 10.707l-4.646 4.647a.5.5 0 0 1-.708-.708L9.293 10 4.646 5.354a.5.5 0 0 1 0-.708z"/>
                         </svg>
                     </button>
-                    <h2 class="modal-title dev-modal-title">Developer Mode Access</h2>
+                    <h2 class="modal-title dev-modal-title">Developer Mode</h2>
                 </div>
 
                 <div class="modal-body">
@@ -174,37 +148,27 @@ class Dashboard {
                                 <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                             </svg>
                         </div>
-                        
+
                         <p class="dev-description">
-                            Enter your credentials to enable developer mode. 
+                            Enter your name to enable developer mode.
                             This will allow quick testing by auto-filling the biodata form.
                         </p>
 
                         <div class="dev-form-group">
                             <label for="dev-name">Developer Name</label>
-                            <input type="text" id="dev-name" name="dev_name" 
+                            <input type="text" id="dev-name" name="dev_name"
                                 placeholder="Enter your name" required autofocus>
                         </div>
 
-                        <div class="dev-form-group">
-                            <label for="dev-password">Password</label>
-                            <input type="password" id="dev-password" name="dev_password" 
-                                placeholder="Enter password" required>
-                        </div>
-
-                        <div class="error-message" id="dev-login-error"></div>
-
-                        <button type="button" class="dev-reset-password-link" id="dev-reset-password-link">
-                            Forgot password? Reset it
-                        </button>
+                        <div class="error-message" id="dev-activate-error"></div>
                     </div>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="button-secondary" id="dev-login-cancel">Cancel</button>
-                    <button type="submit" class="button-primary" id="dev-login-submit">
-                        <span class="button-text">Login</span>
-                        <span class="button-loading" aria-hidden="true">Verifying...</span>
+                    <button type="button" class="button-secondary" id="dev-activate-cancel">Cancel</button>
+                    <button type="submit" class="button-primary" id="dev-activate-submit">
+                        <span class="button-text">Enable</span>
+                        <span class="button-loading" aria-hidden="true">Enabling...</span>
                     </button>
                 </div>
             </form>
@@ -324,28 +288,13 @@ class Dashboard {
                     display: block;
                 }
 
-                #dev-login-form .modal-footer {
+                #dev-activate-form .modal-footer {
                     padding: 20px 24px;
                     border-top: 1px solid #e5e5e7;
                     display: flex;
                     gap: 12px;
                     justify-content: flex-end;
                     background: #fafafa;
-                }
-
-                .dev-reset-password-link {
-                    display: block;
-                    margin: 16px auto 0;
-                    background: none;
-                    border: none;
-                    color: #007aff;
-                    font-size: 13px;
-                    cursor: pointer;
-                    text-decoration: underline;
-                }
-
-                .dev-reset-password-link:hover {
-                    color: #0056cc;
                 }
             </style>
         `;
@@ -354,21 +303,17 @@ class Dashboard {
         modalOverlay.setAttribute('aria-hidden', 'false');
 
         // Event listeners
-        document.getElementById('dev-login-close').addEventListener('click', () => {
+        document.getElementById('dev-activate-close').addEventListener('click', () => {
             this.closeModal();
         });
 
-        document.getElementById('dev-login-cancel').addEventListener('click', () => {
+        document.getElementById('dev-activate-cancel').addEventListener('click', () => {
             this.closeModal();
         });
 
-        document.getElementById('dev-login-form').addEventListener('submit', (e) => {
+        document.getElementById('dev-activate-form').addEventListener('submit', (e) => {
             e.preventDefault();
-            this.handleDeveloperModeLogin();
-        });
-
-        document.getElementById('dev-reset-password-link').addEventListener('click', () => {
-            this.showDeveloperModeSetup();
+            this.handleDeveloperModeActivation();
         });
 
         // Focus on name input
@@ -377,373 +322,43 @@ class Dashboard {
         }, 100);
     }
 
-    // First-time (or "forgot password") screen: lets the repo owner set a
-    // Developer Mode password directly from the app, no terminal/npm needed.
-    showDeveloperModeSetup() {
-        const modalOverlay = document.getElementById('modal-overlay');
-        const modalContent = modalOverlay.querySelector('.modal-content');
-
-        modalContent.innerHTML = `
-            <form id="dev-setup-form">
-                <div class="modal-header dev-modal-header">
-                    <button type="button" class="modal-close dev-modal-close" id="dev-setup-close" aria-label="Close">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M4.646 4.646a.5.5 0 0 1 .708 0L10 9.293l4.646-4.647a.5.5 0 0 1 .708.708L10.707 10l4.647 4.646a.5.5 0 0 1-.708.708L10 10.707l-4.646 4.647a.5.5 0 0 1-.708-.708L9.293 10 4.646 5.354a.5.5 0 0 1 0-.708z"/>
-                        </svg>
-                    </button>
-                    <h2 class="modal-title dev-modal-title">Set Up Developer Mode</h2>
-                </div>
-
-                <div class="modal-body">
-                    <div class="dev-login-content">
-                        <div class="dev-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                            </svg>
-                        </div>
-
-                        <p class="dev-description">
-                            No developer password has been set on this computer yet. Choose one now —
-                            you'll enter it each time you turn on Developer Mode on this machine.
-                        </p>
-
-                        <div class="dev-form-group">
-                            <label for="dev-setup-password">New Password</label>
-                            <input type="password" id="dev-setup-password" name="dev_setup_password"
-                                placeholder="At least 6 characters" required autofocus>
-                        </div>
-
-                        <div class="dev-form-group">
-                            <label for="dev-setup-password-confirm">Confirm Password</label>
-                            <input type="password" id="dev-setup-password-confirm" name="dev_setup_password_confirm"
-                                placeholder="Re-enter password" required>
-                        </div>
-
-                        <div class="error-message" id="dev-setup-error"></div>
-                    </div>
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button" class="button-secondary" id="dev-setup-cancel">Cancel</button>
-                    <button type="submit" class="button-primary" id="dev-setup-submit">
-                        <span class="button-text">Set Password</span>
-                        <span class="button-loading" aria-hidden="true">Saving...</span>
-                    </button>
-                </div>
-            </form>
-
-            <style>
-                .dev-modal-header {
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 20px 24px;
-                    border-bottom: 1px solid #e5e5e7;
-                }
-
-                .dev-modal-close {
-                    position: absolute;
-                    left: 16px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    background: none;
-                    border: none;
-                    padding: 8px;
-                    cursor: pointer;
-                    border-radius: 6px;
-                    color: #6e6e73;
-                    transition: all 0.2s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                .dev-modal-close:hover {
-                    background-color: #f5f5f7;
-                    color: #1d1d1f;
-                }
-
-                .dev-modal-title {
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: #1d1d1f;
-                    margin: 0;
-                    text-align: center;
-                }
-
-                .dev-login-content {
-                    text-align: center;
-                    padding: 0 24px 24px 24px;
-                }
-
-                .dev-icon {
-                    width: 80px;
-                    height: 80px;
-                    margin: 0 auto 24px;
-                    background: linear-gradient(135deg, #007aff 0%, #5856d6 100%);
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                }
-
-                .dev-description {
-                    font-size: 14px;
-                    color: #6e6e73;
-                    line-height: 1.5;
-                    margin-bottom: 32px;
-                }
-
-                .dev-form-group {
-                    margin-bottom: 20px;
-                    text-align: left;
-                }
-
-                .dev-form-group label {
-                    display: block;
-                    font-size: 14px;
-                    font-weight: 500;
-                    color: #1d1d1f;
-                    margin-bottom: 8px;
-                }
-
-                .dev-form-group input {
-                    width: 100%;
-                    padding: 12px 16px;
-                    border: 1.5px solid #d2d2d7;
-                    border-radius: 8px;
-                    font-size: 15px;
-                    transition: all 0.2s ease;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                }
-
-                .dev-form-group input:focus {
-                    outline: none;
-                    border-color: #007aff;
-                    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-                }
-
-                .dev-form-group input::placeholder {
-                    color: #86868b;
-                }
-
-                .error-message {
-                    color: #ff3b30;
-                    font-size: 13px;
-                    margin-top: 16px;
-                    padding: 12px;
-                    background: #fff5f5;
-                    border-radius: 8px;
-                    border: 1px solid #ffdddd;
-                    min-height: 20px;
-                    text-align: left;
-                    display: none;
-                }
-
-                .error-message:not(:empty) {
-                    display: block;
-                }
-
-                #dev-setup-form .modal-footer {
-                    padding: 20px 24px;
-                    border-top: 1px solid #e5e5e7;
-                    display: flex;
-                    gap: 12px;
-                    justify-content: flex-end;
-                    background: #fafafa;
-                }
-            </style>
-        `;
-
-        modalOverlay.classList.add('open');
-        modalOverlay.setAttribute('aria-hidden', 'false');
-
-        document.getElementById('dev-setup-close').addEventListener('click', () => {
-            this.closeModal();
-        });
-
-        document.getElementById('dev-setup-cancel').addEventListener('click', () => {
-            this.closeModal();
-        });
-
-        document.getElementById('dev-setup-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.handleDeveloperModeSetup();
-        });
-
-        setTimeout(() => {
-            document.getElementById('dev-setup-password').focus();
-        }, 100);
-    }
-
-    async handleDeveloperModeSetup() {
-        const passwordInput = document.getElementById('dev-setup-password');
-        const confirmInput = document.getElementById('dev-setup-password-confirm');
-        const errorEl = document.getElementById('dev-setup-error');
-        const submitBtn = document.getElementById('dev-setup-submit');
-
-        const password = passwordInput.value;
-        const confirmPassword = confirmInput.value;
-
-        errorEl.textContent = '';
-
-        if (!password || password.length < 6) {
-            errorEl.textContent = '⚠️ Password must be at least 6 characters long.';
-            return;
-        }
-
-        if (password !== confirmPassword) {
-            errorEl.textContent = '⚠️ Passwords do not match.';
-            confirmInput.value = '';
-            confirmInput.focus();
-            return;
-        }
-
-        submitBtn.classList.add('loading');
-        submitBtn.disabled = true;
-
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        try {
-            await this.saveDevCredentials(password);
-            this.showToast('Developer Mode password set', 'success');
-            this.showDeveloperModeLogin();
-        } catch (error) {
-            console.error('Failed to save developer credentials:', error);
-            errorEl.textContent = '❌ Could not save the password. Please try again.';
-            submitBtn.classList.remove('loading');
-            submitBtn.disabled = false;
-        }
-    }
-
-    // Writes dev-credentials.js directly from the app, replacing the old
-    // "npm run setup-dev" terminal script.
-    async saveDevCredentials(password) {
-        const path = window.require('path');
-        const fs = window.require('fs').promises;
-
-        const credentialsPath = this.getDevCredentialsPath();
-        await fs.mkdir(path.dirname(credentialsPath), { recursive: true });
-
-        const escapedPassword = password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        const fileContent = `// Developer Mode Credentials
-// Set from the in-app "Developer Mode" screen.
-
-module.exports = {
-    DEV_PASSWORD: '${escapedPassword}'
-};
-`;
-
-        await fs.writeFile(credentialsPath, fileContent, 'utf8');
-    }
-
-    async handleDeveloperModeLogin() {
+    async handleDeveloperModeActivation() {
         const nameInput = document.getElementById('dev-name');
-        const passwordInput = document.getElementById('dev-password');
-        const errorEl = document.getElementById('dev-login-error');
-        const submitBtn = document.getElementById('dev-login-submit');
+        const errorEl = document.getElementById('dev-activate-error');
+        const submitBtn = document.getElementById('dev-activate-submit');
 
         const name = nameInput.value.trim();
-        const password = passwordInput.value;
 
-        // Clear previous errors
         errorEl.textContent = '';
 
-        if (!name || !password) {
-            errorEl.textContent = '⚠️ Please enter both name and password.';
+        if (!name) {
+            errorEl.textContent = '⚠️ Please enter your name.';
             return;
         }
 
-        // Show loading state
         submitBtn.classList.add('loading');
         submitBtn.disabled = true;
 
-        // Add small delay for better UX
+        // Small delay for better UX
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        try {
-            // Load credentials
-            const credentials = await this.loadDevCredentials();
-            
-            // Verify password
-            if (password === credentials.DEV_PASSWORD) {
-                // Successful login
-                this.developerName = name;
-                this.developerMode = true;
-                this.devModeStartTime = new Date();
-                
-                // Log entry
-                await this.logDeveloperModeEvent('ENTER', name);
-                
-                // Update UI
-                this.updateDeveloperModeBadge(true, name);
-                this.closeModal();
-                this.showToast(`Developer Mode enabled for ${name}`, 'success');
-                
-                console.log(`🔧 Developer Mode ENABLED for ${name}`);
-                
-                // Auto-fill biodata if in idle state
-                if (this.currentState === 'idle') {
-                    setTimeout(() => {
-                        this.autoFillBiodata();
-                    }, 500);
-                }
-            } else {
-                // Failed login
-                errorEl.textContent = '❌ Invalid password. Please try again.';
-                passwordInput.value = '';
-                passwordInput.focus();
-                
-                submitBtn.classList.remove('loading');
-                submitBtn.disabled = false;
-            }
-        } catch (error) {
-            console.error('Developer mode login error:', error);
-            
-            // Provide helpful error message
-            let errorMessage = '❌ Configuration error. ';
-            
-            if (error.message.includes('not found')) {
-                errorMessage += 'No developer password is set up yet. Close this and click the DEV badge again.';
-            } else if (error.message.includes('DEV_PASSWORD')) {
-                errorMessage += 'Invalid credentials file format.';
-            } else {
-                errorMessage += 'Please check dev-credentials.js file.';
-            }
-            
-            errorEl.textContent = errorMessage;
-            
-            submitBtn.classList.remove('loading');
-            submitBtn.disabled = false;
-        }
-    }
+        this.developerName = name;
+        this.developerMode = true;
+        this.devModeStartTime = new Date();
 
-    async loadDevCredentials() {
-        try {
-            const fs = window.require('fs');
-            const credentialsPath = this.getDevCredentialsPath();
+        await this.logDeveloperModeEvent('ENTER', name);
 
-            console.log('Loading credentials from:', credentialsPath);
-            
-            // Check if file exists
-            if (!fs.existsSync(credentialsPath)) {
-                throw new Error('dev-credentials.js not found. Set a password via the DEV badge first.');
-            }
-            
-            // Load the credentials
-            delete require.cache[require.resolve(credentialsPath)]; // Clear cache
-            const credentials = window.require(credentialsPath);
-            
-            if (!credentials.DEV_PASSWORD) {
-                throw new Error('DEV_PASSWORD not found in credentials file');
-            }
-            
-            return credentials;
-        } catch (error) {
-            console.error('Failed to load dev-credentials.js:', error);
-            throw error;
+        this.updateDeveloperModeBadge(true, name);
+        this.closeModal();
+        this.showToast(`Developer Mode enabled for ${name}`, 'success');
+
+        console.log(`🔧 Developer Mode ENABLED for ${name}`);
+
+        // Auto-fill biodata if in idle state
+        if (this.currentState === 'idle') {
+            setTimeout(() => {
+                this.autoFillBiodata();
+            }, 500);
         }
     }
 
@@ -804,15 +419,10 @@ module.exports = {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             
-            // Determine log directory
-            let logDir;
-            if (process.platform === 'win32') {
-                logDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'dev-mode-logs');
-            } else if (process.platform === 'darwin') {
-                logDir = path.join(os.homedir(), 'Documents', 'Oats', 'dev-mode-logs');
-            } else {
-                logDir = path.join(os.homedir(), 'Documents', 'Oats', 'dev-mode-logs');
-            }
+            // Always under Documents/Oats, on every platform (including
+            // Windows), in its own dev-mode-logs folder alongside the error
+            // log's own logs folder — both easy to find in Documents/Oats.
+            const logDir = path.join(os.homedir(), 'Documents', 'Oats', 'dev-mode-logs');
             
             // Create directory if it doesn't exist
             await fs.mkdir(logDir, { recursive: true });
