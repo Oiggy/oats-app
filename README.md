@@ -66,6 +66,19 @@ and off by default — see [docs/asio-support.md](docs/asio-support.md) for
 setup and limitations.
 
 
+## Error Logs
+
+Every run of the app writes runtime errors — renderer exceptions, unhandled
+promise rejections, main-process crashes, and anything reported via
+`console.error` in the task code — to a daily log file, so a bug can be
+diagnosed without DevTools having been open at the time:
+- **Windows**: `%APPDATA%/Roaming/Oats/logs/app-error-YYYY-MM-DD.log`
+- **macOS/Linux**: `~/Documents/Oats/logs/app-error-YYYY-MM-DD.log`
+
+This is separate from the developer-mode activity log described in
+[developer_mode.md](developer_mode.md).
+
+
 ## Building for Distribution
 
 - **Windows**: `npm run build-win`

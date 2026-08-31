@@ -1,5 +1,43 @@
 // Dashboard - All-in-one version for Electron compatibility
 // dashboard.js
+
+// Mirrors renderer errors to a log file (see src/shared/logging/error-logger.js)
+// so a technician doesn't need DevTools open at the moment something fails.
+// Runs once, here, because every task popup shares this same window/document
+// rather than opening its own renderer. Best-effort: if the logger can't be
+// loaded for any reason, the app keeps working exactly as before.
+(function setupErrorLogging() {
+    try {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const appPath = app.getAppPath();
+        const errorLogger = window.require(path.join(appPath, 'src', 'shared', 'logging', 'error-logger.js'));
+
+        window.addEventListener('error', (event) => {
+            errorLogger.logError('Renderer error', event.error || new Error(event.message));
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+            errorLogger.logError('Unhandled promise rejection', reason);
+        });
+
+        // Every task file already reports failures via console.error; mirror
+        // those to the log file too instead of requiring a second logging
+        // convention throughout the codebase.
+        const originalConsoleError = console.error.bind(console);
+        console.error = (...args) => {
+            originalConsoleError(...args);
+            const message = args
+                .map((arg) => (arg instanceof Error ? (arg.stack || arg.message) : String(arg)))
+                .join(' ');
+            errorLogger.logError('console.error', new Error(message));
+        };
+    } catch (error) {
+        console.warn('Error logging unavailable:', error.message);
+    }
+})();
+
 class Dashboard {
     constructor() {
         this.currentState = 'idle';

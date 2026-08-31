@@ -1,4 +1,26 @@
 // Loading Screen Script
+
+// Mirrors renderer errors to a log file (see src/shared/logging/error-logger.js).
+// Best-effort: if the logger can't be loaded, the loading screen keeps working
+// exactly as before.
+(function setupErrorLogging() {
+    try {
+        const path = require('path');
+        const errorLogger = require(path.join(__dirname, '..', '..', 'shared', 'logging', 'error-logger.js'));
+
+        window.addEventListener('error', (event) => {
+            errorLogger.logError('Loading screen renderer error', event.error || new Error(event.message));
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+            errorLogger.logError('Loading screen unhandled promise rejection', reason);
+        });
+    } catch (error) {
+        console.warn('Error logging unavailable:', error.message);
+    }
+})();
+
 class LoadingScreen {
     constructor() {
         this.settings = null;

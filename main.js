@@ -1,7 +1,18 @@
 const { app, BrowserWindow, ipcMain, systemPreferences } = require('electron');
 const path = require('path');
+const errorLogger = require('./src/shared/logging/error-logger');
 
 require('@electron/remote/main').initialize();
+
+// Catch anything that would otherwise crash the app silently (from a
+// technician's point of view) and write it to a log file instead.
+process.on('uncaughtException', (error) => {
+  errorLogger.logError('Main process uncaught exception', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  errorLogger.logError('Main process unhandled rejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
 
 class OATSApp {
   constructor() {
@@ -48,6 +59,10 @@ class OATSApp {
     this.loadingWindow.loadFile('src/renderer/pages/loading.html');
     this.loadingWindow.setMenuBarVisibility(false);
     this.loadingWindow.center();
+
+    this.loadingWindow.webContents.on('render-process-gone', (event, details) => {
+      errorLogger.logError('Loading window renderer process gone', new Error(`reason=${details.reason}, exitCode=${details.exitCode}`));
+    });
   }
 
   createMainWindow() {
@@ -76,6 +91,10 @@ class OATSApp {
     this.mainWindow.loadFile('src/renderer/pages/dashboard.html');
     this.mainWindow.setMenuBarVisibility(false);
     this.mainWindow.setTitle('');
+
+    this.mainWindow.webContents.on('render-process-gone', (event, details) => {
+      errorLogger.logError('Main window renderer process gone', new Error(`reason=${details.reason}, exitCode=${details.exitCode}`));
+    });
   }
 
   showMainWindow() {
