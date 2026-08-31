@@ -124,15 +124,28 @@ class Dashboard {
         });
     }
 
+    // dev-credentials.js has to live somewhere writable at runtime, not
+    // inside the app's own install folder: a packaged build's app.getAppPath()
+    // points into a read-only asar archive, so writes there always fail once
+    // installed (even though it works fine under `npm start` from source).
+    // This mirrors the same Oats/... per-user folder every other local file
+    // (task configs, sessions, logs) already uses.
+    getDevCredentialsPath() {
+        const os = window.require('os');
+        const path = window.require('path');
+
+        const baseDir = process.platform === 'win32'
+            ? path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'config')
+            : path.join(os.homedir(), 'Documents', 'Oats', 'config');
+
+        return path.join(baseDir, 'dev-credentials.js');
+    }
+
     // True once a developer password has been set up on this machine.
     devCredentialsFileExists() {
         try {
-            const path = window.require('path');
             const fs = window.require('fs');
-            const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const appPath = app.getAppPath();
-            const credentialsPath = path.join(appPath, 'src', 'config', 'dev-credentials.js');
-            return fs.existsSync(credentialsPath);
+            return fs.existsSync(this.getDevCredentialsPath());
         } catch (error) {
             console.error('Failed to check for dev-credentials.js:', error);
             return false;
@@ -605,23 +618,18 @@ class Dashboard {
         }
     }
 
-    // Writes src/config/dev-credentials.js directly from the app, replacing
-    // the old "npm run setup-dev" terminal script.
+    // Writes dev-credentials.js directly from the app, replacing the old
+    // "npm run setup-dev" terminal script.
     async saveDevCredentials(password) {
         const path = window.require('path');
         const fs = window.require('fs').promises;
-        const { app } = window.require('@electron/remote') || window.require('electron').remote;
 
-        const appPath = app.getAppPath();
-        const configDir = path.join(appPath, 'src', 'config');
-        const credentialsPath = path.join(configDir, 'dev-credentials.js');
-
-        await fs.mkdir(configDir, { recursive: true });
+        const credentialsPath = this.getDevCredentialsPath();
+        await fs.mkdir(path.dirname(credentialsPath), { recursive: true });
 
         const escapedPassword = password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const fileContent = `// Developer Mode Credentials
-// Set from the in-app "Developer Mode" screen. Do not commit this file to git
-// (it is already listed in .gitignore).
+// Set from the in-app "Developer Mode" screen.
 
 module.exports = {
     DEV_PASSWORD: '${escapedPassword}'
@@ -714,14 +722,9 @@ module.exports = {
 
     async loadDevCredentials() {
         try {
-            const path = window.require('path');
             const fs = window.require('fs');
-            const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            
-            // Get the correct path to dev-credentials.js
-            const appPath = app.getAppPath();
-            const credentialsPath = path.join(appPath, 'src', 'config', 'dev-credentials.js');
-            
+            const credentialsPath = this.getDevCredentialsPath();
+
             console.log('Loading credentials from:', credentialsPath);
             
             // Check if file exists
