@@ -316,6 +316,15 @@ class NativeAudioRecorder {
             try {
                 console.log(`Starting recording to: ${outputPath}`);
 
+                // Stop preloaded stream if exists. Leaving it running would
+                // hold the input device open with a second sox process
+                // competing for it, so the real recording below can come
+                // back empty even though nothing errors.
+                if (this.preloadedStream) {
+                    this.preloadedStream.stop();
+                    this.preloadedStream = null;
+                }
+
                 // Check sox installation first
                 const soxInstalled = await this.checkSoxInstallation();
                 if (!soxInstalled) {
