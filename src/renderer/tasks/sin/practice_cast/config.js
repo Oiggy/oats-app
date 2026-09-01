@@ -95,9 +95,9 @@ class PracticeCastConfig {
                                     <span class="slider-value-display" id="pc-volume-value">${Math.round(this.currentConfig.parameters.audio.volume * 100)}%</span>
                                 </div>
                                 <input type="range" id="pc-audio-volume" name="volume" 
-                                       min="0" max="1" step="0.1" value="${this.currentConfig.parameters.audio.volume}" class="config-slider">
+                                       min="0" max="3" step="0.1" value="${this.currentConfig.parameters.audio.volume}" class="config-slider">
                             </div>
-                            <div class="help-text">Adjust the playback volume for audio stimuli (0-100%)</div>
+                            <div class="help-text">Adjust the playback volume for audio stimuli (0-300%). Above 100% boosts quiet stimuli louder than their original recording level.</div>
                         </div>
                     </div>
                 </div>
