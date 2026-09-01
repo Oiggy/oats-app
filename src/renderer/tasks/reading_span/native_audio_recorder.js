@@ -3,6 +3,7 @@ const recorder = require('../../../shared/audio/sox-recorder');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const wav = require('wav');
 const asioEngine = require('../../../shared/audio/asio-engine');
 
 function getSoxInstallMessage() {
@@ -140,8 +141,16 @@ class NativeAudioRecorder {
                 // Ensure output directory exists
                 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-                // Create output file stream
-                this.outputFile = fs.createWriteStream(outputPath);
+                // Wrap the raw PCM sox streams in a proper WAV file. Sox
+                // can't patch its own WAV header's data-length field when
+                // piping to stdout, so wav.FileWriter (which reopens the
+                // file and rewrites the header once recording stops) is
+                // used instead of writing sox's output straight to disk.
+                this.outputFile = new wav.FileWriter(outputPath, {
+                    sampleRate: 44100,
+                    channels: 1,
+                    bitDepth: 16
+                });
 
                 // Configure recording with explicit sox
                 this.recordingStream = recorder.record({
@@ -337,8 +346,16 @@ class NativeAudioRecorder {
                 // Ensure output directory exists
                 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-                // Create output file stream
-                this.outputFile = fs.createWriteStream(outputPath);
+                // Wrap the raw PCM sox streams in a proper WAV file. Sox
+                // can't patch its own WAV header's data-length field when
+                // piping to stdout, so wav.FileWriter (which reopens the
+                // file and rewrites the header once recording stops) is
+                // used instead of writing sox's output straight to disk.
+                this.outputFile = new wav.FileWriter(outputPath, {
+                    sampleRate: 44100,
+                    channels: 1,
+                    bitDepth: 16
+                });
 
                 // Configure recording with explicit sox
                 this.recordingStream = recorder.record({
@@ -395,15 +412,29 @@ class NativeAudioRecorder {
             return;
         }
 
+        // Attach the FileWriter's completion listener before stopping the
+        // recording stream: piping already calls .end() on it as soon as
+        // sox's stdout closes, which can happen inside recordingStream.stop()
+        // below, so waiting to attach the listener until after that call
+        // can miss the 'done' event entirely.
+        const outputFile = this.outputFile;
+        this.outputFile = null;
+        const outputFileDone = outputFile
+            ? new Promise((resolve) => {
+                outputFile.on('done', resolve);
+                outputFile.on('error', resolve);
+            })
+            : Promise.resolve();
+
         if (this.recordingStream && this.isRecording) {
             await this.recordingStream.stop();
             this.isRecording = false;
         }
 
-        if (this.outputFile) {
-            this.outputFile.end();
-            this.outputFile = null;
+        if (outputFile) {
+            outputFile.end();
         }
+        await outputFileDone;
     }
 
     wait(ms) {

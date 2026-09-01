@@ -20,6 +20,16 @@ function buildInputArgs() {
 }
 
 function record(options = {}) {
+    // Always request headerless raw PCM rather than a self-contained WAV
+    // file. sox writes the WAV header for a pipe destination up front with
+    // the data length set to 0 (it can't seek back to patch it in once
+    // recording stops, unlike when writing directly to a real file), so a
+    // stream piped straight to disk ends up a "valid" WAV file that reads
+    // as silent/empty to any reader that trusts that length field - which
+    // is exactly what was happening here. Callers are expected to wrap this
+    // raw stream in their own WAV writer (e.g. the `wav` package's
+    // FileWriter, which can seek and does patch the header correctly) once
+    // recording actually stops.
     const args = [
         ...buildInputArgs(),
         '--no-show-progress',
@@ -27,7 +37,7 @@ function record(options = {}) {
         '--channels', options.channels,
         '--encoding', 'signed-integer',
         '--bits', '16',
-        '--type', options.audioType || 'wav',
+        '--type', 'raw',
         '-'
     ];
 
