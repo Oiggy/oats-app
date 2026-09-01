@@ -1,5 +1,5 @@
 // STROOP COLOR WORD TASK NATIVE AUDIO RECORDER
-const recorder = require('node-record-lpcm16');
+const recorder = require('../../../shared/audio/sox-recorder');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
