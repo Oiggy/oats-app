@@ -34,15 +34,24 @@ function record(options = {}) {
     const cp = spawn('sox', args, { encoding: 'binary', stdio: 'pipe' });
     const outStream = cp.stdout;
 
+    // Recording always ends by us calling stop() (either on a timer or when
+    // the technician cancels), which kills the sox process. A killed
+    // process reports a non-zero/null exit code just like a real failure
+    // would, so that needs to be distinguished from an actual sox crash.
+    let stoppedDeliberately = false;
+
     cp.on('close', (code) => {
-        if (code === 0) return;
+        if (code === 0 || stoppedDeliberately) return;
         outStream.emit('error', new Error(`sox has exited with error code ${code}.`));
     });
 
     return {
         process: cp,
         stream: () => outStream,
-        stop: () => cp.kill()
+        stop: () => {
+            stoppedDeliberately = true;
+            cp.kill();
+        }
     };
 }
 
