@@ -750,6 +750,9 @@ class ReadingSpanTask {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+        const sessionsFolder = getParticipantFolderName(this.participantId);
 
         let baseDir;
         if (process.platform === 'win32') {
@@ -761,7 +764,7 @@ class ReadingSpanTask {
         }
 
         const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const sessionDir = path.join(baseDir, 'Sessions', this.participantId, `rst_${timestamp}`);
+        const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
         
         await fs.mkdir(sessionDir, { recursive: true });
 
@@ -939,6 +942,9 @@ class ReadingSpanTask {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const sessionsFolder = getParticipantFolderName(this.participantId);
 
             let baseDir;
             if (process.platform === 'win32') {
@@ -950,7 +956,7 @@ class ReadingSpanTask {
             }
 
             const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const sessionDir = path.join(baseDir, 'Sessions', this.participantId, `rst_${timestamp}`);
+            const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
             
             await fs.mkdir(sessionDir, { recursive: true });
 

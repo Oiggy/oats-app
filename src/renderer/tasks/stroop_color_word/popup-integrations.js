@@ -756,15 +756,18 @@ class StroopColorWordPopup {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
-        
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+        const sessionsFolder = getParticipantFolderName(this.participantId);
+
         // Get the same directory structure as results
         let baseDir;
         if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
         } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         }
         
         // Initialize timestamp if not already set
@@ -901,15 +904,18 @@ class StroopColorWordPopup {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
-        
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+        const sessionsFolder = getParticipantFolderName(this.participantId);
+
         // Get platform-specific sessions directory
         let baseDir;
         if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
         } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         }
         
         // Create participant folder

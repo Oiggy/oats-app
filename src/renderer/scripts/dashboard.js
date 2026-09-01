@@ -2931,19 +2931,22 @@ class Dashboard {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
-        
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+        const sessionsFolder = getParticipantFolderName(participantId);
+
         let baseDir;
         if (process.platform === 'win32') {
-            // Windows: %APPDATA%/Oats/sessions/
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'sessions');
+            // Windows: %APPDATA%/Oats/sessions|participants/
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
         } else if (process.platform === 'darwin') {
-            // macOS: ~/Documents/Oats/sessions/
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            // macOS: ~/Documents/Oats/sessions|participants/
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         } else {
-            // Linux/other: ~/Documents/Oats/sessions/
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'sessions');
+            // Linux/other: ~/Documents/Oats/sessions|participants/
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
         }
-        
+
         // Create participant directory
         const participantDir = path.join(baseDir, participantId);
         

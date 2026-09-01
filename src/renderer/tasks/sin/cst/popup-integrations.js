@@ -833,14 +833,17 @@ class CSTTask {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
-            
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const sessionsFolder = getParticipantFolderName(this.participantId);
+
             let baseDir;
             if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
             } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+                baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
             }
-            
+
             const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CST');
             await fs.mkdir(outputDir, { recursive: true });
             
@@ -927,12 +930,15 @@ class CSTTask {
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+        const sessionsFolder = getParticipantFolderName(this.participantId);
 
         let baseDir;
         if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
         } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
         }
 
         const outputDir = path.join(baseDir, 'Speech_in_Noise');
@@ -1100,12 +1106,15 @@ class CSTTask {
                     const os = window.require('os');
                     const path = window.require('path');
                     const fs = window.require('fs').promises;
+                    const { app } = window.require('@electron/remote') || window.require('electron').remote;
+                    const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+                    const sessionsFolder = getParticipantFolderName(this.participantId);
 
                     let baseDir;
                     if (process.platform === 'win32') {
-                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'participants', this.participantId);
+                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
                     } else {
-                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'participants', this.participantId);
+                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
                     }
 
                     const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CST', 'recordings', this.sessionTimestamp);
