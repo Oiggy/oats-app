@@ -48,10 +48,22 @@ function record(options = {}) {
     return {
         process: cp,
         stream: () => outStream,
-        stop: () => {
+        // Killing a process doesn't synchronously release the OS audio
+        // device handle it held (WinMM in particular can lag behind
+        // TerminateProcess), so callers that are about to open the same
+        // device again need to wait for the process to actually exit
+        // first - otherwise the new recording can open the device fine
+        // but capture no real audio. Resolving on 'close' rather than
+        // 'exit' additionally ensures stdout has finished flushing.
+        stop: () => new Promise((resolveStop) => {
             stoppedDeliberately = true;
+            if (cp.exitCode !== null || cp.signalCode !== null) {
+                resolveStop();
+                return;
+            }
+            cp.once('close', () => resolveStop());
             cp.kill();
-        }
+        })
     };
 }
 

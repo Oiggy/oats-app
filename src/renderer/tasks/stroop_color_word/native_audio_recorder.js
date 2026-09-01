@@ -123,9 +123,11 @@ class NativeAudioRecorder {
 
                 const audioStartTime = this.getHighResolutionTime();
 
-                // Stop preloaded stream if exists
+                // Stop preloaded stream if exists, and wait for it to
+                // actually exit so the device it held is released before
+                // opening it again below.
                 if (this.preloadedStream) {
-                    this.preloadedStream.stop();
+                    await this.preloadedStream.stop();
                     this.preloadedStream = null;
                 }
 
@@ -170,8 +172,8 @@ class NativeAudioRecorder {
                 });
 
                 // Stop recording after duration
-                setTimeout(() => {
-                    this.stopRecording();
+                setTimeout(async () => {
+                    await this.stopRecording();
                     console.log(`Recording completed: ${outputPath}`);
                     resolve({
                         outputPath: outputPath,
@@ -316,12 +318,13 @@ class NativeAudioRecorder {
             try {
                 console.log(`Starting recording to: ${outputPath}`);
 
-                // Stop preloaded stream if exists. Leaving it running would
-                // hold the input device open with a second sox process
-                // competing for it, so the real recording below can come
-                // back empty even though nothing errors.
+                // Stop preloaded stream if exists, and wait for it to
+                // actually exit. Leaving it running (or not waiting for the
+                // kill to finish) holds the input device open while a
+                // second sox process opens it again, so the real recording
+                // below can come back empty even though nothing errors.
                 if (this.preloadedStream) {
-                    this.preloadedStream.stop();
+                    await this.preloadedStream.stop();
                     this.preloadedStream = null;
                 }
 
@@ -366,8 +369,8 @@ class NativeAudioRecorder {
                 });
 
                 // Stop recording after duration
-                setTimeout(() => {
-                    this.stopRecording();
+                setTimeout(async () => {
+                    await this.stopRecording();
                     console.log(`Recording completed: ${outputPath}`);
                     resolve(outputPath);
                 }, durationMs);
@@ -393,7 +396,7 @@ class NativeAudioRecorder {
         }
 
         if (this.recordingStream && this.isRecording) {
-            this.recordingStream.stop();
+            await this.recordingStream.stop();
             this.isRecording = false;
         }
 
