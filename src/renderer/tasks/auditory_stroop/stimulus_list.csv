@@ -1,0 +1,13 @@
+stimulus_id,word,talker_sex,talker
+father_m1,father,male,m1
+father_m2,father,male,m2
+father_f1,father,female,f1
+father_f2,father,female,f2
+mother_m1,mother,male,m1
+mother_m2,mother,male,m2
+mother_f1,mother,female,f1
+mother_f2,mother,female,f2
+person_m1,person,male,m1
+person_m2,person,male,m2
+person_f1,person,female,f1
+person_f2,person,female,f2
