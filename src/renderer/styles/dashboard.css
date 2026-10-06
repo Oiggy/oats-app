@@ -862,3 +862,59 @@ select:focus {
         border-width: 2px;
     }
 }
+/* Audio Setup (ASIO) modal */
+.audio-setup-modal .modal-header {
+    padding: 24px 32px 16px 32px;
+}
+
+.audio-setup-modal .modal-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
+.audio-setup-modal .modal-body {
+    padding: 0 32px 16px 32px;
+    color: #1d1d1f;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.audio-setup-modal .modal-footer {
+    padding: 16px 32px 28px 32px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.audio-setup-modal .button-primary,
+.audio-setup-modal .button-secondary {
+    min-width: 120px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.audio-setup-modal .button-primary {
+    background-color: #007aff;
+    color: #ffffff;
+}
+
+.audio-setup-modal .button-primary:hover {
+    background-color: #0066d6;
+}
+
+.audio-setup-modal .button-secondary {
+    background-color: #ffffff;
+    color: #1d1d1f;
+    border-color: #d2d2d7;
+}
+
+.audio-setup-modal .button-secondary:hover {
+    background-color: #f5f5f7;
+}

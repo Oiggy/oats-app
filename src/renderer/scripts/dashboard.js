@@ -55,8 +55,249 @@ class Dashboard {
         this.setupEventListeners();
         this.initializeDashboard();
         this.setupDeveloperMode();
+        this.setupAudioSetup();
         await this.loadTaskVisibilitySettings();
         console.log('OATS Dashboard initialized');
+    }
+
+    getAsioEngine() {
+        if (this.asioEngine !== undefined) return this.asioEngine;
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            this.asioEngine = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'asio-engine.js'));
+        } catch (error) {
+            console.warn('ASIO engine unavailable:', error.message);
+            this.asioEngine = null;
+        }
+        return this.asioEngine;
+    }
+
+    // Top-right "AUDIO" badge showing whether the ASIO interface is running;
+    // click opens Audio Setup (device, channels, sample rate, buffer size).
+    setupAudioSetup() {
+        const indicator = document.createElement('div');
+        indicator.id = 'audio-setup-indicator';
+        indicator.innerHTML = `
+            <div class="audio-setup-badge" id="audio-setup-badge" title="Audio Setup">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M9 2.5a.5.5 0 0 0-.81-.39L4.825 5H2.5A1.5 1.5 0 0 0 1 6.5v3A1.5 1.5 0 0 0 2.5 11h2.325l3.365 2.89A.5.5 0 0 0 9 13.5v-11z"/>
+                    <path d="M11.5 4.5a.5.5 0 0 1 .7 0 5 5 0 0 1 0 7 .5.5 0 1 1-.7-.7 4 4 0 0 0 0-5.6.5.5 0 0 1 0-.7z"/>
+                </svg>
+                <span id="audio-setup-text">AUDIO</span>
+            </div>
+            <style>
+                #audio-setup-indicator { position: fixed; top: 16px; right: 88px; z-index: 9999; }
+                .audio-setup-badge {
+                    background: #6e6e73; color: white; padding: 6px 12px; border-radius: 12px;
+                    font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;
+                    cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                }
+                .audio-setup-badge:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); }
+                .audio-setup-badge.asio { background: #1f8f4e; }
+                .audio-setup-badge.fallback { background: #c27c0e; }
+            </style>
+        `;
+        document.body.appendChild(indicator);
+        document.getElementById('audio-setup-badge').addEventListener('click', () => this.showAudioSetup());
+        this.updateAudioBadge();
+    }
+
+    updateAudioBadge() {
+        const badge = document.getElementById('audio-setup-badge');
+        const text = document.getElementById('audio-setup-text');
+        if (!badge || !text) return;
+        const engine = this.getAsioEngine();
+        const running = engine && engine.isEnabled();
+        badge.classList.toggle('asio', !!running);
+        badge.classList.toggle('fallback', !running && process.platform === 'win32');
+        text.textContent = running ? 'AUDIO: ASIO' : 'AUDIO';
+        badge.title = engine ? engine.describeBackend() : 'Audio engine unavailable';
+    }
+
+    showAudioSetup() {
+        const engine = this.getAsioEngine();
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalContent = modalOverlay.querySelector('.modal-content');
+
+        if (!engine || process.platform !== 'win32') {
+            modalContent.innerHTML = `
+                <div class="audio-setup-modal">
+                    <div class="modal-header"><h2 class="modal-title">Audio Setup</h2></div>
+                    <div class="modal-body"><p>ASIO audio is only available on Windows. This machine uses Web Audio for
+                    playback and sox for recording.</p></div>
+                    <div class="modal-footer"><button type="button" class="button-primary" id="audio-setup-close">Close</button></div>
+                </div>`;
+            modalOverlay.classList.add('open');
+            modalOverlay.setAttribute('aria-hidden', 'false');
+            document.getElementById('audio-setup-close').addEventListener('click', () => this.closeModal());
+            return;
+        }
+
+        engine.isEnabled();
+        const config = engine.reloadConfig();
+        const devices = engine.listDevices().filter((d) => d.outputChannels > 0 && d.inputChannels > 0);
+        const status = engine.getStatus();
+        const current = devices.find((d) => status.device && d.name === status.device) ||
+            devices.find((d) => config.deviceName && d.name === config.deviceName) || devices[0];
+
+        const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        modalContent.innerHTML = `
+            <form id="audio-setup-form" class="audio-setup-modal">
+                <div class="modal-header"><h2 class="modal-title">Audio Setup (ASIO)</h2></div>
+                <div class="modal-body audio-setup-body">
+                    <div class="audio-status ${status.backend === 'ASIO' ? 'ok' : 'warn'}" id="audio-status">
+                        ${escapeHtml(engine.describeBackend())}
+                    </div>
+                    ${devices.length === 0 ? `
+                        <p class="audio-hint">No ASIO device with inputs and outputs was found. Connect the
+                        interface and install its ASIO driver (for Focusrite: Focusrite Control), then reopen this window.
+                        Until then tasks fall back to Web Audio / sox.</p>` : `
+                    <div class="audio-field">
+                        <label for="audio-device">ASIO device</label>
+                        <select id="audio-device">
+                            ${devices.map((d) => `<option value="${escapeHtml(d.name)}" ${current && d.name === current.name ? 'selected' : ''}>
+                                ${escapeHtml(d.name)} (${d.inputChannels} in / ${d.outputChannels} out)</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="audio-row">
+                        <div class="audio-field">
+                            <label for="audio-rate">Sample rate</label>
+                            <select id="audio-rate"></select>
+                        </div>
+                        <div class="audio-field">
+                            <label for="audio-buffer">Buffer size</label>
+                            <select id="audio-buffer">
+                                ${[32, 64, 128, 256, 512].map((n) => `<option value="${n}" ${n === config.frameSize ? 'selected' : ''}>
+                                    ${n} samples</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="audio-field">
+                        <label>Stimulus output channels</label>
+                        <div class="audio-channels" id="audio-out-channels"></div>
+                        <small class="audio-hint">Stimuli play on every ticked output (mono stimuli are copied to each).</small>
+                    </div>
+                    <div class="audio-field">
+                        <label for="audio-in-channel">Recording input channel</label>
+                        <select id="audio-in-channel"></select>
+                    </div>
+                    <div class="audio-row">
+                        <button type="button" class="button-secondary" id="audio-test-output">Test output</button>
+                        <button type="button" class="button-secondary" id="audio-test-input">Test input (2 s)</button>
+                    </div>
+                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>`}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="button-secondary" id="audio-setup-cancel">Close</button>
+                    ${devices.length ? '<button type="submit" class="button-primary" id="audio-setup-save">Save &amp; Apply</button>' : ''}
+                </div>
+            </form>
+            <style>
+                .audio-setup-body { display: flex; flex-direction: column; gap: 14px; }
+                .audio-status { padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+                .audio-status.ok { background: #e7f6ec; color: #1f6b3a; }
+                .audio-status.warn { background: #fdf3e1; color: #8a5a00; }
+                .audio-field { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+                .audio-field label { font-weight: 600; font-size: 13px; }
+                .audio-field select { padding: 8px; border-radius: 6px; border: 1px solid #d2d2d7; }
+                .audio-row { display: flex; gap: 12px; }
+                .audio-channels { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+                .audio-channels label { font-weight: 400; display: flex; align-items: center; gap: 4px; }
+                .audio-hint { color: #6e6e73; font-size: 12px; }
+                .audio-test-result { font-size: 13px; min-height: 18px; }
+            </style>
+        `;
+
+        modalOverlay.classList.add('open');
+        modalOverlay.setAttribute('aria-hidden', 'false');
+        document.getElementById('audio-setup-cancel').addEventListener('click', () => this.closeModal());
+        if (devices.length === 0) return;
+
+        const deviceSelect = document.getElementById('audio-device');
+        const renderDeviceOptions = () => {
+            const device = devices.find((d) => d.name === deviceSelect.value) || devices[0];
+            const sameDevice = current && device.name === current.name;
+            const rates = (device.sampleRates || []).filter((r) => r >= 44100 && r <= 96000);
+            const rateList = rates.length ? rates : [44100, 48000];
+            const wantedRate = rateList.includes(config.sampleRate) ? config.sampleRate : (device.preferredSampleRate || rateList[0]);
+            document.getElementById('audio-rate').innerHTML = rateList.map((r) =>
+                `<option value="${r}" ${r === wantedRate ? 'selected' : ''}>${r} Hz</option>`).join('');
+
+            const outs = sameDevice ? config.outputChannels : [0, 1].filter((c) => c < device.outputChannels);
+            document.getElementById('audio-out-channels').innerHTML = Array.from({ length: device.outputChannels }, (_, c) =>
+                `<label><input type="checkbox" value="${c}" ${outs.includes(c) ? 'checked' : ''}> Out ${c + 1}</label>`).join('');
+
+            const inCh = sameDevice ? config.inputChannel : 0;
+            document.getElementById('audio-in-channel').innerHTML = Array.from({ length: device.inputChannels }, (_, c) =>
+                `<option value="${c}" ${c === inCh ? 'selected' : ''}>Input ${c + 1}</option>`).join('');
+        };
+        deviceSelect.addEventListener('change', renderDeviceOptions);
+        renderDeviceOptions();
+
+        const result = document.getElementById('audio-test-result');
+        const statusBox = document.getElementById('audio-status');
+
+        const readForm = () => ({
+            enabled: true,
+            deviceName: deviceSelect.value,
+            sampleRate: parseInt(document.getElementById('audio-rate').value, 10),
+            frameSize: parseInt(document.getElementById('audio-buffer').value, 10),
+            outputChannels: Array.from(document.querySelectorAll('#audio-out-channels input:checked')).map((i) => parseInt(i.value, 10)),
+            inputChannel: parseInt(document.getElementById('audio-in-channel').value, 10)
+        });
+
+        // Saves the form and reopens the stream with it. Returns true if ASIO
+        // is running afterwards.
+        const apply = () => {
+            const settings = readForm();
+            if (settings.outputChannels.length === 0) {
+                result.textContent = 'Select at least one output channel.';
+                return false;
+            }
+            engine.saveConfig(settings);
+            const ok = engine.restart();
+            statusBox.textContent = engine.describeBackend();
+            statusBox.className = `audio-status ${ok ? 'ok' : 'warn'}`;
+            this.updateAudioBadge();
+            return ok;
+        };
+
+        document.getElementById('audio-test-output').addEventListener('click', async () => {
+            if (!apply()) return;
+            result.textContent = 'Playing test tone…';
+            await engine.playTone(440, 800, 0.3);
+            result.textContent = 'Test tone played on the selected outputs.';
+        });
+
+        document.getElementById('audio-test-input').addEventListener('click', async () => {
+            if (!apply()) return;
+            result.textContent = 'Recording 2 seconds — speak into the microphone…';
+            await engine.startCapture();
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            const recording = engine.stopCaptureToWavBuffer();
+            let peak = 0;
+            for (let i = 44; i + 1 < recording.wavBuffer.length; i += 2) {
+                peak = Math.max(peak, Math.abs(recording.wavBuffer.readInt16LE(i)));
+            }
+            const dbfs = peak > 0 ? (20 * Math.log10(peak / 32768)).toFixed(1) : '-inf';
+            result.textContent = peak > 50
+                ? `Input OK: peak level ${dbfs} dBFS on the selected input.`
+                : 'No signal detected on the selected input. Check the input channel, gain and cable.';
+        });
+
+        document.getElementById('audio-setup-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (apply()) {
+                this.showToast('Audio settings saved — ASIO running', 'success');
+                this.closeModal();
+            } else {
+                this.showToast('Audio settings saved, but ASIO could not start. See status.', 'error');
+            }
+        });
     }
 
     setupDeveloperMode() {

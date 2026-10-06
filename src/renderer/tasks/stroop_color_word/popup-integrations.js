@@ -675,9 +675,19 @@ class StroopColorWordPopup {
         }
         
         // Wait for recording to complete
+        let recordingResult = null;
         if (recordingPromise) {
-            const recordingResult = await recordingPromise;
-            
+            recordingResult = await recordingPromise;
+
+            // The recorder knows when its first sample was actually captured
+            // (from the ASIO stream clock); prefer that over the estimate
+            // taken when recording was requested.
+            if (recordingResult.audioStartTime != null) {
+                this.currentTrialTiming.audioStartTime = recordingResult.audioStartTime;
+                this.currentTrialTiming.stimulusOffset =
+                    this.currentTrialTiming.stimulusOnsetTime - recordingResult.audioStartTime;
+            }
+
             // Queue speech analysis for later processing
             this.recordingPromises.push(
                 this.analyzeRecordingAsync(recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
@@ -702,6 +712,8 @@ class StroopColorWordPopup {
             audio_start_time: this.currentTrialTiming.audioStartTime,
             stimulus_onset_time: this.currentTrialTiming.stimulusOnsetTime,
             stimulus_offset: this.currentTrialTiming.stimulusOffset,
+            audio_backend: recordingResult ? (recordingResult.backend || 'sox') : 'none',
+            timing_reliable: recordingResult ? recordingResult.timingReliable !== false : true,
             speech_onset_time: null, // Will be filled by analysis
             rt_seconds: null, // Will be filled by analysis
             rt_confidence: null // Will be filled by analysis
@@ -956,6 +968,7 @@ class StroopColorWordPopup {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `Audio Backend: ${this.audioRecorder ? this.audioRecorder.describeBackend() : 'unknown'}\n`;
         content += `Task: Stroop Color-Word Task\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;
