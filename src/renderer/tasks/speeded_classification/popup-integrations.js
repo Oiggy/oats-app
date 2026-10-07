@@ -1904,5 +1904,9 @@ class SpeededClassificationPopup {
 // Create global instance and expose the function
 window.speedClassificationPopup = new SpeededClassificationPopup();
 window.loadSpeededClassificationTask = async (participantId) => {
+    // A fresh object per run, so nothing (trials, results folder, audio
+    // check, flags) carries over from a previous run or participant.
+    if (window.speedClassificationPopup && window.speedClassificationPopup.isOpen) return;
+    window.speedClassificationPopup = new SpeededClassificationPopup();
     await window.speedClassificationPopup.loadTask(participantId);
 };

@@ -1662,5 +1662,9 @@ class AuditoryStroopPopup {
 // Create global instance and expose the function
 window.auditoryStroopPopup = new AuditoryStroopPopup();
 window.loadAuditoryStroopTask = async (participantId) => {
+    // A fresh object per run, so nothing (trials, results folder, audio
+    // check, flags) carries over from a previous run or participant.
+    if (window.auditoryStroopPopup && window.auditoryStroopPopup.isOpen) return;
+    window.auditoryStroopPopup = new AuditoryStroopPopup();
     await window.auditoryStroopPopup.loadTask(participantId);
 };

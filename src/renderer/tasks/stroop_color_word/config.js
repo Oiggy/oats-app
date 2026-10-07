@@ -396,7 +396,7 @@ class StroopColorWordConfig {
                     recording_level: parseInt(document.getElementById('recording-level-slider')?.value) || 50
                 },
                 data: {
-                    crash_recovery: document.getElementById('crash-recovery')?.checked || true
+                    crash_recovery: document.getElementById('crash-recovery') ? document.getElementById('crash-recovery').checked : true
                 }
             }
         };

@@ -3898,34 +3898,50 @@ class Dashboard {
         this.currentFormData = formData; // Store form data for potential later use
     }
 
+    // Opens the selected task for the participant from the pre-task survey.
     async handleRunTaskClick() {
-        if (!this.selectedTask) return;
+        if (!this.selectedTaskValue || this.taskLaunching) return;
 
+        const participantId = this.currentSubject;
+        if (!participantId) {
+            this.showToast('Please complete the pre-task survey first', 'error');
+            return;
+        }
+
+        const loaders = {
+            'stroop-color-word': 'loadStroopColorWordTask',
+            'cvc': 'loadCVCTask',
+            'reading-span': 'loadReadingSpanTask',
+            'speeded-classification': 'loadSpeededClassificationTask',
+            'auditory-stroop': 'loadAuditoryStroopTask',
+            'cast-practice': 'loadPracticeCastTask',
+            'cast-nonword': 'loadCaSTNonwordTask',
+            'cast-word': 'loadCaSTWordTask',
+            'hint-practice': 'loadPracticeSentenceTask',
+            'hint': 'loadHINTTask',
+            'cst': 'loadCSTTask'
+        };
+        const loader = window[loaders[this.selectedTaskValue]];
+        if (typeof loader !== 'function') {
+            this.showToast(`${this.selectedTask} could not be loaded`, 'error');
+            return;
+        }
+
+        // One launch at a time (a double click must not open the task twice)
         const runTaskBtn = document.getElementById('run-task-btn');
-        
-        // Show loading state
+        this.taskLaunching = true;
         runTaskBtn.classList.add('loading');
         runTaskBtn.disabled = true;
-
         try {
-            // Simulate task execution
-            console.log(`Running task: ${this.selectedTask} for subject: ${this.currentSubject}`);
-            
-            await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second simulation
-            
-            // Task completed
-            runTaskBtn.classList.remove('loading');
-            runTaskBtn.disabled = false;
-            
-            this.showToast(`Task "${this.selectedTask}" completed successfully`, 'success');
-            
+            console.log(`Running task: ${this.selectedTask} for subject: ${participantId}`);
+            await loader(participantId);
         } catch (error) {
-            console.error('Task execution error:', error);
-            
+            console.error('Task failed to open:', error);
+            this.showToast(`${this.selectedTask} failed to open: ${error.message}`, 'error');
+        } finally {
+            this.taskLaunching = false;
             runTaskBtn.classList.remove('loading');
             runTaskBtn.disabled = false;
-            
-            this.showToast(`Task failed: ${error.message}`, 'error');
         }
     }
 
@@ -4002,210 +4018,9 @@ class Dashboard {
     }
 }
 
-// Add this function to your existing dashboard.js
-function connectTaskIntegration() {
-    const runTaskBtn = document.getElementById('run-task-btn');
-    
-    if (runTaskBtn) {
-        // Override the existing click handler
-        runTaskBtn.addEventListener('click', async function() {
-            const taskDropdown = document.getElementById('task-dropdown');
-            const selectedTask = taskDropdown ? taskDropdown.value : null;
-            
-            if (!selectedTask) {
-                alert('Please select a task first');
-                return;
-            }
-            
-            if (selectedTask === 'speeded-classification') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the integration function
-                if (window.loadSpeededClassificationTask) {
-                    await window.loadSpeededClassificationTask(participantId);
-                } else {
-                    alert('Task integration not loaded');
-                }
-            } else if (selectedTask === 'auditory-stroop') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the auditory stroop integration function
-                if (window.loadAuditoryStroopTask) {
-                    await window.loadAuditoryStroopTask(participantId);
-                } else {
-                    alert('Auditory Stroop task integration not loaded');
-                }
-            } else if (selectedTask === 'stroop-color-word') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the stroop color-word integration function
-                if (window.loadStroopColorWordTask) {
-                    await window.loadStroopColorWordTask(participantId);
-                } else {
-                    alert('Stroop Color-Word task integration not loaded');
-                }
-            } else if (selectedTask === 'cvc') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CVC integration function
-                if (window.loadCVCTask) {
-                    await window.loadCVCTask(participantId);
-                } else {
-                    alert('CVC task integration not loaded');
-                }
-            } else if (selectedTask === 'reading-span') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Reading Span integration function
-                if (window.loadReadingSpanTask) {
-                    await window.loadReadingSpanTask(participantId);
-                } else {
-                    alert('Reading Span task integration not loaded');
-                }
-            } else if (selectedTask === 'hint-practice') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Practice Sentence integration function
-                if (window.loadPracticeSentenceTask) {
-                    await window.loadPracticeSentenceTask(participantId);
-                } else {
-                    alert('Practice Sentence task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-practice') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Practice CaST integration function
-                if (window.loadPracticeCastTask) {
-                    await window.loadPracticeCastTask(participantId);
-                } else {
-                    alert('Practice CaST task integration not loaded');
-                }
-            } else if (selectedTask === 'cst') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CST integration function
-                if (window.loadCSTTask) {
-                    await window.loadCSTTask(participantId);
-                } else {
-                    alert('CST task integration not loaded');
-                }
-            } else if (selectedTask === 'hint') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the HINT integration function
-                if (window.loadHINTTask) {
-                    await window.loadHINTTask(participantId);
-                } else {
-                    alert('HINT task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-word') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CaST Word integration function
-                if (window.loadCaSTWordTask) {
-                    await window.loadCaSTWordTask(participantId);
-                } else {
-                    alert('CaST Word task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-nonword') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CaST Non-word integration function
-                if (window.loadCaSTNonwordTask) {
-                    await window.loadCaSTNonwordTask(participantId);
-                } else {
-                    alert('CaST Non-word task integration not loaded');
-                }
-            }
-        });
-    }
-}
-
-
-function getParticipantId() {
-    // Get from subject display
-    const subjectDisplay = document.getElementById('subject-display');
-    if (subjectDisplay && subjectDisplay.textContent !== '**Subject ID**') {
-        return subjectDisplay.textContent;
-    }
-    return 'test_participant'; // fallback
-}
-
 // COMBINE INTO ONE DOMContentLoaded LISTENER
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Initializing dashboard...');
     
-    // Initialize the dashboard first
     window.dashboard = new Dashboard();
-    
-    // Then connect task integration after a short delay
-    setTimeout(connectTaskIntegration, 500);
-    
-    console.log('Dashboard.js loaded, task integration will be connected in 500ms');
 });

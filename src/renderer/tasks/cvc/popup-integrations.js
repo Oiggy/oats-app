@@ -17,7 +17,9 @@ class CVCTask {
         this.currentFlag = null;
         this.letterOnsetTime = null;
         this.responseGiven = false;
+        this.responseTime = null;
         this.trialTimer = null;
+        this.resultsSaved = false;
         
         // Phase counters
         this.realWordsCompleted = 0;
@@ -45,7 +47,11 @@ class CVCTask {
             this.showWelcomeScreen();
         } catch (error) {
             console.error('Error initializing CVC task:', error);
-            alert('Error loading CVC task. Please check configuration.');
+            const reason = error && error.code === 'ENOENT' && /cfg_cvc_task/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            alert(`Error loading CVC task:\n\n${reason}`);
+            this.closeTask(false);
         }
     }
 
@@ -75,7 +81,8 @@ class CVCTask {
         const fs = window.require('fs').promises;
         
         // Load from the task directory
-        const stimulusPath = path.join(__dirname, '..', 'tasks', 'cvc', 'vmtcvc.txt');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const stimulusPath = path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'cvc', 'vmtcvc.txt');
         const stimulusData = await fs.readFile(stimulusPath, 'utf8');
         
         // Parse the stimulus file - each line is: LETTER1,FLAG1,LETTER2,FLAG2
@@ -251,15 +258,15 @@ class CVCTask {
     bindEvents() {
         // Close button
         const closeBtn = this.modalContent.querySelector('.cvc-close-btn');
-        closeBtn.addEventListener('click', () => this.closeTask());
+        closeBtn.addEventListener('click', () => this.requestClose());
 
         // Exit button
         const exitBtn = this.modalContent.querySelector('.cvc-exit-btn');
-        exitBtn.addEventListener('click', () => this.closeTask());
+        exitBtn.addEventListener('click', () => this.requestClose());
 
-        // Close on overlay click
+        // Clicking outside the window must not end a run by accident
         this.modalOverlay.addEventListener('click', (e) => {
-            if (e.target === this.modalOverlay) {
+            if (e.target === this.modalOverlay && !this.isRunning()) {
                 this.closeTask();
             }
         });
@@ -417,7 +424,8 @@ class CVCTask {
         this.currentLetter = stimulus.letter;
         this.currentFlag = stimulus.flag;
         this.responseGiven = false;
-        
+        this.responseTime = null;
+
         console.log('Practice Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag);
         
         // Display only the single letter
@@ -447,7 +455,8 @@ class CVCTask {
         this.currentLetter = useList2 ? stimulus.letter2 : stimulus.letter1;
         this.currentFlag = useList2 ? stimulus.flag2 : stimulus.flag1;
         this.responseGiven = false;
-        
+        this.responseTime = null;
+
         console.log('Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag, '(List', this.config.parameters.stimulus.list_selection + ')');
         
         // Display only the single letter
@@ -488,8 +497,10 @@ class CVCTask {
     }
 
     processTrial() {
-        const responseTime = this.responseGiven ? performance.now() : null;
-        const reactionTime = this.responseGiven ? responseTime - this.letterOnsetTime : null;
+        // RT = key press / click time (event timestamp) - letter onset
+        const reactionTime = this.responseGiven && this.responseTime != null
+            ? this.responseTime - this.letterOnsetTime
+            : null;
         
         // Determine trial outcome
         let outcome;
@@ -537,6 +548,7 @@ class CVCTask {
     }
 
     endPractice() {
+        this.currentPhase = 'practice_complete';
         this.showResponseHint(false);
         this.updateStatus('Practice complete');
         
@@ -581,6 +593,7 @@ class CVCTask {
     }
 
     endMain() {
+        this.currentPhase = 'complete';
         this.showResponseHint(false);
         this.updateStatus('Task complete');
         this.showSummary();
@@ -637,8 +650,8 @@ class CVCTask {
             { label: 'Misses', value: this.stats.misses },
             { label: 'False Alarms', value: this.stats.falseAlarms },
             { label: 'Correct Rejections', value: this.stats.correctRejections },
-            { label: 'Avg RT (ms)', value: avgRT.toFixed(0) },
-            { label: 'Median RT (ms)', value: medianRT.toFixed(0) }
+            { label: 'Avg RT (ms)', value: this.stats.reactionTimes.length ? avgRT.toFixed(0) : 'N/A' },
+            { label: 'Median RT (ms)', value: this.stats.reactionTimes.length ? medianRT.toFixed(0) : 'N/A' }
         ];
 
         return stats.map(stat => `
@@ -664,16 +677,29 @@ class CVCTask {
         `).join('');
     }
 
+    isRunning() {
+        return this.currentPhase === 'practice' || this.currentPhase === 'main';
+    }
+
+    recordResponse(e) {
+        if (this.responseGiven) return; // first response per letter counts
+        this.responseGiven = true;
+        const now = performance.now();
+        this.responseTime = (e && e.timeStamp > 0 && Math.abs(now - e.timeStamp) < 1000) ? e.timeStamp : now;
+    }
+
     handleKeyPress(e) {
-        if (e.code === 'Space' && (this.currentPhase === 'practice' || this.currentPhase === 'main')) {
+        if (e.code === 'Space' && this.isRunning()) {
             e.preventDefault();
-            this.responseGiven = true;
+            if (!e.repeat) this.recordResponse(e);
         }
     }
 
     handleClick(e) {
-        if (this.currentPhase === 'practice' || this.currentPhase === 'main') {
-            this.responseGiven = true;
+        // Only clicks on the letter area are responses (not Exit / Close)
+        const area = document.getElementById('cvc-task-content');
+        if (this.isRunning() && area && area.contains(e.target)) {
+            this.recordResponse(e);
         }
     }
 
@@ -713,19 +739,25 @@ class CVCTask {
     }
 
     async saveResults() {
+        if (this.resultsSaved) return;
+        this.resultsSaved = true;
         try {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
-            
-            // Create session directory
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+
+            // Same location as every other task: participants/ for real
+            // participants, sessions/ for Developer Mode runs
+            const baseDir = process.platform === 'win32'
+                ? path.join(os.homedir(), 'AppData', 'Roaming', 'Oats')
+                : path.join(os.homedir(), 'Documents', 'Oats');
+            const timestamp = this.sessionData.startTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
             const sessionDir = path.join(
-                os.homedir(), 
-                'Documents', 
-                'Oats', 
-                'sessions', 
-                this.participantId, 
+                baseDir,
+                getParticipantFolderName(this.participantId),
+                this.participantId,
                 `cvc_${timestamp}`
             );
             
@@ -791,8 +823,10 @@ class CVCTask {
         content += `False Alarms: ${this.stats.falseAlarms}\n`;
         content += `Correct Rejections: ${this.stats.correctRejections}\n`;
         content += `Total Responses: ${this.stats.reactionTimes.length}\n`;
-        content += `Average Reaction Time: ${avgRT.toFixed(1)}ms\n`;
-        content += `Median Reaction Time: ${medianRT.toFixed(1)}ms\n\n`;
+        content += `Average Reaction Time: ${this.stats.reactionTimes.length ? `${avgRT.toFixed(1)}ms` : 'N/A'}\n`;
+        content += `Median Reaction Time: ${this.stats.reactionTimes.length ? `${medianRT.toFixed(1)}ms` : 'N/A'}\n`;
+        if (this.currentPhase !== 'complete') content += `NOTE: task closed before the end (incomplete run)\n`;
+        content += `\n`;
         
         // Trial-by-trial data
         content += 'DETAILED TRIAL DATA\n';
@@ -820,11 +854,22 @@ class CVCTask {
         return content;
     }
 
-    closeTask() {
+    // Close / Exit: confirm before abandoning a run in progress
+    requestClose() {
+        if (this.isRunning() && !confirm('Exit the CVC task? The run will stop (main-phase responses so far are saved).')) return;
+        this.closeTask(true);
+    }
+
+    closeTask(savePartial = true) {
         // Clear any running timers
         if (this.trialTimer) {
             clearTimeout(this.trialTimer);
         }
+        // Keep main-phase data from a run that was stopped early
+        if (savePartial && this.currentPhase === 'main' && this.results.length) {
+            this.saveResults();
+        }
+        this.currentPhase = 'closed';
         
         // Remove event listeners
         document.removeEventListener('keydown', this.handleKeyPress);
@@ -843,7 +888,7 @@ class CVCTask {
     cleanup() {
         console.log('CVC task cleanup completed');
         // Clean up instance
-        window.cvcTaskInstance = null;
+        if (window.cvcTaskInstance === this) window.cvcTaskInstance = null;
     }
 }
 
@@ -858,7 +903,7 @@ async function loadCVCTask(participantId) {
         
     } catch (error) {
         console.error('Error loading CVC task:', error);
-        alert('Error loading CVC task. Please check the configuration and try again.');
+        alert(`Error loading CVC task:\n\n${error.message || error}`);
     }
 }
 

@@ -49,7 +49,10 @@ class HINTTask {
             this.showInstructionPage();
         } catch (error) {
             console.error('Error initializing HINT task:', error);
-            alert('Failed to initialize task. Please check configuration.');
+            const reason = error && error.code === 'ENOENT' && /cfg_.*_task\.json/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            alert(`Failed to open the task:\n\n${reason}`);
         }
     }
 
@@ -645,16 +648,18 @@ class HINTTask {
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
+            const playId = (this.playId = (this.playId || 0) + 1);
             this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then((timing) => {
+                    if (playId !== this.playId || timing.cancelled) return; // stopped or replaced
                     this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');
                     this.startResponseTimer();
                 })
                 .catch((error) => {
                     console.error('ASIO playback error:', error);
-                    this.updateStatus('Audio finished ✓');
-                    this.startResponseTimer();
+                    if (playId !== this.playId) return;
+                    this.updateStatus(`⚠ Playback failed: ${error.message}`);
                 });
             return;
         }
@@ -681,7 +686,9 @@ class HINTTask {
         this.currentSource.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
 
-        this.currentSource.onended = () => {
+        const source = this.currentSource;
+        source.onended = () => {
+            if (this.currentSource !== source) return; // stopped or replaced
             this.updateStatus('Audio finished ✓');
             this.startResponseTimer();
         };
@@ -732,13 +739,15 @@ class HINTTask {
 
     // Response timer methods
     startResponseTimer() {
+        this.stopResponseTimer();
+        this.responseStartedAt = performance.now();
         this.responseMs = 0;
         this.responseRunning = true;
         this.updateResponseDisplay();
-        
+
         this.responseTimer = setInterval(() => {
             if (this.responseRunning) {
-                this.responseMs += 100;
+                this.responseMs = Math.round(performance.now() - this.responseStartedAt);
                 this.updateResponseDisplay();
             }
         }, 100);
@@ -777,10 +786,8 @@ class HINTTask {
     }
 
     async saveResults() {
-        if (this.resultsSaved) {
-            console.log('Results already saved, skipping...');
-            return;
-        }
+        // Saved every time the tester leaves or finishes, overwriting this
+        // run's files, so later scoring changes are never lost.
         
         try {
             const os = window.require('os');
@@ -800,7 +807,8 @@ class HINTTask {
             const outputDir = path.join(baseDir, 'Speech_in_Noise', 'HINT');
             await fs.mkdir(outputDir, { recursive: true });
             
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            if (!this.resultsTimestamp) this.resultsTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const timestamp = this.resultsTimestamp;
             const outputPath = path.join(outputDir, `HINT_${this.participantId}_${timestamp}.txt`);
             
             let output = [];

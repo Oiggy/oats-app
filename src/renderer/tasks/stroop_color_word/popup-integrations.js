@@ -605,6 +605,7 @@ class StroopColorWordPopup {
         
         return new Promise(resolve => {
             document.getElementById('continue-btn').addEventListener('click', resolve);
+            this.cancelBreak = resolve;
         });
     }
 
@@ -677,7 +678,14 @@ class StroopColorWordPopup {
         // Wait for recording to complete
         let recordingResult = null;
         if (recordingPromise) {
-            recordingResult = await recordingPromise;
+            try {
+                recordingResult = await recordingPromise;
+            } catch (error) {
+                console.error('Recording failed for this trial:', error);
+                recordingResult = null;
+            }
+        }
+        if (recordingResult) {
 
             // The recorder knows when its first sample was actually captured
             // (from the ASIO stream clock); prefer that over the estimate
@@ -687,12 +695,7 @@ class StroopColorWordPopup {
                 this.currentTrialTiming.stimulusOffset =
                     this.currentTrialTiming.stimulusOnsetTime - recordingResult.audioStartTime;
             }
-
-            // Queue speech analysis for later processing
-            this.recordingPromises.push(
-                this.analyzeRecordingAsync(recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
-            );
-        } else {
+        } else if (!recordingPromise) {
             // For practice trials, just wait the recording duration
             await this.wait(this.config.parameters.timing.recording_duration);
         }
@@ -720,7 +723,14 @@ class StroopColorWordPopup {
         };
         
         this.results.push(trialResult);
-        
+
+        // Speech analysis runs in the background and fills in this trial
+        if (recordingResult) {
+            this.recordingPromises.push(
+                this.analyzeRecordingAsync(trialResult, recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
+            );
+        }
+
         // Brief pause before next trial
         taskStage.innerHTML = '';
         await this.wait(500);
@@ -809,23 +819,18 @@ class StroopColorWordPopup {
     }
 
     // Add async speech analysis
-    async analyzeRecordingAsync(audioPath, stimulusOffset) {
+    async analyzeRecordingAsync(trialResult, audioPath, stimulusOffset) {
         try {
             const analysisResult = await this.speechDetector.analyzeWavFile(audioPath, stimulusOffset);
-            
-            // Find the corresponding trial result and update it
-            const trialIndex = this.results.length - 1;
-            if (trialIndex >= 0) {
-                this.results[trialIndex].speech_onset_time = analysisResult.speechOnsetTime;
-                this.results[trialIndex].rt_seconds = analysisResult.rtSeconds;
-                this.results[trialIndex].rt_confidence = analysisResult.rtConfidence;
-                
-                console.log(`Speech analysis completed for trial ${trialIndex + 1}:`, {
-                    rt_ms: analysisResult.rtSeconds ? (analysisResult.rtSeconds * 1000).toFixed(1) : 'N/A',
-                    confidence: analysisResult.rtConfidence ? analysisResult.rtConfidence.toFixed(3) : 'N/A'
-                });
-            }
-            
+
+            trialResult.speech_onset_time = analysisResult.speechOnsetTime;
+            trialResult.rt_seconds = analysisResult.rtSeconds;
+            trialResult.rt_confidence = analysisResult.rtConfidence;
+
+            console.log(`Speech analysis completed for trial ${trialResult.global_trial}:`, {
+                rt_ms: analysisResult.rtSeconds ? (analysisResult.rtSeconds * 1000).toFixed(1) : 'N/A',
+                confidence: analysisResult.rtConfidence ? analysisResult.rtConfidence.toFixed(3) : 'N/A'
+            });
         } catch (error) {
             console.error('Speech analysis failed:', error);
         }
@@ -861,8 +866,8 @@ class StroopColorWordPopup {
                 <div class="summary">
                     <h4>End of Block Summary</h4>
                     <p><strong>Number of trials completed:</strong> ${summary.totalTrials}</p>
-                    <p><strong>Average reaction time:</strong> ${summary.meanRT.toFixed(0)}ms</p>
-                    <p><strong>Mean RT confidence:</strong> ${summary.meanConfidence.toFixed(3)}</p>
+                    <p><strong>Average reaction time:</strong> ${summary.validDetections ? `${summary.meanRT.toFixed(0)}ms` : 'N/A (no speech detected)'}</p>
+                    <p><strong>Mean RT confidence:</strong> ${summary.validDetections ? summary.meanConfidence.toFixed(3) : 'N/A'}</p>
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -892,7 +897,8 @@ class StroopColorWordPopup {
         return {
             totalTrials: totalTrials,
             meanRT: meanRT,
-            meanConfidence: meanConfidence
+            meanConfidence: meanConfidence,
+            validDetections: validRTs.length
         };
     }
 
@@ -995,8 +1001,8 @@ class StroopColorWordPopup {
         content += 'PERFORMANCE SUMMARY\n';
         content += '-'.repeat(30) + '\n';
         content += `Total Trials Completed: ${summary.totalTrials}\n`;
-        content += `Average Reaction Time: ${summary.meanRT.toFixed(0)}ms\n`;
-        content += `Mean RT Confidence: ${summary.meanConfidence.toFixed(3)}\n`;
+        content += `Average Reaction Time: ${summary.validDetections ? `${summary.meanRT.toFixed(0)}ms` : 'N/A'}\n`;
+        content += `Mean RT Confidence: ${summary.validDetections ? summary.meanConfidence.toFixed(3) : 'N/A'}\n`;
         content += `Valid Speech Detections: ${summary.validDetections}/${summary.totalTrials}\n`;
         content += `Note: RT computed from speech onset detection in audio recordings\n\n`;
         
@@ -1024,8 +1030,8 @@ class StroopColorWordPopup {
             content += `Main Phase:\n`;
             content += `  Trials: ${mainResults.length}\n`;
             content += `  Valid Speech Detections: ${mainValidRTs.length}\n`;
-            content += `  Mean RT: ${mainMeanRT.toFixed(0)}ms\n`;
-            content += `  Mean Confidence: ${mainMeanConfidence.toFixed(3)}\n\n`;
+            content += `  Mean RT: ${mainValidRTs.length ? `${mainMeanRT.toFixed(0)}ms` : 'N/A'}\n`;
+            content += `  Mean Confidence: ${mainValidRTs.length ? mainMeanConfidence.toFixed(3) : 'N/A'}\n\n`;
         }
         
         // Detailed Trial Data
@@ -1102,6 +1108,7 @@ class StroopColorWordPopup {
     }
 
     closeTaskPopup() {
+        if (this.cancelBreak) { this.cancelBreak(); this.cancelBreak = null; }
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.classList.remove('open', 'task-modal');
@@ -1124,5 +1131,9 @@ class StroopColorWordPopup {
 // Create global instance and expose the function
 window.stroopColorWordPopup = new StroopColorWordPopup();
 window.loadStroopColorWordTask = async (participantId) => {
+    // A fresh object per run, so nothing (trials, results folder, audio
+    // check, flags) carries over from a previous run or participant.
+    if (window.stroopColorWordPopup && window.stroopColorWordPopup.isOpen) return;
+    window.stroopColorWordPopup = new StroopColorWordPopup();
     await window.stroopColorWordPopup.loadTask(participantId);
 };

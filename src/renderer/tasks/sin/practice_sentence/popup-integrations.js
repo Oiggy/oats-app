@@ -36,7 +36,10 @@ class PracticeSentenceTask {
             this.showInstructionPage();
         } catch (error) {
             console.error('Error initializing Practice Sentence task:', error);
-            alert('Failed to initialize task. Please check configuration.');
+            const reason = error && error.code === 'ENOENT' && /cfg_.*_task\.json/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            alert(`Failed to open the task:\n\n${reason}`);
         }
     }
 
@@ -325,16 +328,18 @@ We'll start with a few practice items now.`;
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
+            const playId = (this.playId = (this.playId || 0) + 1);
             this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then((timing) => {
+                    if (playId !== this.playId || timing.cancelled) return; // stopped or replaced
                     this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');
                     this.startResponseTimer();
                 })
                 .catch((error) => {
                     console.error('ASIO playback error:', error);
-                    this.updateStatus('Audio finished ✓');
-                    this.startResponseTimer();
+                    if (playId !== this.playId) return;
+                    this.updateStatus(`⚠ Playback failed: ${error.message}`);
                 });
             return;
         }
@@ -368,7 +373,9 @@ We'll start with a few practice items now.`;
         gainNode.connect(this.audioContext.destination);
         
         // Handle audio end
-        this.currentSource.onended = () => {
+        const source = this.currentSource;
+        source.onended = () => {
+            if (this.currentSource !== source) return; // stopped or replaced
             this.updateStatus('Audio finished ✓');
             this.startResponseTimer();
         };
@@ -432,13 +439,15 @@ We'll start with a few practice items now.`;
 
     // Response timer methods
     startResponseTimer() {
+        this.stopResponseTimer();
+        this.responseStartedAt = performance.now();
         this.responseMs = 0;
         this.responseRunning = true;
         this.updateResponseDisplay();
-        
+
         this.responseTimer = setInterval(() => {
             if (this.responseRunning) {
-                this.responseMs += 100;
+                this.responseMs = Math.round(performance.now() - this.responseStartedAt);
                 this.updateResponseDisplay();
             }
         }, 100);
