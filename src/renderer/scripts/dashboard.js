@@ -185,6 +185,14 @@ class Dashboard {
                         <label for="audio-in-channel">Recording input channel</label>
                         <select id="audio-in-channel"></select>
                     </div>
+                    <div class="audio-field">
+                        <label for="audio-calibration">SPL calibration (optional)</label>
+                        <input type="number" id="audio-calibration" step="0.1" min="0" max="140"
+                               placeholder="dB SPL measured at 100% volume"
+                               value="${config.calibrationDbSplAt100 != null ? config.calibrationDbSplAt100 : ''}">
+                        <small class="audio-hint">Measure the level at the earphone with stimulus volume at 100% and the
+                        interface/amp knobs at their fixed lab positions. Results then log an estimated dB SPL per participant.</small>
+                    </div>
                     <div class="audio-row">
                         <button type="button" class="button-secondary" id="audio-test-output">Test output</button>
                         <button type="button" class="button-secondary" id="audio-test-input">Test input (2 s)</button>
@@ -203,7 +211,7 @@ class Dashboard {
                 .audio-status.warn { background: #fdf3e1; color: #8a5a00; }
                 .audio-field { display: flex; flex-direction: column; gap: 6px; flex: 1; }
                 .audio-field label { font-weight: 600; font-size: 13px; }
-                .audio-field select { padding: 8px; border-radius: 6px; border: 1px solid #d2d2d7; }
+                .audio-field select, .audio-field input[type="number"] { padding: 8px; border-radius: 6px; border: 1px solid #d2d2d7; }
                 .audio-row { display: flex; gap: 12px; }
                 .audio-channels { display: flex; flex-wrap: wrap; gap: 8px 14px; }
                 .audio-channels label { font-weight: 400; display: flex; align-items: center; gap: 4px; }
@@ -247,7 +255,12 @@ class Dashboard {
             sampleRate: parseInt(document.getElementById('audio-rate').value, 10),
             frameSize: parseInt(document.getElementById('audio-buffer').value, 10),
             outputChannels: Array.from(document.querySelectorAll('#audio-out-channels input:checked')).map((i) => parseInt(i.value, 10)),
-            inputChannel: parseInt(document.getElementById('audio-in-channel').value, 10)
+            inputChannel: parseInt(document.getElementById('audio-in-channel').value, 10),
+            calibrationDbSplAt100: (() => {
+                const raw = document.getElementById('audio-calibration').value.trim();
+                const value = parseFloat(raw);
+                return raw === '' || Number.isNaN(value) ? null : value;
+            })()
         });
 
         // Saves the form and reopens the stream with it. Returns true if ASIO
@@ -631,12 +644,15 @@ class Dashboard {
         const badge = document.getElementById('dev-mode-badge');
         const text = document.getElementById('dev-mode-text');
         
+        // Always "DEV": a developer's name would widen the badge into the
+        // AUDIO badge next to it. Active = red; the name goes in the tooltip.
+        text.textContent = 'DEV';
         if (active) {
             badge.classList.add('active');
-            text.textContent = name ? name.substring(0, 10) : 'DEV MODE';
+            badge.title = name ? `Developer Mode on (${name}) - click to turn off` : 'Developer Mode on - click to turn off';
         } else {
             badge.classList.remove('active');
-            text.textContent = 'DEV';
+            badge.title = 'Developer Mode';
         }
     }
 

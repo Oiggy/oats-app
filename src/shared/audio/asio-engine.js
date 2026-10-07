@@ -49,7 +49,11 @@ const DEFAULT_CONFIG = {
     // times; sample-domain alignment between stimulus and recording does
     // not depend on these.
     outputLatencyMs: null,
-    inputLatencyMs: null
+    inputLatencyMs: null,
+    // dB SPL measured at the earphone with stimulus volume at 100% and the
+    // lab's fixed knob settings. Used only for logging estimated SPL
+    // (src/shared/audio/stimulus-level.js); null = not calibrated.
+    calibrationDbSplAt100: null
 };
 
 function getConfigDir() {

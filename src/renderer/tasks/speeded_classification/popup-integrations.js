@@ -896,6 +896,26 @@ class SpeededClassificationPopup {
 
     // Output channels chosen in this task's configuration (1-based in the
     // UI, 0-based for the engine). Empty = use the global ASIO setup.
+    // Logs the stimulus volume this participant heard (dB re. the stimulus
+    // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
+    // stimulus-levels.csv, and returns the line for the results file.
+    logStimulusLevel(taskName) {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const levels = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'stimulus-level.js'));
+            return levels.logStimulusLevel({
+                participantId: this.participantId,
+                task: taskName,
+                volume: this.config.parameters.audio.volume,
+                backend: this.asioEngine && this.asioEngine.isEnabled() ? 'ASIO' : 'fallback'
+            });
+        } catch (error) {
+            console.error('Could not log stimulus level:', error);
+            return 'unavailable';
+        }
+    }
+
     getOutputChannels() {
         const channels = this.config && this.config.parameters && this.config.parameters.audio
             ? this.config.parameters.audio.output_channels
@@ -1150,6 +1170,7 @@ class SpeededClassificationPopup {
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
         content += `Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio (ASIO unavailable)'}\n`;
+        content += `Stimulus Level: ${this.logStimulusLevel('Speeded Classification')}\n`;
         content += `Task: Speeded Classification Task\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;

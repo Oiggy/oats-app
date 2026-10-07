@@ -91,6 +91,59 @@ configuration is re-saved, but Auditory Stroop and Speeded Classification
 rebuild their config from the form and drop it, falling back to the global
 channels.
 
+### Keeping app stimuli and Windows audio on separate channels
+
+OATS (through ASIO) and Windows (through its normal WDM audio) both send audio into the Focusrite's **Playback** channels:
+
+- Windows' default "Focusrite USB" playback device uses **Playback 1–2**.
+- OATS's **Out N** in Audio Setup is ASIO Playback N, so Out 1+2 = Playback 1–2.
+
+With both on 1–2 they're mixed together. To keep them apart, use different pairs. Which pair OATS uses doesn't matter; any outputs can be ticked:
+
+- **Stimuli on 3–4, Windows on 1–2:** tick **Out 3 + Out 4** in Audio Setup and leave Windows as it is.
+- **Stimuli on 1–2, Windows on 3–4:** keep Out 1 + 2 in OATS. In the Focusrite Notifier tray icon, choose **Expose Windows Channels**, then pick the 3–4 device as the Windows output (or as the output of the app playing background noise).
+
+Then, in Focusrite Control 2 → **Routing**, send each Playback pair to the physical output you want. For example, Headphones ← the stimulus pair and Line Outputs ← the Windows pair. If both must reach the same earphones, build a mix on the **Mixer** tab with both Playback pairs and route it to Headphones. Leave the stimulus fader at 0 dB, because the fader scales the stimulus level too.
+
+**Volume control.** ASIO bypasses the Windows mixer, so the Windows volume slider never changes the level of OATS stimuli, whatever channels they use. Stimulus level is set only by:
+
+- the task's volume setting in OATS;
+- Focusrite Control 2 (mixer faders, if a mix is used);
+- the hardware knobs (Scarlett headphone/output knob, Atom Amp volume).
+
+Quick proof on the lab machine:
+1. Play a task stimulus.
+2. Move the Windows volume slider. The stimulus level must not change.
+3. Change the task's volume in Task Configuration. It must change.
+
+If the Windows slider does change it, OATS has fallen back to Web Audio (the AUDIO badge is amber). Check Audio Setup.
+
+### Stimulus level logging (dB / SPL)
+
+Each listening task that saves results (Words, Nonwords, HINT, CST, Auditory Stroop, Speeded Classification) records the stimulus volume used for that participant:
+
+- **In the task's results file**, a line like `Stimulus Level: 150% (+3.52 dB re. stimulus file level), estimated 68.5 dB SPL (calibration 65.0 dB SPL at 100%)`.
+- **In a shared log** (`stimulus-levels.csv` in the Oats data folder, e.g. `%APPDATA%\Oats\stimulus-levels.csv`), one row per participant per task, with these columns:
+  - `timestamp`
+  - `participant_id`
+  - `developer_mode`
+  - `task`
+  - `volume_percent`
+  - `gain_db`
+  - `calibration_db_spl_at_100`
+  - `estimated_db_spl`
+  - `audio_backend`
+
+  Filter out `developer_mode = yes` rows, then average `gain_db` or `estimated_db_spl` across participants.
+
+`gain_db` is 20·log10(volume): 0 dB = the stimulus file's own level, +6 dB = 200%. It isn't SPL by itself, because the knobs and earphones also set what reaches the ear. To log estimated SPL:
+
+1. Fix the hardware knob positions (mark or tape them).
+2. Play a stimulus or calibration tone at 100% volume and measure the level at the earphone (sound level meter with an insert-earphone coupler).
+3. Enter that number in **Audio Setup → SPL calibration**.
+
+From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knobs, earphones or interface change. The practice tasks (Practice, Practice Sentence) don't save results, so they aren't logged.
+
 ## What each task uses ASIO for
 
 | Task | Playback | Recording | Timing recorded |
