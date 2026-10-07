@@ -60,7 +60,6 @@ class ReadingSpanTask {
             this.audioRecorder = new NativeAudioRecorder();
             
             await this.loadConfiguration();
-            this.audioRecorder.setInputChannelFromConfig(this.config);
             await this.loadStimulusData();
             await this.setupAudioPermissions();
             this.createTaskModal();

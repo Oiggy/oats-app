@@ -48,7 +48,6 @@ class StroopColorWordPopup {
         
         this.participantId = participantId;
         await this.loadConfiguration();
-        this.audioRecorder.setInputChannelFromConfig(this.config);
         await this.loadStimuli();
         this.setupStimuli();
         this.calculateBreakPoints();

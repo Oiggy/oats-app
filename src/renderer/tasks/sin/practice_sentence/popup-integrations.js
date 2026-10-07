@@ -77,15 +77,6 @@ class PracticeSentenceTask {
         }
     }
 
-    // Output channels chosen in this task's configuration (1-based in the
-    // UI, 0-based for the engine). Empty = use the global ASIO setup.
-    getOutputChannels() {
-        const channels = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.output_channels
-            : null;
-        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
-    }
-
     async initializeAudioContext() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -295,9 +286,7 @@ We'll start with a few practice items now.`;
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
-            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume, {
-                outputChannels: this.getOutputChannels()
-            })
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then((timing) => {
                     this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');

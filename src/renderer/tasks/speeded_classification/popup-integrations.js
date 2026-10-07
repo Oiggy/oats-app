@@ -102,10 +102,6 @@ class SpeededClassificationPopup {
                 this.config = defaults;
                 const volume = saved.parameters && saved.parameters.audio && parseFloat(saved.parameters.audio.volume);
                 if (!isNaN(volume) && volume > 0) this.config.parameters.audio.volume = volume;
-                const savedAudio = saved.parameters && saved.parameters.audio;
-                if (savedAudio && Array.isArray(savedAudio.output_channels)) {
-                    this.config.parameters.audio.output_channels = savedAudio.output_channels;
-                }
                 return;
             }
             this.config = this.mergeConfig(defaults, saved);
@@ -215,19 +211,11 @@ class SpeededClassificationPopup {
         return `${used}; timing reliable on ${reliable} of ${n}`;
     }
 
-    // Output channels chosen in this task's configuration (1-based in the
-    // config, 0-based for the engine). Unset = use the global ASIO setup.
-    getOutputChannels() {
-        const channels = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.output_channels
-            : null;
-        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
-    }
 
     // Short label for the results file naming the channels this task used.
     describeAudioBackend() {
         if (!(this.asioEngine && this.asioEngine.isEnabled())) return 'Web Audio (ASIO unavailable)';
-        return this.asioEngine.describeBackend({ outputChannels: this.getOutputChannels() });
+        return this.asioEngine.describeBackend();
     }
 
     // Logs the stimulus volume this participant heard (dB re. the stimulus
@@ -1285,7 +1273,7 @@ class SpeededClassificationPopup {
     }
 
     // ASIO: warning tone, silent gap and word go out as one continuous sound
-    // on this task's output channels, so the tone-to-word gap is sample-exact
+    // on the Audio Setup output channels, so the tone-to-word gap is sample-exact
     // and the word onset comes from the interface's own clock (known before
     // the word is heard, so responses are timed from true word onset).
     async startTrialAudioAsio(stimulus) {
@@ -1310,7 +1298,6 @@ class SpeededClassificationPopup {
             word
         ], {
             volume: this.config.parameters.audio.volume,
-            outputChannels: this.getOutputChannels(),
             onStart: onStarted
         });
 

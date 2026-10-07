@@ -80,27 +80,12 @@ The Routing tab above sends **Loopback ← Playback 1–2**, which gives the 4i4
 
 Expected timing difference: loopback is digital and skips the analogue converters. The stimulus therefore appears in the WAV a few milliseconds earlier than `stimulus_onset_in_recording_ms` in `_timing.json`, which includes the full interface round-trip latency. This is normal. To check timing exactly, use a physical loopback cable instead: a ¼" cable from rear **Output 3** into front **Input 1**, with **Out 3** ticked in Audio Setup and Input 1 selected.
 
-### Per-task output and input channels
+### Channels used by tasks
 
-Every task's ASIO playback and recording uses the channels chosen in Audio
-Setup, unless the task's own config file chooses different ones. To override,
-add these (1-based) to the `audio` section of the task's file in
-`task-configurations/`:
-
-- `output_channels`: where the task's stimuli play, e.g. `[3, 4]`. Auditory
-  Stroop, Speeded Classification and all Speech-in-Noise tasks.
-- `input_channel`: which input the task records, e.g. `2`. Stroop Colour
-  Word, Reading Span and Speech-in-Noise Words, Nonwords, HINT and CST.
-
-Example: `"audio": { "volume": 1.0, "output_channels": [3, 4], "input_channel": 2 }`.
-
-- There is no UI for this yet. Re-saving a task's configuration form keeps the
-  override.
-- A channel the interface doesn't have is an error, not silently dropped: the
-  task plays nothing on ASIO and falls back to Web Audio (`audio_backend` in
-  the results shows it), or the recording fails to start.
-- The **Audio Backend** line in each results file names the channels the
-  task actually used.
+Every task plays and records on the channels chosen with the **AUDIO**
+button (Audio Setup); there is no per-task channel setting. A channel the
+interface doesn't have is an error, not silently dropped, and the **Audio
+Backend** line in each results file names the channels used.
 
 ### Live status and built-in help
 

@@ -91,8 +91,6 @@ class CSTTask {
         }
     }
 
-    // Output channels chosen in this task's configuration (1-based in the
-    // UI, 0-based for the engine). Empty = use the global ASIO setup.
     // Logs the stimulus volume this participant heard (dB re. the stimulus
     // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
     // stimulus-levels.csv, and returns the line for the results file.
@@ -111,30 +109,6 @@ class CSTTask {
             console.error('Could not log stimulus level:', error);
             return 'unavailable';
         }
-    }
-
-    getOutputChannels() {
-        const channels = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.output_channels
-            : null;
-        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
-    }
-
-    // Input channel chosen in this task's configuration (1-based in the
-    // config, 0-based for the engine). Unset = use the global ASIO setup.
-    getInputChannel() {
-        const channel = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.input_channel
-            : null;
-        return channel == null || channel === '' ? undefined : Number(channel) - 1;
-    }
-
-    // The channels this task really uses, for results files.
-    describeAudioBackend() {
-        return this.asioEngine.describeBackend({
-            outputChannels: this.getOutputChannels(),
-            inputChannel: this.getInputChannel()
-        });
     }
 
     async initializeAudioContext() {
@@ -739,9 +713,7 @@ class CSTTask {
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
-            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume, {
-                outputChannels: this.getOutputChannels()
-            })
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then((timing) => {
                     this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');
@@ -906,7 +878,7 @@ class CSTTask {
             output.push('='.repeat(60));
             output.push('');
             output.push(`Participant ID: ${this.participantId}`);
-            output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.describeAudioBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
+            output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
             output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: CST')}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
             output.push(`Task: CST`);
@@ -1087,7 +1059,7 @@ class CSTTask {
             const indicator = document.getElementById('recording-indicator');
             if (indicator) indicator.style.display = 'block';
             try {
-                this.takeCapture = await this.asioEngine.startCapture({ inputChannel: this.getInputChannel() });
+                this.takeCapture = await this.asioEngine.startCapture();
             } catch (error) {
                 console.error('Error starting ASIO recording:', error);
                 this.isRecording = false;
@@ -1189,7 +1161,7 @@ class CSTTask {
         const fs = window.require('fs').promises;
         const position = this.asioEngine.stimulusPositionInRecording(this.takeStimulusTiming, this.takeRecording);
         const timing = {
-            audio_backend: this.describeAudioBackend(),
+            audio_backend: this.asioEngine.describeBackend(),
             sample_rate: this.takeRecording.sampleRate,
             recording_samples: this.takeRecording.sampleCount,
             stimulus_onset_in_recording_samples: position ? position.samples : null,

@@ -28,18 +28,6 @@ class NativeAudioRecorder {
         // stopRecording() knows which code path to tear down.
         this.usingAsio = false;
         this.asioOutputPath = null;
-
-        // ASIO input channel (0-based) chosen in the task's configuration;
-        // undefined = the input channel chosen in Audio Setup.
-        this.inputChannel = undefined;
-    }
-
-    // Takes the task's audio.input_channel (1-based) from its configuration.
-    setInputChannelFromConfig(config) {
-        const channel = config && config.parameters && config.parameters.audio
-            ? config.parameters.audio.input_channel
-            : null;
-        this.inputChannel = channel == null || channel === '' ? undefined : Number(channel) - 1;
     }
 
     async preloadMicrophone() {
@@ -94,7 +82,7 @@ class NativeAudioRecorder {
     }
 
     describeBackend() {
-        return asioEngine.isEnabled() ? asioEngine.describeBackend({ inputChannel: this.inputChannel }) : `sox (${asioEngine.getStatus().reason || 'ASIO disabled'})`;
+        return asioEngine.isEnabled() ? asioEngine.describeBackend() : `sox (${asioEngine.getStatus().reason || 'ASIO disabled'})`;
     }
 
     getHighResolutionTime() {
@@ -119,7 +107,7 @@ class NativeAudioRecorder {
         this.isRecording = true;
         // Wall-clock time of the recording's first sample, taken from the
         // ASIO stream clock rather than from when this call happened to run.
-        const capture = await asioEngine.startCapture({ inputChannel: this.inputChannel });
+        const capture = await asioEngine.startCapture();
         const audioStartTime = capture.startPerfMs / 1000;
 
         return new Promise((resolve) => {
@@ -308,7 +296,7 @@ class NativeAudioRecorder {
     }
 
     async _testAudioAsio() {
-        await asioEngine.startCapture({ inputChannel: this.inputChannel });
+        await asioEngine.startCapture();
         await this.wait(1000);
         const hasAudio = asioEngine.stopCaptureDiscard();
         console.log(hasAudio ? 'Microphone test: PASSED (ASIO)' : 'Microphone test: FAILED - No audio detected (ASIO)');
@@ -330,7 +318,7 @@ class NativeAudioRecorder {
         this.usingAsio = true;
         this.asioOutputPath = outputPath;
         this.isRecording = true;
-        await asioEngine.startCapture({ inputChannel: this.inputChannel });
+        await asioEngine.startCapture();
 
         return new Promise((resolve) => {
             setTimeout(async () => {

@@ -419,21 +419,6 @@ class StroopColorWordConfig {
         await fs.mkdir(baseDir, { recursive: true });
         
         const configPath = path.join(baseDir, 'cfg_stroop_color_word_task.json');
-        // This form doesn't edit the task's ASIO channel choice
-        // (audio.output_channels / audio.input_channel); carry it over from
-        // the saved file so re-saving the form doesn't drop it.
-        try {
-            const saved = JSON.parse(await fs.readFile(configPath, 'utf8'));
-            const savedAudio = saved.parameters && saved.parameters.audio;
-            if (savedAudio) {
-                config.parameters.audio = config.parameters.audio || {};
-                ['output_channels', 'input_channel'].forEach((key) => {
-                    if (savedAudio[key] !== undefined) config.parameters.audio[key] = savedAudio[key];
-                });
-            }
-        } catch (error) {
-            // No saved configuration yet
-        }
         await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
         
         console.log(`Stroop Color-Word configuration saved to: ${configPath}`);
