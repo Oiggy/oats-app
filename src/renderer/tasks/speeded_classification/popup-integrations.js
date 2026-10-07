@@ -719,6 +719,13 @@ class SpeededClassificationPopup {
     }
 
     async playTestTone() {
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
+            await this.asioEngine.playTone(440, 500, this.config.parameters.audio.volume * 0.3, {
+                outputChannels: this.getOutputChannels()
+            });
+            return;
+        }
+
         if (!this.audioContext) {
             throw new Error('Audio context not available');
         }
@@ -847,10 +854,14 @@ class SpeededClassificationPopup {
         `;
         
         // Play audio stimulus
-        await this.playStimulus(stimulus);
-        
-        // Start response timing
-        this.responseStartTime = Date.now();
+        const playback = await this.playStimulus(stimulus);
+
+        // Reaction time is measured from the end of the stimulus. With ASIO
+        // the stream clock says when the last sample actually left the
+        // interface; everything is on the performance.now() clock.
+        this.responseStartTime = playback && playback.offsetPerfMs != null
+            ? playback.offsetPerfMs
+            : performance.now();
         
         // Collect response
         const response = await this.collectResponse();
@@ -865,6 +876,8 @@ class SpeededClassificationPopup {
             participant_response: response.response,
             reaction_time: response.time,
             accuracy: response.response === stimulus.correct_response ? 1 : 0,
+            audio_backend: playback && playback.backend ? playback.backend : 'none',
+            timing_reliable: !playback || playback.timingReliable !== false,
             stimulus_category: stimulus.category,
             timestamp: new Date().toISOString()
         };
@@ -881,11 +894,43 @@ class SpeededClassificationPopup {
         await this.wait(this.config.parameters.timing.iti);
     }
 
+    // Output channels chosen in this task's configuration (1-based in the
+    // UI, 0-based for the engine). Empty = use the global ASIO setup.
+    // Logs the stimulus volume this participant heard (dB re. the stimulus
+    // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
+    // stimulus-levels.csv, and returns the line for the results file.
+    logStimulusLevel(taskName) {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const levels = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'stimulus-level.js'));
+            return levels.logStimulusLevel({
+                participantId: this.participantId,
+                task: taskName,
+                volume: this.config.parameters.audio.volume,
+                backend: this.asioEngine && this.asioEngine.isEnabled() ? 'ASIO' : 'fallback'
+            });
+        } catch (error) {
+            console.error('Could not log stimulus level:', error);
+            return 'unavailable';
+        }
+    }
+
+    getOutputChannels() {
+        const channels = this.config && this.config.parameters && this.config.parameters.audio
+            ? this.config.parameters.audio.output_channels
+            : null;
+        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
+    }
+
     async playStimulus(stimulus) {
         try {
             if (this.asioEngine && this.asioEngine.isEnabled() && this.audioFilePaths[stimulus.file]) {
-                await this.asioEngine.playFile(this.audioFilePaths[stimulus.file], this.config.parameters.audio.volume);
-                return;
+                return await this.asioEngine.playFile(
+                    this.audioFilePaths[stimulus.file],
+                    this.config.parameters.audio.volume,
+                    { outputChannels: this.getOutputChannels() }
+                );
             }
 
             if (this.audioContext && this.audioBuffers[stimulus.file]) {
@@ -902,7 +947,7 @@ class SpeededClassificationPopup {
                 
                 // Wait for audio to finish
                 return new Promise(resolve => {
-                    source.onended = resolve;
+                    source.onended = () => resolve({ backend: 'WebAudio', offsetPerfMs: performance.now(), timingReliable: true });
                 });
             } else {
                 console.warn(`No audio buffer for ${stimulus.file}, using silence`);
@@ -939,7 +984,9 @@ class SpeededClassificationPopup {
                     e.target.classList.add('clicked');
                     
                     const response = e.target.dataset.response;
-                    const reactionTime = Date.now() - this.responseStartTime;
+                    // Event timestamp = when the click happened, not when this
+                    // handler got to run.
+                    const reactionTime = (e.timeStamp || performance.now()) - this.responseStartTime;
                     
                     responseButtons.forEach(btn => btn.removeEventListener('click', handleClick));
                     
@@ -1122,6 +1169,8 @@ class SpeededClassificationPopup {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio (ASIO unavailable)'}\n`;
+        content += `Stimulus Level: ${this.logStimulusLevel('Speeded Classification')}\n`;
         content += `Task: Speeded Classification Task\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;

@@ -81,6 +81,10 @@ class NativeAudioRecorder {
         }
     }
 
+    describeBackend() {
+        return asioEngine.isEnabled() ? asioEngine.describeBackend() : `sox (${asioEngine.getStatus().reason || 'ASIO disabled'})`;
+    }
+
     getHighResolutionTime() {
         // Use performance.now() for high-resolution timing
         return performance.now() / 1000.0; // Convert to seconds
@@ -98,20 +102,23 @@ class NativeAudioRecorder {
     }
 
     async _startRecordingWithPreciseTimingAsio(outputPath, durationMs) {
-        const audioStartTime = this.getHighResolutionTime();
-
         this.usingAsio = true;
         this.asioOutputPath = outputPath;
         this.isRecording = true;
-        await asioEngine.startCapture();
+        // Wall-clock time of the recording's first sample, taken from the
+        // ASIO stream clock rather than from when this call happened to run.
+        const capture = await asioEngine.startCapture();
+        const audioStartTime = capture.startPerfMs / 1000;
 
         return new Promise((resolve) => {
             setTimeout(async () => {
-                await this.stopRecording();
+                const recording = await this.stopRecording();
                 console.log(`Recording completed (ASIO): ${outputPath}`);
                 resolve({
                     outputPath: outputPath,
-                    audioStartTime: audioStartTime
+                    audioStartTime: audioStartTime,
+                    backend: 'ASIO',
+                    timingReliable: recording ? recording.timingReliable : false
                 });
             }, durationMs);
         });
@@ -405,11 +412,11 @@ class NativeAudioRecorder {
             this.isRecording = false;
             this.usingAsio = false;
             try {
-                await asioEngine.stopCaptureToFile(this.asioOutputPath);
+                return await asioEngine.stopCaptureToFile(this.asioOutputPath);
             } catch (error) {
                 console.error('Error finalizing ASIO recording:', error);
+                return null;
             }
-            return;
         }
 
         // Attach the FileWriter's completion listener before stopping the

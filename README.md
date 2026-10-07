@@ -59,11 +59,12 @@ fonts: {
 
 ## ASIO Audio Support (Windows)
 
-OATS can optionally play stimuli and record the microphone through a
-professional audio interface's ASIO driver instead of the default OS audio
-path, for lower and more consistent latency. This is opt-in, Windows-only,
-and off by default — see [docs/asio-support.md](docs/asio-support.md) for
-setup and limitations.
+On Windows, OATS plays stimuli and records responses through the audio
+interface's ASIO driver (e.g. Focusrite), with selectable output/input
+channels and a shared sample clock for precise reaction times. Configure it
+from the **AUDIO** badge on the dashboard. If ASIO is unavailable the app
+falls back to Web Audio / sox and says so in every results file. See
+[docs/asio-support.md](docs/asio-support.md).
 
 
 ## Error Logs

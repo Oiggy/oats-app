@@ -84,6 +84,35 @@ class CaSTNonwordTask {
         }
     }
 
+    // Output channels chosen in this task's configuration (1-based in the
+    // UI, 0-based for the engine). Empty = use the global ASIO setup.
+    // Logs the stimulus volume this participant heard (dB re. the stimulus
+    // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
+    // stimulus-levels.csv, and returns the line for the results file.
+    logStimulusLevel(taskName) {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const levels = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'stimulus-level.js'));
+            return levels.logStimulusLevel({
+                participantId: this.participantId,
+                task: taskName,
+                volume: this.config.parameters.audio.volume,
+                backend: this.asioEngine && this.asioEngine.isEnabled() ? 'ASIO' : 'fallback'
+            });
+        } catch (error) {
+            console.error('Could not log stimulus level:', error);
+            return 'unavailable';
+        }
+    }
+
+    getOutputChannels() {
+        const channels = this.config && this.config.parameters && this.config.parameters.audio
+            ? this.config.parameters.audio.output_channels
+            : null;
+        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
+    }
+
     async initializeAudioContext() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -489,8 +518,11 @@ class CaSTNonwordTask {
             }
             this.startRecording();
 
-            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
-                .then(() => {
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume, {
+                outputChannels: this.getOutputChannels()
+            })
+                .then((timing) => {
+                    this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');
                     this.startResponseTimer();
                 })
@@ -663,6 +695,8 @@ class CaSTNonwordTask {
             output.push('='.repeat(60));
             output.push('');
             output.push(`Participant ID: ${this.participantId}`);
+            output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
+            output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: Nonwords')}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
             output.push(`Task: Nonwords`);
             output.push('');
@@ -805,6 +839,13 @@ class CaSTNonwordTask {
     }
 
     discardRecording() {
+        if (this.recordingBackend === 'ASIO') {
+            if (!this.isRecording) return;
+            this.asioEngine.stopCaptureDiscard();
+            this.isRecording = false;
+            this.hideRecordingIndicator();
+            return;
+        }
         if (!this.mediaRecorder || !this.isRecording) return;
         this.mediaRecorder.ondataavailable = null;
         this.mediaRecorder.onstop = null;
@@ -816,6 +857,27 @@ class CaSTNonwordTask {
     }
 
     async startRecording() {
+        // ASIO records from the interface input chosen in the audio setup, on
+        // the same clock as stimulus playback.
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
+            this.recordingBackend = 'ASIO';
+            this.currentTake += 1;
+            this.isRecording = true;
+            this.takeCapture = null;
+            this.takeStimulusTiming = null;
+            const indicator = document.getElementById('recording-indicator');
+            if (indicator) indicator.style.display = 'block';
+            try {
+                this.takeCapture = await this.asioEngine.startCapture();
+            } catch (error) {
+                console.error('Error starting ASIO recording:', error);
+                this.isRecording = false;
+                this.hideRecordingIndicator();
+            }
+            return;
+        }
+
+        this.recordingBackend = 'MediaRecorder';
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             this.recordingChunks = [];
@@ -891,23 +953,51 @@ class CaSTNonwordTask {
         return Buffer.from(buffer);
     }
 
+    // Returns the finished take as a WAV file buffer, from whichever backend
+    // recorded it.
+    async takeRecordingWav() {
+        if (this.recordingBackend === 'ASIO') {
+            const recording = this.asioEngine.stopCaptureToWavBuffer();
+            this.takeRecording = recording;
+            return recording.wavBuffer;
+        }
+        const blob = new Blob(this.recordingChunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const decodeContext = new AudioContext();
+        const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+        await decodeContext.close();
+        return this.encodeWAV(audioBuffer);
+    }
+
+    // Saves where the stimulus starts inside an ASIO take next to the WAV, so
+    // response latency can be measured from the recording on one clock.
+    async saveTakeTiming(wavPath) {
+        if (this.recordingBackend !== 'ASIO' || !this.takeRecording) return;
+        const fs = window.require('fs').promises;
+        const position = this.asioEngine.stimulusPositionInRecording(this.takeStimulusTiming, this.takeRecording);
+        const timing = {
+            audio_backend: this.asioEngine.describeBackend(),
+            sample_rate: this.takeRecording.sampleRate,
+            recording_samples: this.takeRecording.sampleCount,
+            stimulus_onset_in_recording_samples: position ? position.samples : null,
+            stimulus_onset_in_recording_ms: position ? Number(position.ms.toFixed(3)) : null,
+            stimulus_completed: this.takeStimulusTiming ? !this.takeStimulusTiming.cancelled : false,
+            timing_reliable: position ? position.timingReliable : false
+        };
+        await fs.writeFile(wavPath.replace(/\.wav$/i, '_timing.json'), JSON.stringify(timing, null, 2), 'utf8');
+    }
+
     async stopAndSaveRecording() {
-        if (!this.mediaRecorder || !this.isRecording) return;
+        if (!this.isRecording) return;
+        if (this.recordingBackend !== 'ASIO' && !this.mediaRecorder) return;
 
         const takeIndex = this.currentTake;
         const rowIndex = this.currentIndex;
 
         return new Promise((resolve) => {
-            this.mediaRecorder.onstop = async () => {
+            const saveTake = async () => {
                 try {
-                    const blob = new Blob(this.recordingChunks, { type: 'audio/webm' });
-                    const arrayBuffer = await blob.arrayBuffer();
-
-                    // Decode webm to PCM, then encode as WAV
-                    const decodeContext = new AudioContext();
-                    const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
-                    await decodeContext.close();
-                    const wavBuffer = this.encodeWAV(audioBuffer);
+                    const wavBuffer = await this.takeRecordingWav();
 
                     const os = window.require('os');
                     const path = window.require('path');
@@ -935,17 +1025,25 @@ class CaSTNonwordTask {
 
                     await fs.writeFile(filePath, wavBuffer);
                     console.log('Recording saved:', filePath);
+                    await this.saveTakeTiming(filePath);
                 } catch (error) {
                     console.error('Error saving recording:', error);
                 }
 
-                this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                if (this.recordingBackend !== 'ASIO' && this.mediaRecorder) {
+                    this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                }
                 this.isRecording = false;
                 this.hideRecordingIndicator();
                 resolve();
             };
 
-            this.mediaRecorder.stop();
+            if (this.recordingBackend === 'ASIO') {
+                saveTake();
+            } else {
+                this.mediaRecorder.onstop = saveTake;
+                this.mediaRecorder.stop();
+            }
         });
     }
 

@@ -1,41 +1,64 @@
 // ASIO AUDIO ENGINE
 //
-// Optional low-latency audio backend for equipment whose audio interfaces
-// ship ASIO drivers (Steinberg's low-latency I/O API for Windows). Built on
-// top of node-audio-asio: https://github.com/distopik/node-audio-asio
+// The app's single audio backend for stimulus playback and microphone
+// recording on Windows audio interfaces that ship ASIO drivers (e.g.
+// Focusrite). Built on audify (https://github.com/almoghamdani/audify),
+// Node bindings for RtAudio. Unlike node-audio-asio, audify bundles
+// RtAudio's own ASIO host code and publishes prebuilt Windows binaries, so
+// no manual Steinberg SDK step is needed to ship it in the installer.
 //
-// node-audio-asio is alpha-quality, proof-of-concept software, and because
-// the Steinberg ASIO SDK cannot be redistributed, the native addon only
-// works on a machine where a developer has downloaded the SDK, extracted it
-// over the node-audio-asio package, and rebuilt it (see that project's
-// README and docs/asio-support.md in this repo). When that hasn't been done,
-// or the app isn't running on Windows, or ASIO is simply disabled in
-// configuration, every method here reports "unsupported" so callers fall
-// back to their existing playback/recording path with no change in
-// behavior.
+// One full-duplex stream is opened on the chosen device and kept running.
+// Output is written by this module one frame ahead of the hardware (a
+// constant pre-buffer), so output frame k is always played in the same
+// driver callback that captures input frame k. That puts stimulus onsets
+// and microphone recordings on one sample clock, which is what makes the
+// reaction-time numbers trustworthy.
 //
-// This module owns a single, persistent ASIO stream (ASIO drivers are
-// initialized once and then pump audio through a real-time callback for as
-// long as the stream is running, rather than being opened per-sound). Output
-// audio is fed to that callback from an in-memory queue of "jobs"; input
-// audio is captured into an in-memory buffer while a recording is active.
+// When ASIO isn't usable (not Windows, disabled in cfg_audio_asio.json,
+// audify missing, no ASIO device, or the stream fails to open),
+// isEnabled() returns false and callers fall back to their previous
+// Web Audio / sox paths. getStatus() says why, so tasks can record which
+// backend produced a session's data.
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Reader: WavReader, Writer: WavWriter } = require('wav');
+const { EventEmitter } = require('events');
 
 const CONFIG_FILE_NAME = 'cfg_audio_asio.json';
 
 const DEFAULT_CONFIG = {
-    enabled: false,
-    driver: 'ASIO4ALL v2',
-    sampleRate: 44100,
-    bitsPerSample: 24,
-    samplesPerBlock: 256,
-    endianess: 'little',
-    inputChannels: [0],
-    outputChannels: [0, 1]
+    enabled: true,
+    // Empty = auto: prefer a device whose name contains "Focusrite",
+    // otherwise the first ASIO device found.
+    deviceName: '',
+    sampleRate: 48000,
+    frameSize: 128,
+    // 0-based device output channels stimuli are sent to. A mono stimulus is
+    // copied to every listed channel; a stereo stimulus sends L/R to the
+    // first two.
+    outputChannels: [0, 1],
+    // 0-based device input channel that recordings are taken from.
+    inputChannel: 0,
+    // Frames written ahead of the hardware (16 x 128 @ 48 kHz ~= 43 ms).
+    // This only delays when a sound starts relative to the play() call; the
+    // reported onset times already account for it. Too small and a busy JS
+    // event loop (DOM updates, GC) lets the driver run dry.
+    prebufferFrames: 16,
+    // ASIO reports input+output latency only as a total through RtAudio.
+    // Used to convert sample positions to wall-clock (performance.now())
+    // times; sample-domain alignment between stimulus and recording does
+    // not depend on these.
+    outputLatencyMs: null,
+    inputLatencyMs: null,
+    // dB SPL measured at the earphone with stimulus volume at 100% and the
+    // lab's fixed knob settings. Used only for logging estimated SPL
+    // (src/shared/audio/stimulus-level.js); null = not calibrated.
+    calibrationDbSplAt100: null,
+    // Which Focusrite playback pair a Windows output device uses, when its
+    // name doesn't say (set from Audio Setup), e.g.
+    // { "Speakers (Focusrite USB Audio)": [1, 2] }. Display/clash check only.
+    windowsPairs: {}
 };
 
 function getConfigDir() {
@@ -45,93 +68,75 @@ function getConfigDir() {
     return path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
 }
 
+function getConfigPath() {
+    return path.join(getConfigDir(), CONFIG_FILE_NAME);
+}
+
 function loadConfig() {
     try {
-        const configPath = path.join(getConfigDir(), CONFIG_FILE_NAME);
-        const raw = fs.readFileSync(configPath, 'utf8');
-        const parsed = JSON.parse(raw);
+        const parsed = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
         return Object.assign({}, DEFAULT_CONFIG, parsed);
     } catch (error) {
         return Object.assign({}, DEFAULT_CONFIG);
     }
 }
 
-function bytesPerSample(bitsPerSample) {
-    return bitsPerSample / 8;
+function nowMs() {
+    return (typeof performance !== 'undefined' ? performance : require('perf_hooks').performance).now();
 }
 
-function writeSampleLE(buffer, offset, value, bitsPerSample) {
-    switch (bitsPerSample) {
-        case 16:
-            buffer.writeInt16LE(value, offset);
-            return;
-        case 24: {
-            const clamped = Math.max(-8388608, Math.min(8388607, value));
-            const unsigned = clamped < 0 ? clamped + 0x1000000 : clamped;
-            buffer[offset] = unsigned & 0xff;
-            buffer[offset + 1] = (unsigned >> 8) & 0xff;
-            buffer[offset + 2] = (unsigned >> 16) & 0xff;
-            return;
-        }
-        case 32:
-            buffer.writeInt32LE(value, offset);
-            return;
-        default:
-            throw new Error(`Unsupported ASIO bit depth: ${bitsPerSample}`);
-    }
-}
+// How long the driver may go without delivering audio before the device
+// is treated as disconnected (unplugged, powered off, driver reset).
+const DISCONNECT_TIMEOUT_MS = 1500;
 
-function readSampleLE(buffer, offset, bitsPerSample) {
-    switch (bitsPerSample) {
-        case 16:
-            return buffer.readInt16LE(offset);
-        case 24: {
-            let value = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
-            if (value & 0x800000) value -= 0x1000000;
-            return value;
-        }
-        case 32:
-            return buffer.readInt32LE(offset);
-        default:
-            throw new Error(`Unsupported ASIO bit depth: ${bitsPerSample}`);
-    }
-}
-
-// Scales a 16-bit signed sample (the depth every WAV asset in this project
-// uses) up to the ASIO stream's configured bit depth.
-function scaleInt16To(value, bitsPerSample) {
-    if (bitsPerSample === 16) return value;
-    if (bitsPerSample === 24) return value * 256;
-    if (bitsPerSample === 32) return value * 65536;
-    throw new Error(`Unsupported ASIO bit depth: ${bitsPerSample}`);
-}
-
-// Inverse of scaleInt16To, used when downmixing captured microphone audio
-// back to 16-bit for saving as a standard WAV file.
-function scaleToInt16(value, bitsPerSample) {
-    if (bitsPerSample === 16) return value;
-    if (bitsPerSample === 24) return Math.round(value / 256);
-    if (bitsPerSample === 32) return Math.round(value / 65536);
-    throw new Error(`Unsupported ASIO bit depth: ${bitsPerSample}`);
-}
-
-class AsioEngine {
+// Emits 'statuschange' (with getStatus()) whenever ASIO starts, fails to
+// start, disconnects or is shut down, so the UI can react in real time.
+class AsioEngine extends EventEmitter {
     constructor() {
+        super();
         this.config = loadConfig();
-        this.nodeAsio = null;
-        this.loadError = null;
+        this.audify = null;
+        this.rt = null;
+        this.device = null;
         this.started = false;
+        this.startAttempted = false;
+        this.statusReason = 'not started';
+        this.disconnected = false;
+        this.watchdog = null;
+        this.lastBlockAt = 0;
 
-        // Queue of { samples: Int16Array-like, position, onDrain } output jobs,
-        // drained in order by the real-time audio callback.
+        this.sampleRate = this.config.sampleRate;
+        this.frameSize = this.config.frameSize;
+        this.outChannelCount = 0;
+        this.inChannelCount = 0;
+        this.streamLatencyFrames = 0;
+
+        this.blocksReceived = 0;
+        this.framesWritten = 0;
+        this.framesConsumed = 0;
+        this.underruns = 0;
+        // Recent (performance.now() - blockIndex * period) values; the minimum
+        // filters out JS delivery jitter when mapping the audio clock to
+        // wall-clock time.
+        this.clockSamples = [];
+        this.clockOffsetMs = null;
+
         this.outputJobs = [];
+        this.activeJob = null;
+        // Jobs fully written to the driver queue but not yet played.
+        this.pendingDrains = [];
 
-        this.captureActive = false;
-        this.captureSamples = [];
+        this.capture = null;
     }
+
+    // ---- configuration / lifecycle ------------------------------------------------
 
     isPlatformSupported() {
         return process.platform === 'win32';
+    }
+
+    getConfigPath() {
+        return getConfigPath();
     }
 
     reloadConfig() {
@@ -139,258 +144,648 @@ class AsioEngine {
         return this.config;
     }
 
+    saveConfig(partial) {
+        this.config = Object.assign({}, this.config, partial);
+        fs.mkdirSync(getConfigDir(), { recursive: true });
+        fs.writeFileSync(getConfigPath(), JSON.stringify(this.config, null, 2), 'utf8');
+        return this.config;
+    }
+
+    // Tries to start the stream the first time it's asked, so every existing
+    // `if (asioEngine.isEnabled())` check means "ASIO is actually running".
     isEnabled() {
-        return this.isPlatformSupported() && this.config.enabled === true;
+        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        if (!this.started && !this.startAttempted) this._start();
+        return this.started;
     }
 
-    getLoadError() {
-        return this.loadError;
+    async ensureStarted() {
+        return this.isEnabled();
     }
 
-    _loadNativeModule() {
-        if (this.nodeAsio || this.loadError) return;
+    getStatus() {
+        return {
+            backend: this.started ? 'ASIO' : 'fallback',
+            reason: this.started ? null : this.statusReason,
+            disconnected: this.disconnected,
+            device: this.device ? this.device.name : null,
+            sampleRate: this.sampleRate,
+            frameSize: this.frameSize,
+            outputChannels: this.config.outputChannels,
+            inputChannel: this.config.inputChannel,
+            streamLatencyFrames: this.streamLatencyFrames,
+            streamLatencyMs: this.streamLatencyFrames / this.sampleRate * 1000,
+            underruns: this.underruns
+        };
+    }
+
+    // Short label for results files.
+    describeBackend() {
+        const s = this.getStatus();
+        if (s.backend !== 'ASIO') return `Fallback (Web Audio/sox) - ASIO unavailable: ${s.reason}`;
+        return `ASIO - ${s.device} @ ${s.sampleRate} Hz, ${s.frameSize}-sample buffer, ` +
+            `out ch ${s.outputChannels.map((c) => c + 1).join('+')}, in ch ${s.inputChannel + 1}, ` +
+            `stream latency ${s.streamLatencyMs.toFixed(1)} ms`;
+    }
+
+    _loadAudify() {
+        if (this.audify) return true;
         try {
             // eslint-disable-next-line global-require
-            this.nodeAsio = require('node-audio-asio');
+            this.audify = require('audify');
+            return true;
         } catch (error) {
-            this.loadError = error;
-            console.warn('[asio-engine] node-audio-asio is not available, ASIO support disabled:', error.message);
+            this.statusReason = `audify could not be loaded (${String(error.message).split('\n')[0]})`;
+            return false;
         }
     }
 
-    // Starts the persistent ASIO stream on first use. Safe to call
-    // repeatedly; subsequent calls resolve immediately once started.
-    async ensureStarted() {
-        if (this.started) return true;
-        if (!this.isEnabled()) return false;
-
-        this._loadNativeModule();
-        if (!this.nodeAsio) return false;
-
-        const { driver, sampleRate, bitsPerSample, samplesPerBlock, endianess, inputChannels, outputChannels } = this.config;
-        const channelBufferLen = samplesPerBlock * bytesPerSample(bitsPerSample);
-        const initialBuffers = outputChannels.map(() => Buffer.alloc(channelBufferLen));
-
-        let asioErr;
+    // Lists ASIO devices without opening a stream (for the setup screen).
+    listDevices() {
+        if (!this.isPlatformSupported() || !this._loadAudify()) return [];
         try {
-            asioErr = this.nodeAsio.initAsio({
-                driver,
-                sampleRate,
-                bitsPerSample,
-                samplesPerBlock,
-                endianess,
-                inputChannels,
-                outputChannels
-            });
+            const rt = this.rt || new this.audify.RtAudio(this.audify.RtAudioApi.WINDOWS_ASIO);
+            return rt.getDevices().map((d) => ({
+                id: d.id,
+                name: d.name,
+                outputChannels: d.outputChannels,
+                inputChannels: d.inputChannels,
+                sampleRates: d.sampleRates,
+                preferredSampleRate: d.preferredSampleRate
+            }));
         } catch (error) {
-            this.loadError = error;
-            console.error('[asio-engine] initAsio threw an error:', error.message);
+            console.warn('[asio-engine] Could not list ASIO devices:', error.message);
+            return [];
+        }
+    }
+
+    _pickDevice(devices) {
+        const wanted = (this.config.deviceName || '').trim().toLowerCase();
+        const usable = devices.filter((d) => d.outputChannels > 0 && d.inputChannels > 0);
+        if (wanted) {
+            return usable.find((d) => d.name.toLowerCase() === wanted) ||
+                usable.find((d) => d.name.toLowerCase().includes(wanted)) || null;
+        }
+        return usable.find((d) => /focusrite/i.test(d.name)) || usable[0] || null;
+    }
+
+    _start() {
+        this.startAttempted = true;
+        if (!this._loadAudify()) {
+            console.warn('[asio-engine]', this.statusReason);
             return false;
         }
 
-        if (asioErr) {
-            this.loadError = new Error(typeof asioErr === 'string' ? asioErr : 'initAsio failed');
-            console.error('[asio-engine] Failed to initialize ASIO driver:', this.loadError.message);
-            return false;
-        }
-
-        this.nodeAsio.start(initialBuffers, (inputBufs) => this._onAudioBlock(inputBufs));
-        this.started = true;
-        return true;
-    }
-
-    // Real-time callback invoked by the native addon once per audio block.
-    // Must stay synchronous and allocation-light: this runs on ASIO's audio
-    // thread, not the Node event loop.
-    _onAudioBlock(inputBufs) {
-        const { bitsPerSample, samplesPerBlock, outputChannels } = this.config;
-        const bytes = bytesPerSample(bitsPerSample);
-
-        if (this.captureActive && inputBufs && inputBufs[0]) {
-            const inBuf = inputBufs[0];
-            const sampleCount = Math.floor(inBuf.length / bytes);
-            for (let i = 0; i < sampleCount; i++) {
-                const sample = readSampleLE(inBuf, i * bytes, bitsPerSample);
-                this.captureSamples.push(scaleToInt16(sample, bitsPerSample));
-            }
-        }
-
-        const outBuf = Buffer.alloc(samplesPerBlock * bytes);
-        for (let i = 0; i < samplesPerBlock; i++) {
-            let sample16 = 0;
-
-            while (this.outputJobs.length > 0 && this.outputJobs[0].position >= this.outputJobs[0].samples.length) {
-                const finished = this.outputJobs.shift();
-                finished.onDrain();
+        const { RtAudio, RtAudioApi, RtAudioFormat } = this.audify;
+        try {
+            this.rt = new RtAudio(RtAudioApi.WINDOWS_ASIO);
+            const device = this._pickDevice(this.rt.getDevices());
+            if (!device) {
+                this.statusReason = this.config.deviceName
+                    ? `ASIO device "${this.config.deviceName}" not found`
+                    : 'no ASIO device with both inputs and outputs was found';
+                console.warn('[asio-engine]', this.statusReason);
+                return false;
             }
 
-            if (this.outputJobs.length > 0) {
-                const job = this.outputJobs[0];
-                sample16 = job.samples[job.position];
-                job.position += 1;
+            const badOut = this.config.outputChannels.find((c) => c < 0 || c >= device.outputChannels);
+            if (badOut !== undefined || this.config.outputChannels.length === 0) {
+                this.statusReason = `output channel ${badOut + 1} does not exist on ${device.name} (${device.outputChannels} outputs)`;
+                console.warn('[asio-engine]', this.statusReason);
+                return false;
+            }
+            if (this.config.inputChannel < 0 || this.config.inputChannel >= device.inputChannels) {
+                this.statusReason = `input channel ${this.config.inputChannel + 1} does not exist on ${device.name} (${device.inputChannels} inputs)`;
+                console.warn('[asio-engine]', this.statusReason);
+                return false;
             }
 
-            writeSampleLE(outBuf, i * bytes, scaleInt16To(sample16, bitsPerSample), bitsPerSample);
-        }
+            this.device = device;
+            // Open every channel so any output/input can be chosen per call.
+            this.outChannelCount = device.outputChannels;
+            this.inChannelCount = device.inputChannels;
 
-        // outputChannels.length identical mono buffers: every configured
-        // output channel gets the same signal (stimuli in this app are mono).
-        return outputChannels.map(() => outBuf);
-    }
-
-    async _readWavAsInt16Mono(filePath) {
-        return new Promise((resolve, reject) => {
-            const channelSums = [];
-            let sampleRate = 44100;
-            let channels = 1;
-            let bitDepth = 16;
-
-            const reader = new WavReader();
-
-            reader.on('format', (format) => {
-                sampleRate = format.sampleRate;
-                channels = format.channels;
-                bitDepth = format.bitDepth;
-            });
-
-            reader.on('data', (chunk) => {
-                if (bitDepth !== 16) return; // every asset in this project is 16-bit PCM
-                const bytesPerFrame = 2 * channels;
-                for (let offset = 0; offset + bytesPerFrame <= chunk.length; offset += bytesPerFrame) {
-                    let sum = 0;
-                    for (let ch = 0; ch < channels; ch++) {
-                        sum += chunk.readInt16LE(offset + ch * 2);
-                    }
-                    channelSums.push(Math.round(sum / channels));
-                }
-            });
-
-            reader.on('end', () => {
-                if (bitDepth !== 16) {
-                    reject(new Error(`Unsupported WAV bit depth for ASIO playback: ${bitDepth}-bit (${filePath})`));
-                    return;
-                }
-                resolve({ samples: channelSums, sampleRate });
-            });
-
-            reader.on('error', reject);
-
-            fs.createReadStream(filePath).pipe(reader);
-        });
-    }
-
-    // Plays a WAV file through the ASIO output stream. Resolves once the
-    // file has finished playing (mirrors the AudioBufferSourceNode.onended
-    // contract callers already rely on for the Web Audio path).
-    async playFile(filePath, volume = 1.0) {
-        const ok = await this.ensureStarted();
-        if (!ok) {
-            throw new Error('ASIO output is not enabled or available on this system');
-        }
-
-        const { samples, sampleRate } = await this._readWavAsInt16Mono(filePath);
-        if (sampleRate !== this.config.sampleRate) {
-            console.warn(
-                `[asio-engine] "${filePath}" is ${sampleRate}Hz but the ASIO stream is running at ${this.config.sampleRate}Hz. ` +
-                'Configure cfg_audio_asio.json sampleRate to match the stimulus audio to avoid pitch/speed distortion.'
+            this.frameSize = this.rt.openStream(
+                { deviceId: device.id, nChannels: this.outChannelCount, firstChannel: 0 },
+                { deviceId: device.id, nChannels: this.inChannelCount, firstChannel: 0 },
+                RtAudioFormat.RTAUDIO_FLOAT32,
+                this.config.sampleRate,
+                this.config.frameSize,
+                'Oats',
+                (input) => this._onInputBlock(input),
+                () => { this.framesConsumed += 1; },
+                0,
+                (type, message) => this._onDriverError(type, message)
             );
+            this.sampleRate = this.rt.getStreamSampleRate() || this.config.sampleRate;
+            this.streamLatencyFrames = this.rt.getStreamLatency() || 0;
+
+            for (let i = 0; i < this.config.prebufferFrames; i++) this._writeNextFrame();
+            this.rt.start();
+            this.started = true;
+            this.disconnected = false;
+            this.statusReason = null;
+            this._startWatchdog();
+            console.log('[asio-engine] Started:', this.describeBackend());
+            this._emitStatus();
+            return true;
+        } catch (error) {
+            this.statusReason = `ASIO stream failed to open (${error.message})`;
+            console.error('[asio-engine]', this.statusReason);
+            try { if (this.rt && this.rt.isStreamOpen()) this.rt.closeStream(); } catch (e) { /* ignore */ }
+            this.rt = null;
+            this._emitStatus();
+            return false;
+        }
+    }
+
+    _emitStatus() {
+        this.emit('statuschange', this.getStatus());
+    }
+
+    // ---- disconnect detection -----------------------------------------------------
+
+    // A running ASIO stream delivers an input block every few ms. If none
+    // arrive for DISCONNECT_TIMEOUT_MS, the interface has gone away.
+    _startWatchdog() {
+        this._stopWatchdog();
+        this.lastBlockAt = nowMs();
+        this.watchdog = setInterval(() => {
+            if (this.started && nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
+                this._handleDisconnect('the interface stopped sending audio');
+            }
+        }, 500);
+    }
+
+    _stopWatchdog() {
+        if (this.watchdog) clearInterval(this.watchdog);
+        this.watchdog = null;
+    }
+
+    _onDriverError(type, message) {
+        console.error(`[asio-engine] RtAudio error (${type}): ${message}`);
+        // WARNING (0) and DEBUG_WARNING (1) are informational.
+        if (this.started && type >= 2) this._handleDisconnect(message);
+    }
+
+    // Stops using the device and releases anything waiting on it, so tasks
+    // carry on with the fallback path instead of hanging.
+    _handleDisconnect(reason) {
+        if (!this.started) return;
+        console.warn(`[asio-engine] ASIO device disconnected: ${reason}`);
+        const deviceName = this.device ? this.device.name : 'ASIO device';
+        if (this.capture) this.capture.interrupted = true;
+        const capture = this.capture;
+        this.disconnected = true;
+        this.shutdown();
+        // Keep a partly-recorded take so the task can still save what it got
+        // (it stays marked interrupted and is never resumed).
+        this.capture = capture;
+        this.startAttempted = true;
+        this.statusReason = `${deviceName} disconnected (${reason})`;
+        this._emitStatus();
+    }
+
+    // Retries opening the ASIO device (e.g. after it is plugged back in).
+    // Returns true if ASIO is running afterwards.
+    tryReconnect() {
+        if (this.started) return true;
+        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        const previousReason = this.statusReason;
+        this.startAttempted = false;
+        const ok = this.isEnabled();
+        // While still unplugged, keep saying it's disconnected rather than
+        // the generic "no device found".
+        if (!ok && this.disconnected) this.statusReason = previousReason;
+        return ok;
+    }
+
+    // Closes the stream so the next isEnabled() call reopens it with the
+    // current config (used after changing settings).
+    restart() {
+        this.shutdown();
+        this.reloadConfig();
+        this.startAttempted = false;
+        return this.isEnabled();
+    }
+
+    // ---- timeline ------------------------------------------------------------------
+
+    _periodMs() {
+        return this.frameSize / this.sampleRate * 1000;
+    }
+
+    _latencySplitMs() {
+        const totalMs = this.streamLatencyFrames / this.sampleRate * 1000;
+        const out = this.config.outputLatencyMs != null ? this.config.outputLatencyMs : totalMs / 2;
+        const inp = this.config.inputLatencyMs != null ? this.config.inputLatencyMs : totalMs - out;
+        return { out, inp };
+    }
+
+    // Absolute stream sample index -> performance.now() time of the driver
+    // callback that handled it (before hardware latency).
+    _sampleToCallbackMs(sampleIndex) {
+        if (this.clockOffsetMs == null) return nowMs();
+        return this.clockOffsetMs + (sampleIndex / this.frameSize) * this._periodMs();
+    }
+
+    // When an output sample is expected to leave the interface.
+    outputSampleToPerfMs(sampleIndex) {
+        return this._sampleToCallbackMs(sampleIndex) + this._latencySplitMs().out;
+    }
+
+    // When the sound recorded at an input sample actually reached the interface.
+    inputSampleToPerfMs(sampleIndex) {
+        return this._sampleToCallbackMs(sampleIndex) - this._periodMs() - this._latencySplitMs().inp;
+    }
+
+    // Stream sample index currently being captured, estimated from the clock.
+    perfMsToInputSample(perfMs) {
+        if (this.clockOffsetMs == null) return this.blocksReceived * this.frameSize;
+        const ms = perfMs + this._periodMs() + this._latencySplitMs().inp - this.clockOffsetMs;
+        return Math.round(ms / this._periodMs() * this.frameSize);
+    }
+
+    _updateClock(blockIndex, receivedAt) {
+        const value = receivedAt - (blockIndex + 1) * this._periodMs();
+        this.clockSamples.push(value);
+        if (this.clockSamples.length > 500) this.clockSamples.shift();
+        let min = Infinity;
+        for (const v of this.clockSamples) if (v < min) min = v;
+        this.clockOffsetMs = min;
+    }
+
+    // ---- real-time pump --------------------------------------------------------------
+
+    _onInputBlock(input) {
+        if (!this.started) return;
+        const blockIndex = this.blocksReceived;
+        this.blocksReceived += 1;
+        this.lastBlockAt = nowMs();
+        this._updateClock(blockIndex, nowMs());
+
+        if (this.capture && !this.capture.interrupted) this._captureBlock(input, blockIndex);
+
+        // Output frame k is played in callback k only while the native queue
+        // never runs dry. If the event loop stalled past the pre-buffer, the
+        // driver played silence instead and every later frame slid back by
+        // that many callbacks. The two callbacks arrive on separate queues,
+        // so allow a couple of frames of slack before calling it an underrun.
+        const missing = this.blocksReceived - this.framesConsumed - 2;
+        if (missing > this.underruns) {
+            this.underruns = missing;
+            const t = nowMs();
+            if (!this._lastUnderrunLog || t - this._lastUnderrunLog > 1000) {
+                this._lastUnderrunLog = t;
+                console.warn(`[asio-engine] Output underrun (${this.underruns} silent frame(s) so far); ` +
+                    'timing for sounds/recordings in progress is flagged unreliable.');
+            }
+        }
+        while (this.framesWritten < this.blocksReceived + this.config.prebufferFrames) {
+            this._writeNextFrame();
         }
 
-        const scaled = volume === 1.0
-            ? samples
-            : samples.map((sample) => Math.max(-32768, Math.min(32767, Math.round(sample * volume))));
+        this._settleJobs();
+    }
 
+    _writeNextFrame() {
+        const frameIndex = this.framesWritten;
+        const frame = new Float32Array(this.frameSize * this.outChannelCount);
+
+        let i = 0;
+        while (i < this.frameSize) {
+            if (!this.activeJob) {
+                if (this.outputJobs.length === 0) break;
+                this.activeJob = this.outputJobs.shift();
+                this.activeJob.startSample = frameIndex * this.frameSize + i;
+                this.activeJob.underrunsAtStart = this.underruns;
+            }
+            const job = this.activeJob;
+            const take = Math.min(this.frameSize - i, job.length - job.position);
+            for (let n = 0; n < take; n++) {
+                const base = (i + n) * this.outChannelCount;
+                for (let r = 0; r < job.routes.length; r++) {
+                    const route = job.routes[r];
+                    frame[base + route.channel] += route.data[job.position + n] * job.gain;
+                }
+            }
+            job.position += take;
+            i += take;
+            if (job.position >= job.length) {
+                job.endSample = frameIndex * this.frameSize + i;
+                this.activeJob = null;
+                this.pendingDrains.push(job);
+            }
+        }
+
+        for (let s = 0; s < frame.length; s++) {
+            if (frame[s] > 1) frame[s] = 1;
+            else if (frame[s] < -1) frame[s] = -1;
+        }
+
+        this.rt.write(Buffer.from(frame.buffer));
+        this.framesWritten += 1;
+    }
+
+    // Resolves playback promises once their last frame has been handed to
+    // the driver.
+    _settleJobs() {
+        if (this.pendingDrains.length === 0) return;
+        const playedThrough = this.blocksReceived * this.frameSize;
+        while (this.pendingDrains.length > 0 && this.pendingDrains[0].endSample <= playedThrough) {
+            const job = this.pendingDrains.shift();
+            job.resolve(this._jobTiming(job, false));
+        }
+    }
+
+    _jobTiming(job, cancelled) {
+        return {
+            backend: 'ASIO',
+            cancelled,
+            onsetSample: job.startSample,
+            offsetSample: job.endSample,
+            onsetPerfMs: job.startSample != null ? this.outputSampleToPerfMs(job.startSample) : null,
+            offsetPerfMs: job.endSample != null ? this.outputSampleToPerfMs(job.endSample) : null,
+            sampleRate: this.sampleRate,
+            timingReliable: job.underrunsAtStart === undefined || job.underrunsAtStart === this.underruns
+        };
+    }
+
+    // ---- playback ------------------------------------------------------------------
+
+    _resolveRoutes(channelData, outputChannels) {
+        const channels = (outputChannels && outputChannels.length ? outputChannels : this.config.outputChannels)
+            .filter((c) => c >= 0 && c < this.outChannelCount);
+        if (channels.length === 0) throw new Error('No valid ASIO output channel selected');
+
+        if (channelData.length >= 2 && channels.length >= 2) {
+            return channels.map((channel, idx) => ({ channel, data: channelData[idx % 2] }));
+        }
+        let mono = channelData[0];
+        if (channelData.length > 1) {
+            mono = new Float32Array(channelData[0].length);
+            for (const ch of channelData) for (let n = 0; n < mono.length; n++) mono[n] += ch[n] / channelData.length;
+        }
+        return channels.map((channel) => ({ channel, data: mono }));
+    }
+
+    // Queues decoded audio. options: { volume, outputChannels }.
+    // Resolves with sample-accurate onset/offset timing once played.
+    playChannelData(channelData, options = {}) {
+        if (!this.isEnabled()) {
+            return Promise.reject(new Error(`ASIO is not available: ${this.statusReason}`));
+        }
+        const routes = this._resolveRoutes(channelData, options.outputChannels);
+        const gain = options.volume == null ? 1 : options.volume;
         return new Promise((resolve) => {
-            this.outputJobs.push({ samples: scaled, position: 0, onDrain: resolve });
+            this.outputJobs.push({
+                routes, gain, position: 0, length: routes[0].data.length,
+                startSample: null, endSample: null, resolve
+            });
         });
     }
 
-    // Begins capturing ASIO input into memory. Call stopCaptureToFile() to
-    // write it out as a standard 16-bit mono WAV file.
-    async startCapture() {
-        const ok = await this.ensureStarted();
-        if (!ok) {
-            throw new Error('ASIO input is not enabled or available on this system');
+    async _decodeToStreamRate(arrayBuffer) {
+        const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+        if (!Offline) throw new Error('OfflineAudioContext unavailable; ASIO playback must run in the renderer');
+        const probe = new Offline(1, 1, this.sampleRate);
+        const decoded = await probe.decodeAudioData(arrayBuffer);
+        return this.resampleAudioBuffer(decoded);
+    }
+
+    // Converts a Web Audio AudioBuffer (any rate) to Float32Array channels at
+    // the stream rate, using Chromium's resampler.
+    async resampleAudioBuffer(audioBuffer) {
+        if (audioBuffer.sampleRate === this.sampleRate) {
+            return Array.from({ length: audioBuffer.numberOfChannels }, (_, c) => audioBuffer.getChannelData(c).slice());
         }
-        this.captureSamples = [];
-        this.captureActive = true;
-        return true;
+        const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+        const length = Math.ceil(audioBuffer.duration * this.sampleRate);
+        const ctx = new Offline(audioBuffer.numberOfChannels, Math.max(1, length), this.sampleRate);
+        const src = ctx.createBufferSource();
+        src.buffer = audioBuffer;
+        src.connect(ctx.destination);
+        src.start(0);
+        const rendered = await ctx.startRendering();
+        return Array.from({ length: rendered.numberOfChannels }, (_, c) => rendered.getChannelData(c).slice());
     }
 
-    // Stops capture without writing a file, for a quick "is audio coming in"
-    // check (see NativeAudioRecorder.testAudio()).
-    stopCaptureDiscard() {
-        this.captureActive = false;
-        const samples = this.captureSamples;
-        this.captureSamples = [];
-        return samples.some((sample) => Math.abs(sample) > 50);
-    }
-
-    async stopCaptureToFile(outputPath) {
-        this.captureActive = false;
-        const samples = this.captureSamples;
-        this.captureSamples = [];
-
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-
-        const writer = new WavWriter({
-            sampleRate: this.config.sampleRate,
-            channels: 1,
-            bitDepth: 16
-        });
-
-        const pcmBuffer = Buffer.alloc(samples.length * 2);
-        for (let i = 0; i < samples.length; i++) {
-            pcmBuffer.writeInt16LE(samples[i], i * 2);
+    // Decoded stimuli are cached per path (tasks replay the same files).
+    async loadFile(filePath) {
+        this._cache = this._cache || new Map();
+        const key = `${filePath}@${this.sampleRate}`;
+        if (!this._cache.has(key)) {
+            const bytes = fs.readFileSync(filePath);
+            const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+            this._cache.set(key, await this._decodeToStreamRate(arrayBuffer));
         }
-
-        return new Promise((resolve, reject) => {
-            const fileStream = fs.createWriteStream(outputPath);
-            writer.pipe(fileStream);
-            fileStream.on('finish', () => resolve(outputPath));
-            fileStream.on('error', reject);
-            writer.on('error', reject);
-            writer.end(pcmBuffer);
-        });
+        return this._cache.get(key);
     }
 
-    // Cancels whatever is currently queued for output (used when a task lets
-    // the participant/technician stop playback early) without tearing down
-    // the ASIO stream itself, since it stays open for the rest of the task.
+    // Plays a WAV/MP3 file. Kept compatible with the previous signature.
+    async playFile(filePath, volume = 1.0, options = {}) {
+        const channelData = await this.loadFile(filePath);
+        return this.playChannelData(channelData, Object.assign({}, options, { volume }));
+    }
+
+    async playAudioBuffer(audioBuffer, volume = 1.0, options = {}) {
+        const channelData = await this.resampleAudioBuffer(audioBuffer);
+        return this.playChannelData(channelData, Object.assign({}, options, { volume }));
+    }
+
+    // Short sine test tone with fade in/out.
+    playTone(frequency = 440, durationMs = 500, volume = 0.3, options = {}) {
+        const n = Math.round(durationMs / 1000 * this.sampleRate);
+        const fade = Math.min(Math.round(0.01 * this.sampleRate), Math.floor(n / 2));
+        const data = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+            const env = Math.min(1, i / fade, (n - 1 - i) / fade);
+            data[i] = Math.sin(2 * Math.PI * frequency * i / this.sampleRate) * env;
+        }
+        return this.playChannelData([data], Object.assign({}, options, { volume }));
+    }
+
+    // Cancels queued and currently playing output.
     clearOutputQueue() {
-        const jobs = this.outputJobs;
+        const jobs = this.outputJobs.concat(this.activeJob ? [this.activeJob] : [], this.pendingDrains);
         this.outputJobs = [];
-        jobs.forEach((job) => job.onDrain());
+        this.activeJob = null;
+        this.pendingDrains = [];
+        jobs.forEach((job) => job.resolve(this._jobTiming(job, true)));
     }
+
+    // ---- recording ------------------------------------------------------------------
+
+    _captureBlock(input, blockIndex) {
+        const cap = this.capture;
+        const floats = new Float32Array(input.buffer, input.byteOffset, input.length / 4);
+        const mono = new Float32Array(this.frameSize);
+        for (let n = 0; n < this.frameSize; n++) {
+            mono[n] = floats[n * this.inChannelCount + cap.channel];
+        }
+        if (cap.startSample == null) {
+            cap.startSample = blockIndex * this.frameSize;
+            cap.resolveStart(cap.startSample);
+        }
+        cap.chunks.push(mono);
+    }
+
+    // Starts recording the chosen input channel. Resolves with the stream
+    // sample index (and wall-clock time) of the recording's first sample.
+    async startCapture(options = {}) {
+        if (!this.isEnabled()) throw new Error(`ASIO is not available: ${this.statusReason}`);
+        const channel = options.inputChannel != null ? options.inputChannel : this.config.inputChannel;
+        if (channel < 0 || channel >= this.inChannelCount) {
+            throw new Error(`Input channel ${channel + 1} does not exist on ${this.device.name}`);
+        }
+        let resolveStart;
+        const started = new Promise((r) => { resolveStart = r; });
+        const capture = { channel, chunks: [], startSample: null, resolveStart, underrunsAtStart: this.underruns };
+        this.capture = capture;
+
+        // If the driver has stopped delivering audio, fail instead of hanging
+        // the task forever.
+        let timer;
+        const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('ASIO driver delivered no input for 2 s')), 2000);
+        });
+        try {
+            const startSample = await Promise.race([started, timeout]);
+            return {
+                startSample,
+                startPerfMs: startSample != null ? this.inputSampleToPerfMs(startSample) : null,
+                sampleRate: this.sampleRate
+            };
+        } catch (error) {
+            if (this.capture === capture) this.capture = null;
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    _takeCapture() {
+        const cap = this.capture;
+        this.capture = null;
+        if (!cap) return { samples: new Float32Array(0), startSample: null, timingReliable: true };
+        const total = cap.chunks.reduce((sum, c) => sum + c.length, 0);
+        const samples = new Float32Array(total);
+        let offset = 0;
+        for (const c of cap.chunks) { samples.set(c, offset); offset += c.length; }
+        // A capture that never resolved its start (stopped before the first
+        // block arrived) must not leave startCapture() hanging.
+        if (cap.startSample == null) cap.resolveStart(null);
+        return {
+            samples,
+            startSample: cap.startSample,
+            timingReliable: !cap.interrupted && cap.underrunsAtStart === this.underruns
+        };
+    }
+
+    stopCaptureDiscard() {
+        const { samples } = this._takeCapture();
+        let peak = 0;
+        for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
+        return peak > 0.0015;
+    }
+
+    // Stops recording and returns it as a complete 16-bit mono WAV file in
+    // memory, plus where it sits on the stream clock.
+    stopCaptureToWavBuffer() {
+        const { samples, startSample, timingReliable } = this._takeCapture();
+
+        const wavBuffer = Buffer.alloc(44 + samples.length * 2);
+        wavBuffer.write('RIFF', 0, 'ascii');
+        wavBuffer.writeUInt32LE(36 + samples.length * 2, 4);
+        wavBuffer.write('WAVE', 8, 'ascii');
+        wavBuffer.write('fmt ', 12, 'ascii');
+        wavBuffer.writeUInt32LE(16, 16);
+        wavBuffer.writeUInt16LE(1, 20);
+        wavBuffer.writeUInt16LE(1, 22);
+        wavBuffer.writeUInt32LE(this.sampleRate, 24);
+        wavBuffer.writeUInt32LE(this.sampleRate * 2, 28);
+        wavBuffer.writeUInt16LE(2, 32);
+        wavBuffer.writeUInt16LE(16, 34);
+        wavBuffer.write('data', 36, 'ascii');
+        wavBuffer.writeUInt32LE(samples.length * 2, 40);
+        for (let i = 0; i < samples.length; i++) {
+            const s = Math.max(-1, Math.min(1, samples[i]));
+            wavBuffer.writeInt16LE(Math.round(s < 0 ? s * 32768 : s * 32767), 44 + i * 2);
+        }
+
+        return {
+            wavBuffer,
+            startSample,
+            startPerfMs: startSample != null ? this.inputSampleToPerfMs(startSample) : null,
+            sampleRate: this.sampleRate,
+            sampleCount: samples.length,
+            streamLatencyFrames: this.streamLatencyFrames,
+            timingReliable
+        };
+    }
+
+    // Stops recording and writes it to disk as 16-bit mono WAV.
+    async stopCaptureToFile(outputPath) {
+        const result = this.stopCaptureToWavBuffer();
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        await fs.promises.writeFile(outputPath, result.wavBuffer);
+        delete result.wavBuffer;
+        return Object.assign({ outputPath }, result);
+    }
+
+    // Where a played stimulus starts inside a recording, in samples and ms.
+    // Includes the interface's round-trip latency, i.e. the position at
+    // which the stimulus would be heard if the output were looped back to
+    // the input. Speech onset (found in the WAV) minus this = reaction time.
+    stimulusPositionInRecording(playbackTiming, recordingInfo) {
+        if (!playbackTiming || playbackTiming.onsetSample == null ||
+            !recordingInfo || recordingInfo.startSample == null) {
+            return null;
+        }
+        const samples = playbackTiming.onsetSample - recordingInfo.startSample + this.streamLatencyFrames;
+        return {
+            samples,
+            ms: samples / this.sampleRate * 1000,
+            timingReliable: playbackTiming.timingReliable !== false && recordingInfo.timingReliable !== false
+        };
+    }
+
+    // ---- teardown ------------------------------------------------------------------
 
     stop() {
-        if (this.nodeAsio && this.started) {
-            try {
-                this.nodeAsio.stop();
-            } catch (error) {
-                console.warn('[asio-engine] Error stopping ASIO stream:', error.message);
+        this._stopWatchdog();
+        this.clearOutputQueue();
+        this.capture = null;
+        if (this.rt) {
+            try { if (this.rt.isStreamRunning()) this.rt.stop(); } catch (e) {
+                console.warn('[asio-engine] Error stopping stream:', e.message);
             }
         }
         this.started = false;
-        this.captureActive = false;
-        this.outputJobs.forEach((job) => job.onDrain());
-        this.outputJobs = [];
     }
 
     shutdown() {
         this.stop();
-        if (this.nodeAsio) {
-            try {
-                this.nodeAsio.deInit();
-            } catch (error) {
-                console.warn('[asio-engine] Error deinitializing ASIO driver:', error.message);
+        if (this.rt) {
+            try { if (this.rt.isStreamOpen()) this.rt.closeStream(); } catch (e) {
+                console.warn('[asio-engine] Error closing stream:', e.message);
             }
         }
+        this.rt = null;
+        this.device = null;
+        this.blocksReceived = 0;
+        this.framesWritten = 0;
+        this.framesConsumed = 0;
+        this.underruns = 0;
+        this.clockSamples = [];
+        this.clockOffsetMs = null;
+        this._cache = null;
+        if (!this.disconnected) this._emitStatus();
     }
 }
 
-// Single shared engine/stream for the whole app: ASIO drivers are meant to
-// be opened once, not per task or per sound.
+// One shared stream for the whole app: ASIO drivers are opened once, not
+// per task or per sound.
 const sharedEngine = new AsioEngine();
 
 module.exports = sharedEngine;
