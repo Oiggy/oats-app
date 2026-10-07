@@ -1589,46 +1589,41 @@ class Dashboard {
                 <div class="config-tab-content active" id="trials-tab">
                     <div class="config-card">
                         <h3>Trial Parameters</h3>
-                        
+                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Block order and counterbalancing are chosen on the task's welcome screen.</div>
+
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="practice-phoneme">Number of Practice Trials (Phoneme)</label>
+                                <label for="sc-practice">Practice Trials per Block</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="practice-phoneme">−</button>
-                                    <input type="number" id="practice-phoneme" name="practice_phoneme" min="0" max="20" value="1" readonly>
-                                    <button type="button" data-action="increase" data-target="practice-phoneme">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-practice">−</button>
+                                    <input type="number" id="sc-practice" name="practice_per_condition" min="0" max="20" value="12" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-practice">+</button>
                                 </div>
+                                <div class="help-text">With feedback, before each of the 4 blocks (paper: 12)</div>
                             </div>
-                            
                             <div class="config-group">
-                                <label for="practice-voice">Number of Practice Trials (Voice)</label>
+                                <label for="sc-control-reps">Control Block Repetitions</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="practice-voice">−</button>
-                                    <input type="number" id="practice-voice" name="practice_voice" min="0" max="20" value="1" readonly>
-                                    <button type="button" data-action="increase" data-target="practice-voice">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-control-reps">−</button>
+                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="8" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-control-reps">+</button>
                                 </div>
+                                <div class="help-text">8 stimuli &times; this (paper: 8 = 64 trials)</div>
                             </div>
                         </div>
 
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="main-phoneme">Number of Main Trials (Phoneme)</label>
+                                <label for="sc-orthogonal-reps">Orthogonal Block Repetitions</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="main-phoneme">−</button>
-                                    <input type="number" id="main-phoneme" name="main_phoneme" min="0" max="20" value="2" readonly>
-                                    <button type="button" data-action="increase" data-target="main-phoneme">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-orthogonal-reps">−</button>
+                                    <input type="number" id="sc-orthogonal-reps" name="orthogonal_repetitions" min="1" max="4" value="1" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-orthogonal-reps">+</button>
                                 </div>
-                            </div>
-                            
-                            <div class="config-group">
-                                <label for="main-voice">Number of Main Trials (Voice)</label>
-                                <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="main-voice">−</button>
-                                    <input type="number" id="main-voice" name="main_voice" min="0" max="20" value="2" readonly>
-                                    <button type="button" data-action="increase" data-target="main-voice">+</button>
-                                </div>
+                                <div class="help-text">64 stimuli &times; this (paper: 1 = 64 trials)</div>
                             </div>
                         </div>
+                        <div class="help-text" id="sc-total-trials"></div>
                     </div>
                 </div>
 
@@ -1636,50 +1631,50 @@ class Dashboard {
                 <div class="config-tab-content" id="timing-tab">
                     <div class="config-card">
                         <h3>Timing Parameters</h3>
-                        
+                        <div class="help-text" style="margin-bottom: 12px;">Each trial: 500 Hz warning tone (100 ms) &rarr; delay &rarr; word. RT is measured from word onset.</div>
                         <div class="config-group">
-                            <label for="iti-slider">Inter-trial Interval (ITI)</label>
+                            <label for="sc-warning-delay">Warning Tone to Word Delay</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>ITI Duration</span>
-                                    <span class="slider-value-display" id="iti-value">1000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="sc-warning-delay-value">500 ms</span>
                                 </div>
-                                <input type="range" id="iti-slider" name="iti" min="500" max="3000" step="100" value="1000" class="config-slider">
+                                <input type="range" id="sc-warning-delay" name="warning_to_stimulus_delay" min="200" max="1500" step="50" value="500" class="config-slider">
                             </div>
+                            <div class="help-text">Paper: 500 ms</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="pre-stimulus-slider">Pre-stimulus Delay</label>
+                            <label for="iti-slider">Interval Before the Next Warning Tone</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Delay Duration</span>
-                                    <span class="slider-value-display" id="pre-stimulus-value">1500 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="iti-value">2000 ms</span>
                                 </div>
-                                <input type="range" id="pre-stimulus-slider" name="pre_stimulus_delay" min="500" max="3000" step="100" value="1500" class="config-slider">
+                                <input type="range" id="iti-slider" name="iti" min="500" max="5000" step="100" value="2000" class="config-slider">
                             </div>
+                            <div class="help-text">Paper: 2000 ms</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="response-timeout-slider">Response Timeout</label>
+                            <label for="response-timeout-slider">Response Deadline (from word onset)</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Timeout Duration</span>
-                                    <span class="slider-value-display" id="timeout-value">10000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="timeout-value">3000 ms</span>
                                 </div>
-                                <input type="range" id="response-timeout-slider" name="response_timeout" min="2000" max="15000" step="500" value="10000" class="config-slider">
+                                <input type="range" id="response-timeout-slider" name="response_timeout" min="1000" max="6000" step="250" value="3000" class="config-slider">
                             </div>
+                            <div class="help-text">Slower responses count as incorrect (paper: 3000 ms)</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="error-display-slider">Trial Result Display Duration (Error/No-response)</label>
+                            <label for="error-display-slider">Practice Feedback Duration</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Display Duration</span>
-                                    <span class="slider-value-display" id="error-display-value">2000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="error-display-value">1500 ms</span>
                                 </div>
-                                <input type="range" id="error-display-slider" name="error_display_duration" min="500" max="5000" step="500" value="2000" class="config-slider">
+                                <input type="range" id="error-display-slider" name="error_display_duration" min="500" max="3000" step="100" value="1500" class="config-slider">
                             </div>
-                            <div class="help-text">Correct responses tie to ITI duration</div>
+                            <div class="help-text">Feedback is shown on practice trials only</div>
                         </div>
                     </div>
                 </div>
@@ -1778,8 +1773,10 @@ class Dashboard {
                 stepperButtons.forEach(button => {
                     button.addEventListener('click', () => {
                         this.handleStepperClick(button);
+                        this.updateSpeededClassificationTotal();
                     });
                 });
+                this.updateSpeededClassificationTotal();
 
                 // Sliders
                 const sliders = modalContent.querySelectorAll('.config-slider');
@@ -1947,8 +1944,8 @@ class Dashboard {
             case 'iti':
                 document.getElementById('iti-value').textContent = `${value} ms`;
                 break;
-            case 'pre_stimulus_delay':
-                document.getElementById('pre-stimulus-value').textContent = `${value} ms`;
+            case 'warning_to_stimulus_delay':
+                document.getElementById('sc-warning-delay-value').textContent = `${value} ms`;
                 break;
             case 'response_timeout':
                 document.getElementById('timeout-value').textContent = `${value} ms`;
@@ -2013,33 +2010,52 @@ class Dashboard {
         }
     }
 
+    // Speeded Classification configuration, in the format the task reads
+    // (version 2 = Sommers & Danielson 1999 design).
     collectConfigurationData() {
+        const intValue = (id, fallback) => {
+            const v = parseInt(document.getElementById(id)?.value, 10);
+            return isNaN(v) ? fallback : v;
+        };
+        const crashRecovery = document.getElementById('crash-recovery');
         const config = {
             task: 'speeded-classification',
+            version: 2,
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice_phoneme: parseInt(document.getElementById('practice-phoneme')?.value) || 1,
-                    practice_voice: parseInt(document.getElementById('practice-voice')?.value) || 1,
-                    main_phoneme: parseInt(document.getElementById('main-phoneme')?.value) || 2,
-                    main_voice: parseInt(document.getElementById('main-voice')?.value) || 2
+                    practice_per_condition: intValue('sc-practice', 12),
+                    control_repetitions: intValue('sc-control-reps', 8),
+                    orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
                 timing: {
-                    iti: parseInt(document.getElementById('iti-slider')?.value) || 1000,
-                    pre_stimulus_delay: parseInt(document.getElementById('pre-stimulus-slider')?.value) || 1500,
-                    response_timeout: parseInt(document.getElementById('response-timeout-slider')?.value) || 10000,
-                    error_display_duration: parseInt(document.getElementById('error-display-slider')?.value) || 2000
+                    warning_tone_frequency: 500,
+                    warning_tone_duration: 100,
+                    warning_to_stimulus_delay: intValue('sc-warning-delay', 500),
+                    iti: intValue('iti-slider', 2000),
+                    response_timeout: intValue('response-timeout-slider', 3000),
+                    error_display_duration: intValue('error-display-slider', 1500)
                 },
                 audio: {
                     volume: parseFloat(document.getElementById('volume-slider')?.value) || 0.7
                 },
                 data: {
-                    crash_recovery: document.getElementById('crash-recovery')?.checked || true
+                    crash_recovery: crashRecovery ? crashRecovery.checked : true
                 }
             }
         };
-        
+
         return config;
+    }
+
+    // Live total under the trial settings
+    updateSpeededClassificationTotal() {
+        const el = document.getElementById('sc-total-trials');
+        if (!el) return;
+        const v = (id) => parseInt(document.getElementById(id)?.value, 10) || 0;
+        const practice = v('sc-practice') * 4;
+        const main = 2 * 8 * v('sc-control-reps') + 2 * 64 * v('sc-orthogonal-reps');
+        el.textContent = `Total: ${main} test trials + ${practice} practice = ${main + practice} trials`;
     }
 
     async saveConfigurationToFile(config) {
@@ -2158,20 +2174,18 @@ class Dashboard {
     }
 
     applyConfigurationToForm(config) {
-        const params = config.parameters;
-        
-        // Apply trial parameters
-        if (params.trials) {
-            this.setInputValue('practice-phoneme', params.trials.practice_phoneme);
-            this.setInputValue('practice-voice', params.trials.practice_voice);
-            this.setInputValue('main-phoneme', params.trials.main_phoneme);
-            this.setInputValue('main-voice', params.trials.main_voice);
+        const params = config.parameters || {};
+
+        // Trial/timing fields from the current format only (older files
+        // held placeholder fields the task never used)
+        if (config.version === 2 && params.trials) {
+            this.setInputValue('sc-practice', params.trials.practice_per_condition);
+            this.setInputValue('sc-control-reps', params.trials.control_repetitions);
+            this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
-        
-        // Apply timing parameters
-        if (params.timing) {
+        if (config.version === 2 && params.timing) {
+            this.setInputValue('sc-warning-delay', params.timing.warning_to_stimulus_delay);
             this.setInputValue('iti-slider', params.timing.iti);
-            this.setInputValue('pre-stimulus-slider', params.timing.pre_stimulus_delay);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);
             this.setInputValue('error-display-slider', params.timing.error_display_duration);
         }
@@ -2189,6 +2203,7 @@ class Dashboard {
         // Update all slider displays
         const sliders = document.querySelectorAll('.config-slider');
         sliders.forEach(slider => this.updateSliderValue(slider));
+        this.updateSpeededClassificationTotal();
     }
 
     setInputValue(id, value) {

@@ -713,7 +713,8 @@ class ReadingSpanTask {
             }
         }
         
-        this.totalRecallsAttempted++;
+        // Only main-phase recalls are recorded and scored
+        if (isMainPhase) this.totalRecallsAttempted++;
         
         // Check if this phase is complete
         this.later(() => {
@@ -812,7 +813,7 @@ class ReadingSpanTask {
     endRecallPhase() {
         // Count any remaining unattempted recalls
         const recallButtons = document.querySelectorAll('.recall-button:not([disabled])');
-        this.totalRecallsUnattempted += recallButtons.length;
+        if (this.currentPhase === 'main') this.totalRecallsUnattempted += recallButtons.length;
         
         // Clear any remaining intervals
         document.querySelectorAll('.recall-button').forEach(button => {

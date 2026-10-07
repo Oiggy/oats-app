@@ -1638,6 +1638,11 @@ class SpeededClassificationPopup {
     }
 
     async saveResults() {
+        // One save per run, even if the button is clicked twice
+        if (this.savingResults) return;
+        this.savingResults = true;
+        const saveBtn = document.getElementById('save-results-btn');
+        if (saveBtn) saveBtn.disabled = true;
         try {
             await this.saveResultsToFile();
             window.dashboard?.showToast('Task results saved successfully', 'success');
@@ -1649,6 +1654,8 @@ class SpeededClassificationPopup {
         } catch (error) {
             console.error('Error saving results:', error);
             window.dashboard?.showToast('Failed to save results', 'error');
+            this.savingResults = false;
+            if (saveBtn) saveBtn.disabled = false;
         }
     }
 
