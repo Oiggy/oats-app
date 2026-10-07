@@ -97,7 +97,9 @@ channels.
   - If the interface is unplugged or stops delivering audio, it turns back into the plain **AUDIO** button within about 1.5 s. A notice appears, and tasks switch to the fallback audio path instead of freezing; a recording that was interrupted is saved and marked `timing_reliable: false`.
   - When the interface is plugged back in, OATS reconnects automatically (it retries for a few seconds while the driver comes up) and the badge turns green again.
 - **Windows sound output (live).** The connected Audio Setup window shows Windows' current default playback device and, for the Focusrite, which Playback pair it uses. It's read from the device name, e.g. "Speakers (Focusrite USB Audio)" = Playback 1–2.
-  - If that pair overlaps the ticked stimulus outputs, a pulsing **"Windows sounds will mix with your stimuli — hover to fix"** chip appears. Hovering it shows the steps to move one of them, and a button that opens Windows Sound settings.
+  - If the device name doesn't say which pair it uses (e.g. "Speakers (Focusrite USB Audio)"), 1–2 is assumed and a small menu lets you pick the real pair. Your choice is remembered for that device.
+  - A comparison line underneath updates as soon as you tick or untick a stimulus output: **✓ Separate** (Windows → Playback X–Y · Stimuli → Out A+B) or **⚠ Clash** (naming the shared channels).
+  - On a clash, a pulsing **"Windows sounds will mix with your stimuli — hover to fix"** chip appears. Hovering it shows the steps to move one of them, and a button that opens Windows Sound settings.
 - **SPL calibration.** The **"How to calibrate"** chip next to the field shows the measuring steps on hover.
 - **Setup guide.** When ASIO isn't running, Audio Setup shows a **JDS + Focusrite Scarlett 4i4 4th Gen** button above the fallback status. It opens a step-by-step guide to the wiring, Focusrite Control 2 and OATS Audio Setup (the same setup as the reference lab setup above).
 

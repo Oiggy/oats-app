@@ -54,7 +54,11 @@ const DEFAULT_CONFIG = {
     // dB SPL measured at the earphone with stimulus volume at 100% and the
     // lab's fixed knob settings. Used only for logging estimated SPL
     // (src/shared/audio/stimulus-level.js); null = not calibrated.
-    calibrationDbSplAt100: null
+    calibrationDbSplAt100: null,
+    // Which Focusrite playback pair a Windows output device uses, when its
+    // name doesn't say (set from Audio Setup), e.g.
+    // { "Speakers (Focusrite USB Audio)": [1, 2] }. Display/clash check only.
+    windowsPairs: {}
 };
 
 function getConfigDir() {

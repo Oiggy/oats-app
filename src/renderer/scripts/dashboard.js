@@ -165,9 +165,10 @@ class Dashboard {
     }
 
     // Windows' current default playback device and which Focusrite playback
-    // pair it is, worked out from the device name:
-    // "Speakers (Focusrite USB Audio)" = Playback 1-2,
-    // "Output 3 + 4 (Focusrite USB Audio)" = Playback 3-4.
+    // pair it is. The pair comes from the device name when it has one
+    // ("Output 3 + 4 (Focusrite USB Audio)" = 3-4); otherwise from the pair the
+    // technician picked for that device in Audio Setup; otherwise 1-2, which
+    // is the Focusrite's main Windows device ("Speakers (Focusrite USB Audio)").
     async getWindowsOutput() {
         try {
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -175,43 +176,107 @@ class Dashboard {
             if (!def) return null;
             const name = def.label.replace(/^Default\s*-\s*/i, '') || 'Unknown device';
             const focusrite = /focusrite|scarlett/i.test(name);
+            if (!focusrite) return { name, focusrite, channels: null, source: null };
             const pair = name.match(/(\d+)\s*(?:\+|-|–|&|\/|and)\s*(\d+)/i);
-            const channels = focusrite ? (pair ? [parseInt(pair[1], 10), parseInt(pair[2], 10)] : [1, 2]) : null;
-            return { name, focusrite, channels };
+            if (pair) return { name, focusrite, channels: [parseInt(pair[1], 10), parseInt(pair[2], 10)], source: 'name' };
+            const engine = this.getAsioEngine();
+            const saved = engine && engine.config && engine.config.windowsPairs ? engine.config.windowsPairs[name] : null;
+            if (Array.isArray(saved) && saved.length === 2) return { name, focusrite, channels: saved, source: 'manual' };
+            return { name, focusrite, channels: [1, 2], source: 'assumed' };
         } catch (error) {
             return null;
         }
     }
 
-    // Updates the live "Windows sound output" row and the channel-clash tip
-    // in an open Audio Setup window.
+    // Re-reads the Windows output (slow-ish: asks the OS) and redraws the row.
+    // The clash check itself runs from the cached value, so it reacts to
+    // channel ticks instantly.
     async refreshWindowsOutput() {
         const row = document.getElementById('audio-windows-output');
         if (!row) return;
         const out = await this.getWindowsOutput();
-        const conflictTip = document.getElementById('audio-conflict-trigger');
+        if (!document.getElementById('audio-windows-output')) return;
+        this.audioWindowsOutput = out;
+
+        // Only rebuild the row when something changed, so a technician using
+        // the pair menu isn't interrupted by the 2-second refresh.
+        const key = out ? `${out.name}|${out.channels}|${out.source}` : 'none';
+        if (row.dataset.key !== key) {
+            row.dataset.key = key;
+            if (!out) {
+                row.innerHTML = 'Could not read the Windows sound output.';
+            } else if (!out.focusrite) {
+                row.innerHTML = `<strong>${this.escapeAudioHtml(out.name)}</strong> (not the Focusrite)`;
+            } else if (out.source === 'name') {
+                row.innerHTML = `<strong>${this.escapeAudioHtml(out.name)}</strong> &rarr; Focusrite Playback ${out.channels.join('&ndash;')}`;
+            } else {
+                const deviceSelect = document.getElementById('audio-device');
+                const engine = this.getAsioEngine();
+                const devices = engine ? engine.listDevices() : [];
+                const device = devices.find((d) => deviceSelect && d.name === deviceSelect.value);
+                const outCount = device ? device.outputChannels : 6;
+                const pairs = [];
+                for (let c = 1; c + 1 <= outCount; c += 2) pairs.push([c, c + 1]);
+                row.innerHTML = `<strong>${this.escapeAudioHtml(out.name)}</strong> &rarr; Focusrite Playback
+                    <select id="audio-windows-pair" aria-label="Which Focusrite playback pair this Windows device uses">
+                        ${pairs.map((p) => `<option value="${p.join(',')}" ${p[0] === out.channels[0] ? 'selected' : ''}>${p.join('&ndash;')}</option>`).join('')}
+                    </select>
+                    <small class="audio-hint">${out.source === 'manual'
+                        ? 'Set by you for this device.'
+                        : 'The device name doesn\'t say which pair, so 1&ndash;2 is assumed. Pick the right pair if Windows uses another one.'}</small>`;
+                document.getElementById('audio-windows-pair').addEventListener('change', (e) => {
+                    const pair = e.target.value.split(',').map((n) => parseInt(n, 10));
+                    if (engine) {
+                        engine.saveConfig({ windowsPairs: Object.assign({}, engine.config.windowsPairs, { [out.name]: pair }) });
+                    }
+                    this.refreshWindowsOutput();
+                });
+            }
+        }
+        this.updateAudioClash();
+    }
+
+    // Compares the ticked stimulus outputs with the Windows pair and updates
+    // the comparison line and the "hover to fix" chip. Synchronous, so it
+    // follows every tick/untick immediately.
+    updateAudioClash() {
+        const status = document.getElementById('audio-clash-status');
+        const chip = document.getElementById('audio-conflict-trigger');
+        if (!status || !chip) return;
+        const out = this.audioWindowsOutput;
         const deviceSelect = document.getElementById('audio-device');
         const stimOuts = Array.from(document.querySelectorAll('#audio-out-channels input:checked'))
             .map((i) => parseInt(i.value, 10) + 1);
+        const stimText = stimOuts.length ? `Out ${stimOuts.join('+')}` : 'no outputs';
+        const asioIsFocusrite = !!(deviceSelect && /focusrite|scarlett/i.test(deviceSelect.value));
 
+        let state = 'ok';
         let text;
         if (!out) {
-            text = 'Could not read the Windows sound output.';
-        } else if (out.focusrite) {
-            text = `<strong>${this.escapeAudioHtml(out.name)}</strong> &rarr; Focusrite Playback ${out.channels.join('&ndash;')}`;
+            state = 'unknown';
+            text = 'Checking Windows sound output&hellip;';
+        } else if (stimOuts.length === 0) {
+            state = 'warn';
+            text = 'Tick at least one stimulus output.';
+        } else if (!out.focusrite) {
+            text = `&#10003; Separate: Windows sound is on another device; stimuli on Focusrite ${stimText}.`;
+        } else if (!asioIsFocusrite) {
+            text = `&#10003; Separate: stimuli use ${this.escapeAudioHtml(deviceSelect.value)}; Windows sound is on the Focusrite.`;
         } else {
-            text = `<strong>${this.escapeAudioHtml(out.name)}</strong> (not the Focusrite, so it can't mix with stimuli)`;
+            const shared = out.channels.filter((c) => stimOuts.includes(c));
+            if (shared.length) {
+                state = 'clash';
+                text = `&#9888; Clash: Windows sound (Playback ${out.channels.join('&ndash;')}) and stimuli (${stimText}) ` +
+                    `share channel${shared.length > 1 ? 's' : ''} ${shared.join(' and ')}.`;
+            } else {
+                text = `&#10003; Separate: Windows sound &rarr; Playback ${out.channels.join('&ndash;')} &middot; Stimuli &rarr; ${stimText}.`;
+            }
         }
-        row.innerHTML = text;
-
-        const asioIsFocusrite = deviceSelect && /focusrite|scarlett/i.test(deviceSelect.value);
-        const clash = !!(out && out.focusrite && asioIsFocusrite &&
-            out.channels.some((c) => stimOuts.includes(c)));
-        if (conflictTip) {
-            conflictTip.hidden = !clash;
-            const chans = document.getElementById('tip-conflict-channels');
-            if (chans && out && out.channels) chans.textContent = out.channels.join('–');
-        }
+        status.innerHTML = text;
+        status.className = `audio-clash-status ${state}`;
+        chip.hidden = state !== 'clash';
+        const chans = document.getElementById('tip-conflict-channels');
+        if (chans && out && out.channels) chans.textContent = out.channels.join('–');
     }
 
     escapeAudioHtml(value) {
@@ -453,6 +518,7 @@ class Dashboard {
                     <div class="audio-field">
                         <label>Windows sound output <span class="audio-live">live</span></label>
                         <div class="audio-windows-output" id="audio-windows-output">Checking&hellip;</div>
+                        <div class="audio-clash-status unknown" id="audio-clash-status" aria-live="polite">Checking Windows sound output&hellip;</div>
                         <button type="button" class="audio-tip-trigger warn" id="audio-conflict-trigger" data-tip="tip-conflict" hidden>
                             <span class="audio-tip-dot" aria-hidden="true"></span>
                             Windows sounds will mix with your stimuli &mdash; hover to fix
@@ -536,7 +602,15 @@ class Dashboard {
                 .audio-test-result { font-size: 13px; min-height: 18px; }
                 .audio-live { font-size: 10px; font-weight: 600; color: #1f8f4e; background: #e7f6ec;
                     padding: 1px 6px; border-radius: 8px; text-transform: uppercase; letter-spacing: .04em; }
-                .audio-windows-output { font-size: 13px; padding: 8px 10px; background: #f5f5f7; border-radius: 6px; }
+                .audio-windows-output { font-size: 13px; padding: 8px 10px; background: #f5f5f7; border-radius: 6px;
+                    display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+                .audio-windows-output select { padding: 3px 6px; border-radius: 6px; border: 1px solid #d2d2d7; font-size: 13px; }
+                .audio-windows-output small { flex-basis: 100%; }
+                .audio-clash-status { font-size: 12.5px; font-weight: 500; padding: 6px 10px; border-radius: 6px; }
+                .audio-clash-status.ok { background: #e7f6ec; color: #1f6b3a; }
+                .audio-clash-status.clash { background: #fff4e0; color: #8a5a00; }
+                .audio-clash-status.warn { background: #fdecea; color: #a1281e; }
+                .audio-clash-status.unknown { background: #f5f5f7; color: #6e6e73; }
                 .audio-guide-button {
                     display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
                     padding: 12px 14px; border-radius: 10px; border: 1.5px solid #007aff; background: #f0f6ff;
@@ -605,10 +679,15 @@ class Dashboard {
             const inCh = sameDevice ? config.inputChannel : 0;
             document.getElementById('audio-in-channel').innerHTML = Array.from({ length: device.inputChannels }, (_, c) =>
                 `<option value="${c}" ${c === inCh ? 'selected' : ''}>Input ${c + 1}</option>`).join('');
+            const row = document.getElementById('audio-windows-output');
+            if (row) delete row.dataset.key;
+            this.updateAudioClash();
             this.refreshWindowsOutput();
         };
         deviceSelect.addEventListener('change', renderDeviceOptions);
-        document.getElementById('audio-out-channels').addEventListener('change', () => this.refreshWindowsOutput());
+        const outChannels = document.getElementById('audio-out-channels');
+        outChannels.addEventListener('change', () => this.updateAudioClash());
+        outChannels.addEventListener('input', () => this.updateAudioClash());
         renderDeviceOptions();
 
         // Keep the Windows output row live while the window is open, in case
