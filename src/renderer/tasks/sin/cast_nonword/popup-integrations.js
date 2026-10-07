@@ -84,6 +84,39 @@ class CaSTNonwordTask {
         }
     }
 
+    // Shared Test Audio check (beep on each Audio Setup output, then a
+    // sample, and a verdict on whether ASIO is really in use).
+    getAudioCheck() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'audio-check.js'));
+    }
+
+    audioCheckHTML() {
+        try {
+            return this.getAudioCheck().html({
+                buttonClass: 'task-btn task-btn-secondary',
+                caption: 'For the tester: checks each audio output with a beep before you start'
+            });
+        } catch (error) {
+            console.error('Audio check unavailable:', error);
+            return '';
+        }
+    }
+
+    async testAudio() {
+        try {
+            this.audioCheck = await this.getAudioCheck().run({
+                engine: this.asioEngine,
+                volume: this.config.parameters.audio.volume,
+                button: document.getElementById('audio-check-btn'),
+                resultEl: document.getElementById('audio-check-result')
+            });
+        } catch (error) {
+            console.error('Audio test failed:', error);
+        }
+    }
+
     // Logs the stimulus volume this participant heard (dB re. the stimulus
     // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
     // stimulus-levels.csv, and returns the line for the results file.
@@ -262,6 +295,8 @@ class CaSTNonwordTask {
                         ${instructionText.replace(/\n/g, '<br>')}
                     </div>
                     
+                    ${this.audioCheckHTML()}
+
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
@@ -273,6 +308,9 @@ class CaSTNonwordTask {
                 </div>
             </div>
         `;
+
+        const audioCheckBtn = document.getElementById('audio-check-btn');
+        if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
         
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
             this.saveResults();
@@ -686,6 +724,7 @@ class CaSTNonwordTask {
             output.push(`Participant ID: ${this.participantId}`);
             output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
             output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: Nonwords')}`);
+            output.push(`Audio Check: ${this.getAudioCheck().summarize(this.audioCheck)}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
             output.push(`Task: Nonwords`);
             output.push('');

@@ -157,6 +157,14 @@ class AuditoryStroopPopup {
         }
     }
 
+    // Shared Test Audio check (beep on each Audio Setup output, then a
+    // sample, and a verdict on whether ASIO is really in use).
+    getAudioCheck() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'audio-check.js'));
+    }
+
     isDevMode() {
         return typeof this.participantId === 'string' && this.participantId.startsWith('DEV_');
     }
@@ -837,7 +845,8 @@ class AuditoryStroopPopup {
                     <button id="test-audio-btn" class="task-button task-button-secondary">
                         🔊 Test Audio
                     </button>
-                    <p class="audio-caption">Plays the warning beep and one word to check the audio level</p>
+                    <p class="audio-caption">Checks each audio output with a beep, then plays the warning beep and a word</p>
+                    <div class="oats-audio-check-result" id="audio-check-result" hidden></div>
                 </div>
                 
                 <button id="begin-task-btn" class="task-button task-button-primary">
@@ -852,25 +861,23 @@ class AuditoryStroopPopup {
     }
 
     async testAudio() {
-        const testBtn = document.getElementById('test-audio-btn');
-        const originalText = testBtn.textContent;
-        
-        testBtn.textContent = '🔊 Playing...';
-        testBtn.disabled = true;
-        
+        const sample = this.stimulusList.find(s => !this.missingAudio.includes(s.stimulus_id)) || this.stimulusList[0];
         try {
-            const sample = this.stimulusList.find(s => !this.missingAudio.includes(s.stimulus_id)) || this.stimulusList[0];
-            const playback = await this.startTrialAudio(sample);
-            await playback.ended;
-            testBtn.textContent = '✅ Audio OK';
+            this.audioCheck = await this.getAudioCheck().run({
+                engine: this.asioEngine,
+                volume: this.config.parameters.audio.volume,
+                button: document.getElementById('test-audio-btn'),
+                resultEl: document.getElementById('audio-check-result'),
+                sampleLabel: 'warning beep and a word',
+                playSample: async () => {
+                    const playback = await this.startTrialAudio(sample);
+                    await playback.ended;
+                    return playback;
+                }
+            });
         } catch (error) {
-            testBtn.textContent = '❌ Audio Error';
             console.error('Audio test failed:', error);
         }
-        setTimeout(() => {
-            testBtn.textContent = originalText;
-            testBtn.disabled = false;
-        }, 2000);
     }
 
     async startPracticePhase() {
@@ -1508,6 +1515,7 @@ class AuditoryStroopPopup {
         content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Auditory Stroop')}\n`;
         content += `Audio Playback: ${this.describeTrialAudio()}\n`;
+        content += `Audio Check: ${this.getAudioCheck().summarize(this.audioCheck)}\n`;
         if (this.finishedEarly) content += `NOTE: Developer Mode test, finished early after ${this.results.length} trials (incomplete run)\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;

@@ -87,6 +87,25 @@ button (Audio Setup); there is no per-task channel setting. A channel the
 interface doesn't have is an error, not silently dropped, and the **Audio
 Backend** line in each results file names the channels used.
 
+### Test Audio check (every listening task)
+
+Auditory Stroop, Speeded Classification and all Speech-in-Noise tasks have a
+**Test Audio** button on their welcome/instruction page. It plays through the
+same code and channels as the trials:
+
+1. With ASIO, a beep on each output chosen in Audio Setup, one at a time.
+   Listen that each comes out where expected (e.g. Out 1 left, Out 2 right).
+2. A sample on all chosen outputs: the warning beep and a word for Auditory
+   Stroop / Speeded Classification; a beep for Speech-in-Noise (so the
+   participant doesn't hear a test item early).
+3. A verdict: **ASIO is working** (device and outputs), **Not using ASIO**
+   (with the reason; sound goes to the Windows default output), or **ASIO
+   check failed** (e.g. the sample fell back to Web Audio, or an audio
+   dropout). It also warns if Windows sounds share the stimulus outputs.
+
+The result is written to the task's results file as an **Audio Check** line
+(`not run` if the button wasn't used).
+
 ### Live status and built-in help
 
 - **AUDIO badge.** It reads green **AUDIO: ASIO** while the interface is running.

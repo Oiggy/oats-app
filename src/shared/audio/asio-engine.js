@@ -154,7 +154,8 @@ class AsioEngine extends EventEmitter {
     // Tries to start the stream the first time it's asked, so every existing
     // `if (asioEngine.isEnabled())` check means "ASIO is actually running".
     isEnabled() {
-        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        if (!this.isPlatformSupported()) { this.statusReason = 'ASIO is only available on Windows'; return false; }
+        if (!this.config.enabled) { this.statusReason = 'ASIO is turned off in Audio Setup'; return false; }
         if (!this.started && !this.startAttempted) this._start();
         return this.started;
     }
