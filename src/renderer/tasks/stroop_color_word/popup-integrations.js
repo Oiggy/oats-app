@@ -291,7 +291,9 @@ class StroopColorWordPopup {
                     width: 100%;
                     height: 100%;
                     display: flex;
-                    align-items: center;
+                    /* scroll rather than cut off content that doesn't fit */
+                    overflow-y: auto;
+                    align-items: safe center;
                     justify-content: center;
                     position: relative;
                     font-size: 16px;
@@ -485,8 +487,6 @@ class StroopColorWordPopup {
                 <p>First, you will complete a short practice phase. Then, you will complete the main phase, where your voice will be recorded for each trial.</p>
                 
                 <p>${breakInfo}</p>
-                
-                <p>The number of main trials is divided by three, and breaks occur at those points (the experimenter can calculate the exact trial counts for breaks in advance).</p>
                 
                 <div class="audio-test-section">
                     <button id="test-audio-btn" class="task-button task-button-secondary">
@@ -1124,6 +1124,8 @@ class StroopColorWordPopup {
             this.taskState = 'stopped';
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);

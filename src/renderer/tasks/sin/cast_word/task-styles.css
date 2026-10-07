@@ -243,13 +243,14 @@
 }
 
 .task-btn-primary {
-    background: linear-gradient(to bottom right, #ffffff, #f0f0f0);
-    color: black;
+    background: #007aff;
+    border-color: #007aff;
+    color: white;
 }
 
 .task-btn-primary:hover {
-    background: linear-gradient(to bottom right, #fafafa, #e8e8e8);
-    border-color: #d0d0d0;
+    background: #0066d6;
+    border-color: #0066d6;
 }
 
 .task-btn-secondary {

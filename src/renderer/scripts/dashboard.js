@@ -2107,6 +2107,8 @@ class Dashboard {
             modalOverlay.setAttribute('aria-hidden', 'true');
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);
@@ -3876,6 +3878,8 @@ class Dashboard {
             modalOverlay.setAttribute('aria-hidden', 'true');
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);

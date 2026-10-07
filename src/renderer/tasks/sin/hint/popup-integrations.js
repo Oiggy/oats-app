@@ -305,16 +305,14 @@ class HINTTask {
         const instructionText = `Read this to the participant:
 
             In this task, you will hear sentences spoken in background noise.
-            After each sentence, please repeat back exactly what you heard`;
+            After each sentence, please repeat back exactly what you heard.`;
         
         this.modalContent.innerHTML = `
             <div class="hint-instruction-page">
                 <div class="instruction-content">
                     <h1 class="task-title">HINT</h1>
                     
-                    <div class="instruction-text">
-                        ${instructionText.replace(/\n/g, '<br>')}
-                    </div>
+                    <div class="instruction-text">${instructionText.split('\n').map((line) => line.trim().replace(/ {2,}/g, ' ')).join('\n').trim()}</div>
                     
                     ${this.audioCheckHTML()}
 

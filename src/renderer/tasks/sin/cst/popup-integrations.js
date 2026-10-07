@@ -373,9 +373,7 @@ class CSTTask {
                 <div class="instruction-content">
                     <h1 class="task-title">CST</h1>
                     
-                    <div class="instruction-text">
-                        ${instructionText.replace(/\n/g, '<br>')}
-                    </div>
+                    <div class="instruction-text">${instructionText.split('\n').map((line) => line.trim().replace(/ {2,}/g, ' ')).join('\n').trim()}</div>
                     
                     ${this.audioCheckHTML()}
 

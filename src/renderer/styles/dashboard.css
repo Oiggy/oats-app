@@ -482,6 +482,21 @@ body {
 .config-modal .modal-content {
     max-width: 800px;
     width: 95%;
+    /* Title and Save/Cancel stay in view; only the settings scroll */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.config-modal .modal-content > .modal-header,
+.config-modal .modal-content > .modal-footer {
+    flex-shrink: 0;
+}
+
+.config-modal .modal-content > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .config-modal .modal-header {
@@ -764,12 +779,19 @@ input:checked + .toggle-slider:before {
 }
 
 /* Toast */
+/* Bottom-right, above every window (task windows included), so a toast
+   never covers a window's close button or the AUDIO / DEV badges */
 .toast-container {
     position: fixed;
-    top: 32px;
-    right: 32px;
-    z-index: 1100;
+    bottom: 24px;
+    right: 24px;
+    z-index: 20000;
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: min(360px, calc(100vw - 48px));
 }
 
 .toast {
@@ -784,7 +806,8 @@ input:checked + .toggle-slider:before {
     opacity: 0;
     transition: all 0.3s ease;
     margin-bottom: 8px;
-    pointer-events: auto;
+    /* Click-through: a toast must never block the button underneath */
+    pointer-events: none;
 }
 
 .toast.show {

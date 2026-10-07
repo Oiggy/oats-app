@@ -231,7 +231,7 @@ class ReadingSpanTask {
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
             width: 90%;
             max-width: 900px;
-            min-height: 600px;
+            min-height: min(600px, 90vh);
             max-height: 90vh;
             position: relative;
             display: flex;
@@ -291,7 +291,7 @@ class ReadingSpanTask {
                     display: flex;
                     flex-direction: column;
                     align-items: center;
-                    justify-content: center;
+                    justify-content: safe center;
                 "></div>
             </div>
         `;

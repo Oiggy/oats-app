@@ -135,7 +135,9 @@ class CVCTask {
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
             width: 90%;
             max-width: 800px;
-            min-height: 500px;
+            min-height: min(500px, 95vh);
+            max-height: 95vh;
+            overflow: hidden;
             position: relative;
             display: flex;
             flex-direction: column;
@@ -180,11 +182,13 @@ class CVCTask {
             </div>
             <div class="cvc-task-content" style="
                 flex: 1;
+                min-height: 0;
+                overflow-y: auto;
                 padding: 40px 24px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                justify-content: center;
+                justify-content: safe center;
                 text-align: center;
             " id="cvc-task-content">
                 <!-- Content will be dynamically updated -->

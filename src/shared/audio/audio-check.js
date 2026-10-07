@@ -25,7 +25,8 @@ function injectStyles() {
     const style = document.createElement('style');
     style.id = 'oats-audio-check-styles';
     style.textContent = `
-        .oats-audio-check { margin: 16px auto; max-width: 560px; text-align: center; }
+        .oats-audio-check { margin: 16px auto; max-width: 560px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+        .oats-audio-check-result { align-self: stretch; }
         .oats-audio-check-result { margin-top: 12px; text-align: left; font-size: 14px; line-height: 1.45;
             border-radius: 10px; padding: 12px 14px; background: #f5f5f7; color: #1d1d1f; border: 1px solid #d2d2d7; }
         .oats-audio-check-result[hidden] { display: none; }
@@ -44,6 +45,7 @@ function injectStyles() {
 
 // Markup for tasks that don't have their own Test Audio button.
 function html({ buttonId = 'audio-check-btn', resultId = 'audio-check-result', buttonClass = '', caption = '' } = {}) {
+    injectStyles();
     return `
         <div class="oats-audio-check">
             <button type="button" id="${buttonId}" class="${buttonClass}">🔊 Test Audio</button>
