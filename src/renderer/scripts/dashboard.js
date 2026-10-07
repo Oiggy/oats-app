@@ -428,7 +428,22 @@ class Dashboard {
         document.getElementById('audio-guide-close').addEventListener('click', () => this.closeModal());
     }
 
+    // True while a task window is open (the dashboard's own windows would
+    // replace or disturb it while the task keeps running).
+    isTaskOpen() {
+        const overlay = document.getElementById('modal-overlay');
+        return !!((overlay && overlay.classList.contains('open') && overlay.classList.contains('task-modal')) ||
+            document.querySelector('.task-modal-overlay, .reading-span-task-overlay, .cvc-task-overlay'));
+    }
+
+    blockedByOpenTask(what) {
+        if (!this.isTaskOpen()) return false;
+        this.showToast(`${what} can't be opened while a task is running. Exit the task first.`, 'warning');
+        return true;
+    }
+
     showAudioSetup() {
+        if (this.blockedByOpenTask('Audio Setup')) return;
         this.audioRendering = true;
         try {
             this.renderAudioSetup();
@@ -835,6 +850,7 @@ class Dashboard {
         // Click handler for the badge
         const badge = document.getElementById('dev-mode-badge');
         badge.addEventListener('click', () => {
+            if (this.blockedByOpenTask('Developer Mode')) return;
             if (this.developerMode) {
                 this.exitDeveloperMode();
             } else {
