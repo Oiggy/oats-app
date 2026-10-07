@@ -100,6 +100,8 @@ function channelList(channels) {
 //               plays the task's own sample. Omit to use a beep on all channels.
 //   sampleLabel what the sample is, e.g. "warning beep and a word"
 //   button, resultEl  DOM elements to drive
+//   revealAfter element to scroll into view when done (the Start button), so
+//               the result never leaves it out of sight
 async function run(options) {
     injectStyles();
     const { engine, button, resultEl } = options;
@@ -181,6 +183,8 @@ async function run(options) {
     result.ok = asio && result.problems.length === 0;
     if (resultEl) showResult(resultEl, result, status);
     if (button) { button.disabled = false; button.textContent = originalText; }
+    const reveal = options.revealAfter || resultEl;
+    if (reveal && reveal.scrollIntoView) reveal.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     return result;
 }
 

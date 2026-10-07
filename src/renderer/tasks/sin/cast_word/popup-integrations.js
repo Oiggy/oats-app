@@ -110,7 +110,8 @@ class CaSTWordTask {
                 engine: this.asioEngine,
                 volume: this.config.parameters.audio.volume,
                 button: document.getElementById('audio-check-btn'),
-                resultEl: document.getElementById('audio-check-result')
+                resultEl: document.getElementById('audio-check-result'),
+                revealAfter: this.modalContent ? this.modalContent.querySelector('.instruction-buttons') : null
             });
         } catch (error) {
             console.error('Audio test failed:', error);

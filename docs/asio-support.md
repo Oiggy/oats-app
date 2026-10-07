@@ -208,9 +208,12 @@ measure the real split (e.g. with a loopback cable), set `outputLatencyMs` /
 `inputLatencyMs` in `cfg_audio_asio.json`. Sample-domain alignment between a
 stimulus and a recording does not depend on this split.
 
-If the app's event loop stalls longer than the pre-buffer, the driver plays
-silence and the timeline shifts. The engine detects this, logs it, and marks
-affected trials/takes `timing_reliable: false`.
+If the app is busy for longer than the pre-buffer (e.g. while a task loads
+its sound files), the driver plays silence in the meantime. The engine never
+queues more than the pre-buffer, so later sounds are not delayed: it counts
+the silent periods and skips its timeline past them, keeping every later
+timestamp exact. Sounds/recordings that were in progress during the busy
+spell are logged and marked `timing_reliable: false`.
 
 ## Fallback
 

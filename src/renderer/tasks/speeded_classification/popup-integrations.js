@@ -751,7 +751,9 @@ class SpeededClassificationPopup {
                     width: 100%;
                     height: 100%;
                     display: flex;
-                    align-items: center;
+                    /* scroll rather than cut off content that doesn't fit */
+                    overflow-y: auto;
+                    align-items: safe center;
                     justify-content: center;
                     position: relative;
                     font-size: 16px;
@@ -1090,6 +1092,7 @@ class SpeededClassificationPopup {
                 volume: this.config.parameters.audio.volume,
                 button: document.getElementById('audio-test-btn'),
                 resultEl: document.getElementById('audio-check-result'),
+                revealAfter: document.getElementById('begin-task-btn'),
                 sampleLabel: 'warning beep and a word',
                 playSample: async () => {
                     const playback = await this.startTrialAudio(sample);

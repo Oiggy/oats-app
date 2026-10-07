@@ -14,9 +14,14 @@
 .practice-cast-instruction-page {
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: safe center;
     height: 100%;
     padding: 24px;
+    /* Scroll rather than cut off the buttons when content (e.g. the
+       Test Audio result) doesn't fit */
+    max-height: 95vh;
+    overflow-y: auto;
+    box-sizing: border-box;
 }
 
 .instruction-content {

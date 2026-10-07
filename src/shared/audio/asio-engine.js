@@ -115,6 +115,8 @@ class AsioEngine extends EventEmitter {
         this.framesWritten = 0;
         this.framesConsumed = 0;
         this.underruns = 0;
+        this.slip = 0;
+        this._silentSamples = [];
         // Recent (performance.now() - blockIndex * period) values; the minimum
         // filters out JS delivery jitter when mapping the audio clock to
         // wall-clock time.
@@ -316,13 +318,17 @@ class AsioEngine extends EventEmitter {
         this._stopWatchdog();
         this.lastBlockAt = nowMs();
         this.watchdog = setInterval(() => {
-            if (this.started && nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
+            if (!this.started) return;
+            if (nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
                 this._handleDisconnect('the interface stopped sending audio');
+                return;
             }
-        }, 500);
+            this._checkSlip();
+        }, 100);
     }
 
     _stopWatchdog() {
+        if (this._slipCheckTimer) { clearTimeout(this._slipCheckTimer); this._slipCheckTimer = null; }
         if (this.watchdog) clearInterval(this.watchdog);
         this.watchdog = null;
     }
@@ -431,30 +437,82 @@ class AsioEngine extends EventEmitter {
 
         if (this.capture && !this.capture.interrupted) this._captureBlock(input, blockIndex);
 
-        // Output frame k is played in callback k only while the native queue
-        // never runs dry. If the event loop stalled past the pre-buffer, the
-        // driver played silence instead and every later frame slid back by
-        // that many callbacks. The two callbacks arrive on separate queues,
-        // so allow a couple of frames of slack before calling it an underrun.
-        const missing = this.blocksReceived - this.framesConsumed - 2;
-        if (missing > this.underruns) {
-            this.underruns = missing;
-            const t = nowMs();
-            if (!this._lastUnderrunLog || t - this._lastUnderrunLog > 1000) {
-                this._lastUnderrunLog = t;
-                console.warn(`[asio-engine] Output underrun (${this.underruns} silent frame(s) so far); ` +
-                    'timing for sounds/recordings in progress is flagged unreliable.');
-            }
+        // More driver callbacks than frames played (beyond the jitter between
+        // the two event streams): the queue ran dry while the app was busy
+        // and the driver played silence.
+        const silent = this.blocksReceived - this.framesConsumed;
+        if (silent - this.slip > 2) {
+            this._setSlip(silent);
+            this._scheduleSlipCheck();
         }
-        while (this.framesWritten < this.blocksReceived + this.config.prebufferFrames) {
-            this._writeNextFrame();
-        }
-
+        this._fillOutput();
         this._settleJobs();
     }
 
+    // Keeps a small, fixed amount of audio queued in the driver (the
+    // pre-buffer), counted against frames the driver has actually played.
+    // If the app was busy for longer than that, the driver played silence in
+    // the meantime; writing the "missed" frames afterwards would only queue a
+    // backlog that delays every later sound. Instead the timeline skips past
+    // the silence (this.slip = callbacks that played no audio), so frame
+    // index + slip is still the driver callback the frame plays in.
+    _fillOutput() {
+        while (this.framesWritten - this.framesConsumed < this.config.prebufferFrames) {
+            this._writeNextFrame();
+        }
+    }
+
+    // Exact count of silent driver callbacks: callbacks so far minus frames
+    // played. The two arrive as separate events, so this is read between
+    // events and only trusted when three reads in a row agree.
+    _checkSlip() {
+        if (!this.started) return;
+        const silent = this.blocksReceived - this.framesConsumed;
+        this._silentSamples.push(silent);
+        if (this._silentSamples.length > 3) this._silentSamples.shift();
+        if (this._silentSamples.length === 3 && this._silentSamples.every((v) => v === silent) && silent !== this.slip) {
+            this._setSlip(silent);
+        }
+    }
+
+    // Right after a busy spell, settle the exact count quickly rather than
+    // waiting for the watchdog.
+    _scheduleSlipCheck() {
+        if (this._slipCheckTimer) return;
+        let reads = 0;
+        const tick = () => {
+            this._checkSlip();
+            reads += 1;
+            this._slipCheckTimer = reads < 4 ? setTimeout(tick, 15) : null;
+        };
+        this._slipCheckTimer = setTimeout(tick, 15);
+    }
+
+    // Silent driver callbacks so far changed: shift sounds still waiting to
+    // play (they come after the silence). Their timing is flagged unreliable
+    // through this.underruns, which every sound and recording compares.
+    _setSlip(value) {
+        const delta = value - this.slip;
+        if (delta === 0) return;
+        const firstUnplayed = (this.framesConsumed + this.slip) * this.frameSize;
+        const shift = delta * this.frameSize;
+        for (const job of [this.activeJob, ...this.pendingDrains, ...this.outputJobs]) {
+            if (!job) continue;
+            if (job.startSample != null && job.startSample >= firstUnplayed) job.startSample += shift;
+            if (job.endSample != null && job.endSample >= firstUnplayed) job.endSample += shift;
+        }
+        this.slip = value;
+        this.underruns += Math.abs(delta);
+        const t = nowMs();
+        if (!this._lastUnderrunLog || t - this._lastUnderrunLog > 1000) {
+            this._lastUnderrunLog = t;
+            console.warn(`[asio-engine] Output underrun: the app was busy and the interface played ${this.slip} silent ` +
+                'frame(s) so far; sounds/recordings in progress at that moment are flagged unreliable.');
+        }
+    }
+
     _writeNextFrame() {
-        const frameIndex = this.framesWritten;
+        const frameIndex = this.framesWritten + this.slip;
         const frame = new Float32Array(this.frameSize * this.outChannelCount);
 
         let i = 0;
@@ -840,6 +898,8 @@ class AsioEngine extends EventEmitter {
         this.framesWritten = 0;
         this.framesConsumed = 0;
         this.underruns = 0;
+        this.slip = 0;
+        this._silentSamples = [];
         this.clockSamples = [];
         this.clockOffsetMs = null;
         this._cache = null;

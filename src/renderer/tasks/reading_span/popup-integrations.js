@@ -157,6 +157,16 @@ class ReadingSpanTask {
     async setupAudioPermissions() {
         try {
             console.log('Setting up audio with NativeAudioRecorder...');
+
+            // With ASIO the interface is already running and recording works;
+            // a silent second at load (no one speaking yet, or the microphone
+            // not plugged in yet) must not stop the task from opening. The
+            // Test Microphone button checks for sound.
+            if (this.audioRecorder.usesAsio()) {
+                this.isAudioSetup = true;
+                console.log('Recording through ASIO:', this.audioRecorder.describeBackend());
+                return;
+            }
             
             // Test audio using NativeAudioRecorder
             const testResult = await this.audioRecorder.testAudio();
