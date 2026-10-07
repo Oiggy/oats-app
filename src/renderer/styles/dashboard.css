@@ -879,6 +879,41 @@ select:focus {
     color: #1d1d1f;
 }
 
+/* Audio Setup / guide: title and buttons stay in view, settings scroll */
+.modal-content:has(> .audio-setup-modal) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-content > .audio-setup-modal {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 90vh;
+}
+
+#audio-setup-root {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.audio-setup-modal > .modal-header,
+.audio-setup-modal > .modal-footer,
+#audio-setup-root > .modal-header,
+#audio-setup-root > .modal-footer {
+    flex-shrink: 0;
+}
+
+.audio-setup-modal > .modal-body,
+#audio-setup-root > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .audio-setup-modal .modal-body {
     padding: 0 32px 16px 32px;
     color: #1d1d1f;
