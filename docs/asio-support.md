@@ -31,6 +31,39 @@ folder (`%APPDATA%\Oats\task-configurations` on Windows). By default the
 first device whose name contains "Focusrite" is used, at 48 kHz with a
 128-sample buffer, outputs 1+2 and input 1.
 
+### Reference lab setup (Scarlett 4i4 + JDS Labs Atom Amp 2)
+
+This is the verified working setup for stimulus playback to insert earphones.
+
+Signal path:
+**Laptop → Scarlett 4i4 (USB) → Scarlett headphone jack → RCA cable → Atom Amp 2 RCA inputs → Atom headphone output → earphone adapter → insert earphones**
+
+Cabling:
+- The Scarlett's front **headphone jack** connects to the cable that splits into two RCA plugs.
+- **Red RCA → `R IN`** on the back of the Atom Amp 2, and **white RCA → `L IN`**. Use the "IN" pair, not the "OUT" pair: the OUT sockets are line outputs and the amp makes no sound if you're plugged into them.
+- The earphone adapter plugs into the Atom Amp 2's front headphone output.
+
+Atom Amp 2:
+- The **GAIN** and **INPUT** buttons are both pressed in.
+- With INPUT pressed, the amp uses the RCA inputs rather than the 3.5 mm input.
+
+Focusrite Control 2:
+- **Inputs** and **Mixer** tabs: no changes needed.
+- **Routing** tab:
+  - Analogue outputs → **Headphones: Playback 1–2**
+  - Digital outputs → **Loopback: Playback 1–2**
+
+  If the Mixer tab shows "No outputs assigned" and the Routing tab doesn't send Playback 1–2 to the headphones, nothing reaches the amp. This was the cause of "no sound" during setup.
+
+OATS Audio Setup:
+- Device: **Focusrite USB ASIO** (6 in / 6 out)
+- **48000 Hz**, **128-sample** buffer
+- Stimulus outputs: **Out 1 + Out 2** (= Playback 1–2)
+- Recording input: **Input 1** (the microphone on the Scarlett's front input 1)
+- On the 4i4, ASIO inputs 5–6 are the Loopback pair: a digital copy of Playback 1–2. Don't choose them as the recording input for participants.
+
+Quick check: play any audio in Windows with the Scarlett as the output device. If it's audible in the earphones, OATS's **Test output** will be too.
+
 ### Per-task output channels
 
 A task can send its stimuli to different outputs than the global setting by
