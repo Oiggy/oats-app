@@ -3633,8 +3633,17 @@ class Dashboard {
             // Generate biodata content
             const biodataContent = this.generateBiodataFileContent(participantId);
             
-            // Save biodata.txt
+            // Save biodata.txt. A survey already saved under this ID (repeat
+            // session or a reused ID) is kept as biodata_<its date>.txt.
             const biodataPath = path.join(participantDir, 'biodata.txt');
+            try {
+                const previous = await fs.stat(biodataPath);
+                const stamp = previous.mtime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                await fs.rename(biodataPath, path.join(participantDir, `biodata_${stamp}.txt`));
+                this.showToast(`${participantId} already had a pre-task survey; the earlier one was kept as biodata_${stamp}.txt`, 'warning');
+            } catch (error) {
+                // No earlier survey for this participant
+            }
             await fs.writeFile(biodataPath, biodataContent, 'utf8');
             
             console.log(`Biodata saved to: ${biodataPath}`);
