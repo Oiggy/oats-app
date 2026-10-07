@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { EventEmitter } = require('events');
 
 const CONFIG_FILE_NAME = 'cfg_audio_asio.json';
 
@@ -80,8 +81,15 @@ function nowMs() {
     return (typeof performance !== 'undefined' ? performance : require('perf_hooks').performance).now();
 }
 
-class AsioEngine {
+// How long the driver may go without delivering audio before the device
+// is treated as disconnected (unplugged, powered off, driver reset).
+const DISCONNECT_TIMEOUT_MS = 1500;
+
+// Emits 'statuschange' (with getStatus()) whenever ASIO starts, fails to
+// start, disconnects or is shut down, so the UI can react in real time.
+class AsioEngine extends EventEmitter {
     constructor() {
+        super();
         this.config = loadConfig();
         this.audify = null;
         this.rt = null;
@@ -89,6 +97,9 @@ class AsioEngine {
         this.started = false;
         this.startAttempted = false;
         this.statusReason = 'not started';
+        this.disconnected = false;
+        this.watchdog = null;
+        this.lastBlockAt = 0;
 
         this.sampleRate = this.config.sampleRate;
         this.frameSize = this.config.frameSize;
@@ -152,6 +163,7 @@ class AsioEngine {
         return {
             backend: this.started ? 'ASIO' : 'fallback',
             reason: this.started ? null : this.statusReason,
+            disconnected: this.disconnected,
             device: this.device ? this.device.name : null,
             sampleRate: this.sampleRate,
             frameSize: this.frameSize,
@@ -259,7 +271,7 @@ class AsioEngine {
                 (input) => this._onInputBlock(input),
                 () => { this.framesConsumed += 1; },
                 0,
-                (type, message) => console.error(`[asio-engine] RtAudio error (${type}): ${message}`)
+                (type, message) => this._onDriverError(type, message)
             );
             this.sampleRate = this.rt.getStreamSampleRate() || this.config.sampleRate;
             this.streamLatencyFrames = this.rt.getStreamLatency() || 0;
@@ -267,16 +279,81 @@ class AsioEngine {
             for (let i = 0; i < this.config.prebufferFrames; i++) this._writeNextFrame();
             this.rt.start();
             this.started = true;
+            this.disconnected = false;
             this.statusReason = null;
+            this._startWatchdog();
             console.log('[asio-engine] Started:', this.describeBackend());
+            this._emitStatus();
             return true;
         } catch (error) {
             this.statusReason = `ASIO stream failed to open (${error.message})`;
             console.error('[asio-engine]', this.statusReason);
             try { if (this.rt && this.rt.isStreamOpen()) this.rt.closeStream(); } catch (e) { /* ignore */ }
             this.rt = null;
+            this._emitStatus();
             return false;
         }
+    }
+
+    _emitStatus() {
+        this.emit('statuschange', this.getStatus());
+    }
+
+    // ---- disconnect detection -----------------------------------------------------
+
+    // A running ASIO stream delivers an input block every few ms. If none
+    // arrive for DISCONNECT_TIMEOUT_MS, the interface has gone away.
+    _startWatchdog() {
+        this._stopWatchdog();
+        this.lastBlockAt = nowMs();
+        this.watchdog = setInterval(() => {
+            if (this.started && nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
+                this._handleDisconnect('the interface stopped sending audio');
+            }
+        }, 500);
+    }
+
+    _stopWatchdog() {
+        if (this.watchdog) clearInterval(this.watchdog);
+        this.watchdog = null;
+    }
+
+    _onDriverError(type, message) {
+        console.error(`[asio-engine] RtAudio error (${type}): ${message}`);
+        // WARNING (0) and DEBUG_WARNING (1) are informational.
+        if (this.started && type >= 2) this._handleDisconnect(message);
+    }
+
+    // Stops using the device and releases anything waiting on it, so tasks
+    // carry on with the fallback path instead of hanging.
+    _handleDisconnect(reason) {
+        if (!this.started) return;
+        console.warn(`[asio-engine] ASIO device disconnected: ${reason}`);
+        const deviceName = this.device ? this.device.name : 'ASIO device';
+        if (this.capture) this.capture.interrupted = true;
+        const capture = this.capture;
+        this.disconnected = true;
+        this.shutdown();
+        // Keep a partly-recorded take so the task can still save what it got
+        // (it stays marked interrupted and is never resumed).
+        this.capture = capture;
+        this.startAttempted = true;
+        this.statusReason = `${deviceName} disconnected (${reason})`;
+        this._emitStatus();
+    }
+
+    // Retries opening the ASIO device (e.g. after it is plugged back in).
+    // Returns true if ASIO is running afterwards.
+    tryReconnect() {
+        if (this.started) return true;
+        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        const previousReason = this.statusReason;
+        this.startAttempted = false;
+        const ok = this.isEnabled();
+        // While still unplugged, keep saying it's disconnected rather than
+        // the generic "no device found".
+        if (!ok && this.disconnected) this.statusReason = previousReason;
+        return ok;
     }
 
     // Closes the stream so the next isEnabled() call reopens it with the
@@ -337,11 +414,13 @@ class AsioEngine {
     // ---- real-time pump --------------------------------------------------------------
 
     _onInputBlock(input) {
+        if (!this.started) return;
         const blockIndex = this.blocksReceived;
         this.blocksReceived += 1;
+        this.lastBlockAt = nowMs();
         this._updateClock(blockIndex, nowMs());
 
-        if (this.capture) this._captureBlock(input, blockIndex);
+        if (this.capture && !this.capture.interrupted) this._captureBlock(input, blockIndex);
 
         // Output frame k is played in callback k only while the native queue
         // never runs dry. If the event loop stalled past the pre-buffer, the
@@ -592,7 +671,11 @@ class AsioEngine {
         // A capture that never resolved its start (stopped before the first
         // block arrived) must not leave startCapture() hanging.
         if (cap.startSample == null) cap.resolveStart(null);
-        return { samples, startSample: cap.startSample, timingReliable: cap.underrunsAtStart === this.underruns };
+        return {
+            samples,
+            startSample: cap.startSample,
+            timingReliable: !cap.interrupted && cap.underrunsAtStart === this.underruns
+        };
     }
 
     stopCaptureDiscard() {
@@ -666,6 +749,7 @@ class AsioEngine {
     // ---- teardown ------------------------------------------------------------------
 
     stop() {
+        this._stopWatchdog();
         this.clearOutputQueue();
         this.capture = null;
         if (this.rt) {
@@ -692,6 +776,7 @@ class AsioEngine {
         this.clockSamples = [];
         this.clockOffsetMs = null;
         this._cache = null;
+        if (!this.disconnected) this._emitStatus();
     }
 }
 

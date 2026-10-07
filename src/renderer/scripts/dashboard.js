@@ -73,8 +73,10 @@ class Dashboard {
         return this.asioEngine;
     }
 
-    // Top-right "AUDIO" badge showing whether the ASIO interface is running;
-    // click opens Audio Setup (device, channels, sample rate, buffer size).
+    // Top-right "AUDIO" badge: green "AUDIO: ASIO" while the ASIO interface is
+    // running, the plain "AUDIO" button otherwise. It follows the engine in
+    // real time (unplugging the interface turns it back to plain "AUDIO").
+    // Click opens Audio Setup.
     setupAudioSetup() {
         const indicator = document.createElement('div');
         indicator.id = 'audio-setup-indicator';
@@ -95,12 +97,22 @@ class Dashboard {
                 }
                 .audio-setup-badge:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); }
                 .audio-setup-badge.asio { background: #1f8f4e; }
-                .audio-setup-badge.fallback { background: #c27c0e; }
             </style>
         `;
         document.body.appendChild(indicator);
         document.getElementById('audio-setup-badge').addEventListener('click', () => this.showAudioSetup());
+
+        const engine = this.getAsioEngine();
+        if (engine && typeof engine.on === 'function') {
+            engine.on('statuschange', (status) => this.onAudioStatusChange(status));
+        }
+        if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+            // Fires when audio devices are plugged/unplugged and when the
+            // Windows default output changes.
+            navigator.mediaDevices.addEventListener('devicechange', () => this.onAudioDevicesChanged());
+        }
         this.updateAudioBadge();
+        this.audioWasRunning = !!(engine && engine.getStatus().backend === 'ASIO');
     }
 
     updateAudioBadge() {
@@ -108,59 +120,316 @@ class Dashboard {
         const text = document.getElementById('audio-setup-text');
         if (!badge || !text) return;
         const engine = this.getAsioEngine();
-        const running = engine && engine.isEnabled();
-        badge.classList.toggle('asio', !!running);
-        badge.classList.toggle('fallback', !running && process.platform === 'win32');
+        const running = !!(engine && engine.isEnabled());
+        badge.classList.toggle('asio', running);
         text.textContent = running ? 'AUDIO: ASIO' : 'AUDIO';
         badge.title = engine ? engine.describeBackend() : 'Audio engine unavailable';
     }
 
+    onAudioStatusChange(status) {
+        const running = status.backend === 'ASIO';
+        const wasRunning = this.audioWasRunning;
+        this.audioWasRunning = running;
+        this.updateAudioBadge();
+
+        if (wasRunning && !running && status.disconnected) {
+            this.showToast('Audio interface disconnected - tasks will use fallback audio until it is reconnected.', 'error');
+        } else if (wasRunning === false && running) {
+            this.showToast('ASIO audio interface connected.', 'success');
+        }
+
+        // Redraw an open Audio Setup window if the device came or went
+        // (not while it is applying its own settings).
+        const root = document.getElementById('audio-setup-root');
+        if (root && !this.audioApplying && !this.audioRendering && root.dataset.backend !== status.backend) {
+            this.showAudioSetup();
+        }
+    }
+
+    // A device was plugged/unplugged or the Windows default output changed:
+    // retry ASIO if it isn't running (the driver can take a few seconds after
+    // the USB device appears) and refresh the Windows output display.
+    onAudioDevicesChanged() {
+        this.refreshWindowsOutput();
+        const engine = this.getAsioEngine();
+        if (!engine || process.platform !== 'win32' || engine.getStatus().backend === 'ASIO') return;
+        clearTimeout(this.audioReconnectTimer);
+        const attempts = [1000, 3000, 6000];
+        const attempt = (i) => {
+            if (engine.getStatus().backend === 'ASIO' || i >= attempts.length) return;
+            this.audioReconnectTimer = setTimeout(() => {
+                if (!engine.tryReconnect()) attempt(i + 1);
+            }, attempts[i] - (i > 0 ? attempts[i - 1] : 0));
+        };
+        attempt(0);
+    }
+
+    // Windows' current default playback device and which Focusrite playback
+    // pair it is, worked out from the device name:
+    // "Speakers (Focusrite USB Audio)" = Playback 1-2,
+    // "Output 3 + 4 (Focusrite USB Audio)" = Playback 3-4.
+    async getWindowsOutput() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const def = devices.find((d) => d.kind === 'audiooutput' && d.deviceId === 'default');
+            if (!def) return null;
+            const name = def.label.replace(/^Default\s*-\s*/i, '') || 'Unknown device';
+            const focusrite = /focusrite|scarlett/i.test(name);
+            const pair = name.match(/(\d+)\s*(?:\+|-|–|&|\/|and)\s*(\d+)/i);
+            const channels = focusrite ? (pair ? [parseInt(pair[1], 10), parseInt(pair[2], 10)] : [1, 2]) : null;
+            return { name, focusrite, channels };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // Updates the live "Windows sound output" row and the channel-clash tip
+    // in an open Audio Setup window.
+    async refreshWindowsOutput() {
+        const row = document.getElementById('audio-windows-output');
+        if (!row) return;
+        const out = await this.getWindowsOutput();
+        const conflictTip = document.getElementById('audio-conflict-trigger');
+        const deviceSelect = document.getElementById('audio-device');
+        const stimOuts = Array.from(document.querySelectorAll('#audio-out-channels input:checked'))
+            .map((i) => parseInt(i.value, 10) + 1);
+
+        let text;
+        if (!out) {
+            text = 'Could not read the Windows sound output.';
+        } else if (out.focusrite) {
+            text = `<strong>${this.escapeAudioHtml(out.name)}</strong> &rarr; Focusrite Playback ${out.channels.join('&ndash;')}`;
+        } else {
+            text = `<strong>${this.escapeAudioHtml(out.name)}</strong> (not the Focusrite, so it can't mix with stimuli)`;
+        }
+        row.innerHTML = text;
+
+        const asioIsFocusrite = deviceSelect && /focusrite|scarlett/i.test(deviceSelect.value);
+        const clash = !!(out && out.focusrite && asioIsFocusrite &&
+            out.channels.some((c) => stimOuts.includes(c)));
+        if (conflictTip) {
+            conflictTip.hidden = !clash;
+            const chans = document.getElementById('tip-conflict-channels');
+            if (chans && out && out.channels) chans.textContent = out.channels.join('–');
+        }
+    }
+
+    escapeAudioHtml(value) {
+        return String(value).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    // Hover/focus/click tips. A trigger names its content with data-tip; the
+    // content is shown in one floating panel so it is never clipped by the
+    // scrolling modal, and stays open while the pointer is over it (so its
+    // buttons can be clicked).
+    setupAudioTips(root) {
+        let panel = document.getElementById('audio-floating-tip');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'audio-floating-tip';
+            panel.setAttribute('role', 'tooltip');
+            document.body.appendChild(panel);
+            panel.addEventListener('mouseenter', () => clearTimeout(this.audioTipHideTimer));
+            panel.addEventListener('mouseleave', () => this.hideAudioTip());
+            panel.addEventListener('click', (e) => {
+                const action = e.target.closest('[data-action]');
+                if (action && action.dataset.action === 'open-sound-settings') {
+                    try { window.require('electron').shell.openExternal('ms-settings:sound'); } catch (err) {
+                        console.warn('Could not open Windows Sound settings:', err.message);
+                    }
+                }
+            });
+        }
+        root.querySelectorAll('[data-tip]').forEach((trigger) => {
+            const show = () => this.showAudioTip(trigger);
+            trigger.addEventListener('mouseenter', show);
+            trigger.addEventListener('focus', show);
+            trigger.addEventListener('click', show);
+            trigger.addEventListener('mouseleave', () => {
+                this.audioTipHideTimer = setTimeout(() => this.hideAudioTip(), 250);
+            });
+            trigger.addEventListener('blur', () => {
+                this.audioTipHideTimer = setTimeout(() => this.hideAudioTip(), 250);
+            });
+        });
+    }
+
+    showAudioTip(trigger) {
+        clearTimeout(this.audioTipHideTimer);
+        const panel = document.getElementById('audio-floating-tip');
+        const content = document.getElementById(trigger.dataset.tip);
+        if (!panel || !content) return;
+        panel.innerHTML = content.innerHTML;
+        panel.classList.add('open');
+        const r = trigger.getBoundingClientRect();
+        const width = Math.min(380, window.innerWidth - 24);
+        panel.style.width = `${width}px`;
+        const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+        panel.style.left = `${left}px`;
+
+        // Never cover the trigger: open below or above it, whichever fits
+        // (or has more room), scrolling inside if taller than that space.
+        panel.style.maxHeight = '';
+        const h = panel.offsetHeight;
+        const spaceBelow = window.innerHeight - r.bottom - 16;
+        const spaceAbove = r.top - 16;
+        if (h <= spaceBelow) {
+            panel.style.top = `${r.bottom + 8}px`;
+        } else if (h <= spaceAbove) {
+            panel.style.top = `${r.top - h - 8}px`;
+        } else if (spaceBelow >= spaceAbove) {
+            panel.style.maxHeight = `${spaceBelow}px`;
+            panel.style.top = `${r.bottom + 8}px`;
+        } else {
+            panel.style.maxHeight = `${spaceAbove}px`;
+            panel.style.top = '8px';
+        }
+    }
+
+    hideAudioTip() {
+        const panel = document.getElementById('audio-floating-tip');
+        if (panel) panel.classList.remove('open');
+    }
+
+    // Step-by-step setup for the lab's reference hardware.
+    showAudioGuide() {
+        this.hideAudioTip();
+        const modalContent = document.getElementById('modal-overlay').querySelector('.modal-content');
+        modalContent.innerHTML = `
+            <div class="audio-setup-modal" id="audio-guide-root">
+                <div class="modal-header"><h2 class="modal-title">JDS + Focusrite Scarlett 4i4 4th Gen</h2></div>
+                <div class="modal-body audio-guide">
+                    <p class="audio-hint">Set-up for stimulus playback through JDS Labs Atom Amp 2 to insert earphones, with
+                    recording on the Scarlett.</p>
+
+                    <h3>1. Connect the Scarlett</h3>
+                    <ol>
+                        <li>Install <strong>Focusrite Control 2</strong> (includes the ASIO driver) if it isn't installed.</li>
+                        <li>Connect the Scarlett 4i4 to the laptop with its USB-C cable. The USB light turns green.</li>
+                    </ol>
+
+                    <h3>2. Wire the headphone amp</h3>
+                    <ol>
+                        <li>Plug the cable from the Scarlett's <strong>front headphone jack</strong> into the back of the
+                        Atom Amp 2: <strong>red RCA &rarr; R IN</strong>, <strong>white RCA &rarr; L IN</strong>.
+                        Use the <strong>IN</strong> pair, not the OUT pair. The amp is silent if the cables are in OUT.</li>
+                        <li>Plug the earphone adapter into the Atom Amp 2 <strong>front headphone output</strong>, and the
+                        insert earphones into the adapter (red = right, blue = left).</li>
+                        <li>On the Atom Amp 2, press <strong>GAIN</strong> and <strong>INPUT</strong> in. INPUT pressed
+                        = RCA input. Start with the volume low.</li>
+                    </ol>
+
+                    <h3>3. Focusrite Control 2</h3>
+                    <ol>
+                        <li><strong>Routing</strong> tab: Analogue outputs &rarr; <strong>Headphones: Playback 1&ndash;2</strong>.
+                        Digital outputs &rarr; <strong>Loopback: Playback 1&ndash;2</strong>.</li>
+                        <li><strong>Inputs</strong> and <strong>Mixer</strong> tabs: no changes. If the Mixer says
+                        "No outputs assigned", fix the Routing tab as above.</li>
+                        <li>Turn the Scarlett's headphone knob to about halfway.</li>
+                    </ol>
+
+                    <h3>4. OATS Audio Setup</h3>
+                    <ol>
+                        <li>Click <strong>AUDIO</strong>. Device: <strong>Focusrite USB ASIO</strong>,
+                        <strong>48000 Hz</strong>, <strong>128 samples</strong>.</li>
+                        <li>Stimulus outputs: <strong>Out 1 + Out 2</strong> (= Playback 1&ndash;2).
+                        Recording input: <strong>Input 1</strong> (microphone in the Scarlett's front input 1).</li>
+                        <li>Click <strong>Save &amp; Apply</strong>. The badge turns green: <strong>AUDIO: ASIO</strong>.</li>
+                    </ol>
+
+                    <h3>5. Check</h3>
+                    <ol>
+                        <li>Click <strong>Test output</strong>. The tone should play in the earphones. If it's silent,
+                        check the Routing tab, the IN/OUT sockets, the INPUT button and the volume knobs.</li>
+                        <li>Keep Windows sounds off the stimulus channels: the Audio Setup window warns you if they're
+                        shared and shows how to move them.</li>
+                        <li>Mark or tape the knob positions so every participant hears the same level.</li>
+                    </ol>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="button-secondary" id="audio-guide-back">Back</button>
+                    <button type="button" class="button-primary" id="audio-guide-close">Close</button>
+                </div>
+            </div>
+            <style>
+                .audio-guide h3 { font-size: 15px; margin: 18px 0 6px; }
+                .audio-guide h3:first-of-type { margin-top: 8px; }
+                .audio-guide ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+                .audio-guide li { font-size: 13.5px; line-height: 1.5; }
+            </style>
+        `;
+        document.getElementById('audio-guide-back').addEventListener('click', () => this.showAudioSetup());
+        document.getElementById('audio-guide-close').addEventListener('click', () => this.closeModal());
+    }
+
     showAudioSetup() {
+        this.audioRendering = true;
+        try {
+            this.renderAudioSetup();
+        } finally {
+            this.audioRendering = false;
+        }
+    }
+
+    renderAudioSetup() {
         const engine = this.getAsioEngine();
         const modalOverlay = document.getElementById('modal-overlay');
         const modalContent = modalOverlay.querySelector('.modal-content');
+        const esc = (v) => this.escapeAudioHtml(v);
+        this.hideAudioTip();
 
-        if (!engine || process.platform !== 'win32') {
-            modalContent.innerHTML = `
-                <div class="audio-setup-modal">
-                    <div class="modal-header"><h2 class="modal-title">Audio Setup</h2></div>
-                    <div class="modal-body"><p>ASIO audio is only available on Windows. This machine uses Web Audio for
-                    playback and sox for recording.</p></div>
-                    <div class="modal-footer"><button type="button" class="button-primary" id="audio-setup-close">Close</button></div>
-                </div>`;
-            modalOverlay.classList.add('open');
-            modalOverlay.setAttribute('aria-hidden', 'false');
-            document.getElementById('audio-setup-close').addEventListener('click', () => this.closeModal());
-            return;
-        }
-
-        engine.isEnabled();
-        const config = engine.reloadConfig();
-        const devices = engine.listDevices().filter((d) => d.outputChannels > 0 && d.inputChannels > 0);
-        const status = engine.getStatus();
+        const isWindows = process.platform === 'win32';
+        if (engine && isWindows && engine.getStatus().backend !== 'ASIO') engine.tryReconnect();
+        const status = engine ? engine.getStatus() : { backend: 'fallback' };
+        const running = status.backend === 'ASIO';
+        const config = engine ? engine.reloadConfig() : {};
+        const devices = engine && isWindows
+            ? engine.listDevices().filter((d) => d.outputChannels > 0 && d.inputChannels > 0)
+            : [];
         const current = devices.find((d) => status.device && d.name === status.device) ||
             devices.find((d) => config.deviceName && d.name === config.deviceName) || devices[0];
 
-        const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[c]));
+        let fallbackText;
+        if (!engine) {
+            fallbackText = 'Fallback (Web Audio/sox) - the ASIO audio engine could not be loaded.';
+        } else if (!isWindows) {
+            fallbackText = 'Fallback (Web Audio/sox) - ASIO is only available on Windows.';
+        } else {
+            fallbackText = engine.describeBackend();
+        }
+        const fallbackHint = !isWindows
+            ? 'This machine plays stimuli with Web Audio and records with sox. Channel selection and ASIO timing need Windows.'
+            : status.disconnected
+                ? 'The interface was disconnected. Plug it back in: OATS reconnects automatically, and this window updates.'
+                : 'Tasks use Web Audio for playback and sox / MediaRecorder for recording until ASIO is running. ' +
+                  'Reaction times are less precise, and results files record the fallback in their "Audio Backend" line.';
 
+        const showForm = devices.length > 0;
         modalContent.innerHTML = `
             <form id="audio-setup-form" class="audio-setup-modal">
+            <div id="audio-setup-root" data-backend="${running ? 'ASIO' : 'fallback'}">
                 <div class="modal-header"><h2 class="modal-title">Audio Setup (ASIO)</h2></div>
                 <div class="modal-body audio-setup-body">
-                    <div class="audio-status ${status.backend === 'ASIO' ? 'ok' : 'warn'}" id="audio-status">
-                        ${escapeHtml(engine.describeBackend())}
-                    </div>
-                    ${devices.length === 0 ? `
-                        <p class="audio-hint">No ASIO device with inputs and outputs was found. Connect the
-                        interface and install its ASIO driver (for Focusrite: Focusrite Control), then reopen this window.
-                        Until then tasks fall back to Web Audio / sox.</p>` : `
+                    ${running ? '' : `
+                    <button type="button" class="audio-guide-button" id="audio-guide-open">
+                        <span class="audio-guide-icon" aria-hidden="true">&#9776;</span>
+                        <span><strong>JDS + Focusrite Scarlett 4i4 4th Gen</strong>
+                        <small>Step-by-step: wiring, Focusrite Control and OATS audio setup</small></span>
+                        <span aria-hidden="true">&rsaquo;</span>
+                    </button>`}
+                    <div class="audio-status ${running ? 'ok' : 'warn'}" id="audio-status">${esc(running ? engine.describeBackend() : fallbackText)}</div>
+                    ${running ? '' : `<p class="audio-hint">${esc(fallbackHint)}</p>`}
+                    ${isWindows && !showForm && engine && !status.disconnected ? `
+                        <p class="audio-hint">No ASIO device with inputs and outputs was found. Connect the interface and install its
+                        ASIO driver (for Focusrite: Focusrite Control 2).</p>` : ''}
+                    ${showForm ? `
                     <div class="audio-field">
                         <label for="audio-device">ASIO device</label>
                         <select id="audio-device">
-                            ${devices.map((d) => `<option value="${escapeHtml(d.name)}" ${current && d.name === current.name ? 'selected' : ''}>
-                                ${escapeHtml(d.name)} (${d.inputChannels} in / ${d.outputChannels} out)</option>`).join('')}
+                            ${devices.map((d) => `<option value="${esc(d.name)}" ${current && d.name === current.name ? 'selected' : ''}>
+                                ${esc(d.name)} (${d.inputChannels} in / ${d.outputChannels} out)</option>`).join('')}
                         </select>
                     </div>
                     <div class="audio-row">
@@ -182,48 +451,142 @@ class Dashboard {
                         <small class="audio-hint">Stimuli play on every ticked output (mono stimuli are copied to each).</small>
                     </div>
                     <div class="audio-field">
+                        <label>Windows sound output <span class="audio-live">live</span></label>
+                        <div class="audio-windows-output" id="audio-windows-output">Checking&hellip;</div>
+                        <button type="button" class="audio-tip-trigger warn" id="audio-conflict-trigger" data-tip="tip-conflict" hidden>
+                            <span class="audio-tip-dot" aria-hidden="true"></span>
+                            Windows sounds will mix with your stimuli &mdash; hover to fix
+                        </button>
+                    </div>
+                    <div class="audio-field">
                         <label for="audio-in-channel">Recording input channel</label>
                         <select id="audio-in-channel"></select>
                     </div>
                     <div class="audio-field">
-                        <label for="audio-calibration">SPL calibration (optional)</label>
+                        <label for="audio-calibration">SPL calibration (optional)
+                            <button type="button" class="audio-tip-trigger info" data-tip="tip-calibration">
+                                <span aria-hidden="true">&#9432;</span> How to calibrate &mdash; hover for steps
+                            </button>
+                        </label>
                         <input type="number" id="audio-calibration" step="0.1" min="0" max="140"
                                placeholder="dB SPL measured at 100% volume"
                                value="${config.calibrationDbSplAt100 != null ? config.calibrationDbSplAt100 : ''}">
-                        <small class="audio-hint">Measure the level at the earphone with stimulus volume at 100% and the
-                        interface/amp knobs at their fixed lab positions. Results then log an estimated dB SPL per participant.</small>
                     </div>
                     <div class="audio-row">
                         <button type="button" class="button-secondary" id="audio-test-output">Test output</button>
                         <button type="button" class="button-secondary" id="audio-test-input">Test input (2 s)</button>
                     </div>
-                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>`}
+                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>` : ''}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="button-secondary" id="audio-setup-cancel">Close</button>
-                    ${devices.length ? '<button type="submit" class="button-primary" id="audio-setup-save">Save &amp; Apply</button>' : ''}
+                    ${showForm ? '<button type="submit" class="button-primary" id="audio-setup-save">Save &amp; Apply</button>' : ''}
                 </div>
+            </div>
             </form>
+
+            <div id="tip-conflict" hidden>
+                <h4>Windows sounds are on the same Focusrite channels as your stimuli</h4>
+                <p>Windows is playing to Playback <span id="tip-conflict-channels">1&ndash;2</span>, which you have ticked for stimuli.
+                Notifications or other apps would be heard mixed into the stimuli. Move one of them:</p>
+                <p><strong>Option A: move Windows sound</strong></p>
+                <ol>
+                    <li>Click the <strong>Focusrite icon</strong> in the taskbar tray (bottom right) and choose
+                    <strong>Expose Windows Channels</strong>, if it isn't on already.</li>
+                    <li>Open Windows Sound settings (button below) &rarr; <strong>Output</strong>.</li>
+                    <li>Choose a different output: the Focusrite <strong>3&ndash;4</strong> output, or the laptop speakers.</li>
+                    <li>This window updates by itself. The warning disappears when the clash is gone.</li>
+                </ol>
+                <p><strong>Option B: move the stimuli</strong></p>
+                <ol>
+                    <li>Tick a different pair above (e.g. <strong>Out 3 + Out 4</strong>) and untick 1 + 2.</li>
+                    <li>In Focusrite Control 2 &rarr; <strong>Routing</strong>, send that Playback pair to the headphones.</li>
+                    <li>Click <strong>Save &amp; Apply</strong>.</li>
+                </ol>
+                <button type="button" class="audio-tip-action" data-action="open-sound-settings">Open Windows Sound settings</button>
+            </div>
+
+            <div id="tip-calibration" hidden>
+                <h4>Calibrating stimulus level (dB SPL)</h4>
+                <ol>
+                    <li>Set the hardware exactly as it will be used for participants: Scarlett headphone knob and Atom Amp
+                    volume at their lab positions. Mark or tape them.</li>
+                    <li>Attach the insert earphone to a sound level meter with an ear-simulator / insert-earphone coupler.</li>
+                    <li>In a listening task, set the stimulus volume to <strong>100%</strong> and play a stimulus (or a
+                    calibration noise) continuously.</li>
+                    <li>Read the level on the meter (dB SPL, usually A- or Z-weighted, as your protocol specifies).</li>
+                    <li>Type that number into <strong>SPL calibration</strong> and click <strong>Save &amp; Apply</strong>.</li>
+                </ol>
+                <p>Results then log, per participant, <em>estimated dB SPL = calibration + volume gain in dB</em>
+                (e.g. 150% = +3.5 dB). Re-measure if the knobs, earphones or interface change.</p>
+            </div>
+
             <style>
                 .audio-setup-body { display: flex; flex-direction: column; gap: 14px; }
                 .audio-status { padding: 10px 12px; border-radius: 8px; font-size: 13px; }
                 .audio-status.ok { background: #e7f6ec; color: #1f6b3a; }
                 .audio-status.warn { background: #fdf3e1; color: #8a5a00; }
                 .audio-field { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-                .audio-field label { font-weight: 600; font-size: 13px; }
+                .audio-field label { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
                 .audio-field select, .audio-field input[type="number"] { padding: 8px; border-radius: 6px; border: 1px solid #d2d2d7; }
                 .audio-row { display: flex; gap: 12px; }
                 .audio-channels { display: flex; flex-wrap: wrap; gap: 8px 14px; }
                 .audio-channels label { font-weight: 400; display: flex; align-items: center; gap: 4px; }
-                .audio-hint { color: #6e6e73; font-size: 12px; }
+                .audio-hint { color: #6e6e73; font-size: 12px; margin: 0; }
                 .audio-test-result { font-size: 13px; min-height: 18px; }
+                .audio-live { font-size: 10px; font-weight: 600; color: #1f8f4e; background: #e7f6ec;
+                    padding: 1px 6px; border-radius: 8px; text-transform: uppercase; letter-spacing: .04em; }
+                .audio-windows-output { font-size: 13px; padding: 8px 10px; background: #f5f5f7; border-radius: 6px; }
+                .audio-guide-button {
+                    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+                    padding: 12px 14px; border-radius: 10px; border: 1.5px solid #007aff; background: #f0f6ff;
+                    color: #1d1d1f; cursor: pointer; font-size: 14px; transition: background .2s ease;
+                }
+                .audio-guide-button:hover { background: #e2eeff; }
+                .audio-guide-button small { display: block; color: #6e6e73; font-size: 12px; margin-top: 2px; }
+                .audio-guide-button span:last-child { margin-left: auto; font-size: 22px; color: #007aff; }
+                .audio-guide-icon { font-size: 18px; color: #007aff; }
+                .audio-tip-trigger {
+                    display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+                    border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: help;
+                    border: 1.5px solid transparent;
+                }
+                .audio-tip-trigger[hidden] { display: none; }
+                .audio-tip-trigger.warn { background: #fff4e0; color: #8a5a00; border-color: #f0b44c; animation: audio-tip-pulse 1.8s ease-in-out infinite; }
+                .audio-tip-trigger.info { background: #eef5ff; color: #0058c2; border-color: #a9cbff; font-weight: 500; }
+                .audio-tip-trigger:hover, .audio-tip-trigger:focus { filter: brightness(0.97); outline: none; }
+                .audio-tip-dot { width: 8px; height: 8px; border-radius: 50%; background: #f0a020; }
+                @keyframes audio-tip-pulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(240, 160, 32, 0.45); }
+                    50% { box-shadow: 0 0 0 6px rgba(240, 160, 32, 0); }
+                }
+                #audio-floating-tip {
+                    position: fixed; z-index: 10050; display: none; background: #ffffff; color: #1d1d1f;
+                    border-radius: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.5;
+                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22); border: 1px solid #e5e5e7; overflow-y: auto;
+                }
+                #audio-floating-tip.open { display: block; }
+                #audio-floating-tip h4 { margin: 0 0 8px; font-size: 14px; }
+                #audio-floating-tip p { margin: 6px 0; }
+                #audio-floating-tip ol { margin: 4px 0 8px; padding-left: 20px; }
+                #audio-floating-tip li { margin: 3px 0; }
+                .audio-tip-action {
+                    margin-top: 6px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer;
+                    background: #007aff; color: #fff; font-size: 13px; font-weight: 500;
+                }
             </style>
         `;
 
         modalOverlay.classList.add('open');
         modalOverlay.setAttribute('aria-hidden', 'false');
-        document.getElementById('audio-setup-cancel').addEventListener('click', () => this.closeModal());
-        if (devices.length === 0) return;
+        document.getElementById('audio-setup-cancel').addEventListener('click', () => {
+            this.hideAudioTip();
+            this.closeModal();
+        });
+        const guideButton = document.getElementById('audio-guide-open');
+        if (guideButton) guideButton.addEventListener('click', () => this.showAudioGuide());
+        this.setupAudioTips(document.getElementById('audio-setup-form'));
+        if (!showForm) return;
 
         const deviceSelect = document.getElementById('audio-device');
         const renderDeviceOptions = () => {
@@ -242,9 +605,22 @@ class Dashboard {
             const inCh = sameDevice ? config.inputChannel : 0;
             document.getElementById('audio-in-channel').innerHTML = Array.from({ length: device.inputChannels }, (_, c) =>
                 `<option value="${c}" ${c === inCh ? 'selected' : ''}>Input ${c + 1}</option>`).join('');
+            this.refreshWindowsOutput();
         };
         deviceSelect.addEventListener('change', renderDeviceOptions);
+        document.getElementById('audio-out-channels').addEventListener('change', () => this.refreshWindowsOutput());
         renderDeviceOptions();
+
+        // Keep the Windows output row live while the window is open, in case
+        // Windows doesn't announce a default-device change.
+        clearInterval(this.audioWindowsPoll);
+        this.audioWindowsPoll = setInterval(() => {
+            if (!document.getElementById('audio-windows-output')) {
+                clearInterval(this.audioWindowsPoll);
+                return;
+            }
+            this.refreshWindowsOutput();
+        }, 2000);
 
         const result = document.getElementById('audio-test-result');
         const statusBox = document.getElementById('audio-status');
@@ -271,12 +647,19 @@ class Dashboard {
                 result.textContent = 'Select at least one output channel.';
                 return false;
             }
-            engine.saveConfig(settings);
-            const ok = engine.restart();
-            statusBox.textContent = engine.describeBackend();
-            statusBox.className = `audio-status ${ok ? 'ok' : 'warn'}`;
-            this.updateAudioBadge();
-            return ok;
+            this.audioApplying = true;
+            try {
+                engine.saveConfig(settings);
+                const ok = engine.restart();
+                statusBox.textContent = engine.describeBackend();
+                statusBox.className = `audio-status ${ok ? 'ok' : 'warn'}`;
+                document.getElementById('audio-setup-root').dataset.backend = ok ? 'ASIO' : 'fallback';
+                this.audioWasRunning = ok;
+                this.updateAudioBadge();
+                return ok;
+            } finally {
+                this.audioApplying = false;
+            }
         };
 
         document.getElementById('audio-test-output').addEventListener('click', async () => {
@@ -289,7 +672,12 @@ class Dashboard {
         document.getElementById('audio-test-input').addEventListener('click', async () => {
             if (!apply()) return;
             result.textContent = 'Recording 2 seconds — speak into the microphone…';
-            await engine.startCapture();
+            try {
+                await engine.startCapture();
+            } catch (error) {
+                result.textContent = `Could not record: ${error.message}`;
+                return;
+            }
             await new Promise((resolve) => setTimeout(resolve, 2000));
             const recording = engine.stopCaptureToWavBuffer();
             let peak = 0;
@@ -306,6 +694,7 @@ class Dashboard {
             e.preventDefault();
             if (apply()) {
                 this.showToast('Audio settings saved — ASIO running', 'success');
+                this.hideAudioTip();
                 this.closeModal();
             } else {
                 this.showToast('Audio settings saved, but ASIO could not start. See status.', 'error');
@@ -3485,6 +3874,7 @@ class Dashboard {
     }
 
     closeModal() {
+        if (this.hideAudioTip) this.hideAudioTip();
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.classList.remove('open');

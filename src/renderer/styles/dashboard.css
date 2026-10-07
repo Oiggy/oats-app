@@ -822,6 +822,14 @@ input:checked + .toggle-slider:before {
     opacity: 1;
 }
 
+.toast.toast-error {
+    background-color: #ff3b30;
+}
+
+.toast.toast-warning {
+    background-color: #ff9500;
+}
+
 /* Accessibility */
 .visually-hidden {
     position: absolute;

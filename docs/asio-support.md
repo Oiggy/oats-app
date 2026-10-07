@@ -91,6 +91,16 @@ configuration is re-saved, but Auditory Stroop and Speeded Classification
 rebuild their config from the form and drop it, falling back to the global
 channels.
 
+### Live status and built-in help
+
+- **AUDIO badge.** It reads green **AUDIO: ASIO** while the interface is running.
+  - If the interface is unplugged or stops delivering audio, it turns back into the plain **AUDIO** button within about 1.5 s. A notice appears, and tasks switch to the fallback audio path instead of freezing; a recording that was interrupted is saved and marked `timing_reliable: false`.
+  - When the interface is plugged back in, OATS reconnects automatically (it retries for a few seconds while the driver comes up) and the badge turns green again.
+- **Windows sound output (live).** The connected Audio Setup window shows Windows' current default playback device and, for the Focusrite, which Playback pair it uses. It's read from the device name, e.g. "Speakers (Focusrite USB Audio)" = Playback 1–2.
+  - If that pair overlaps the ticked stimulus outputs, a pulsing **"Windows sounds will mix with your stimuli — hover to fix"** chip appears. Hovering it shows the steps to move one of them, and a button that opens Windows Sound settings.
+- **SPL calibration.** The **"How to calibrate"** chip next to the field shows the measuring steps on hover.
+- **Setup guide.** When ASIO isn't running, Audio Setup shows a **JDS + Focusrite Scarlett 4i4 4th Gen** button above the fallback status. It opens a step-by-step guide to the wiring, Focusrite Control 2 and OATS Audio Setup (the same setup as the reference lab setup above).
+
 ### Keeping app stimuli and Windows audio on separate channels
 
 OATS (through ASIO) and Windows (through its normal WDM audio) both send audio into the Focusrite's **Playback** channels:
