@@ -1637,6 +1637,12 @@ class AuditoryStroopPopup {
     }
 
     exitTask() {
+        // A finished run whose results haven't been saved yet is saved on
+        // the way out (Save Results & Exit) rather than thrown away.
+        if (this.taskState === 'completed') {
+            if (!this.savingResults) this.saveResults();
+            return;
+        }
         if (this.taskState === 'running') {
             if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
                 return;

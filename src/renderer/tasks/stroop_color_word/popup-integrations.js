@@ -931,6 +931,9 @@ class StroopColorWordPopup {
     }
 
     async saveResultsToFile() {
+        // Speech-onset analyses still running fill in RTs first
+        if (this.recordingPromises.length) await Promise.all(this.recordingPromises);
+
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
@@ -1110,6 +1113,12 @@ class StroopColorWordPopup {
     }
 
     exitTask() {
+        // A finished run whose results haven't been saved yet is saved on
+        // the way out (Save Results & Exit) rather than thrown away.
+        if (this.taskState === 'completed') {
+            if (!this.savingResults) this.saveResults();
+            return;
+        }
         if (this.taskState === 'running') {
             if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
                 return;
