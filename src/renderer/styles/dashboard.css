@@ -779,19 +779,19 @@ input:checked + .toggle-slider:before {
 }
 
 /* Toast */
-/* Bottom-right, above every window (task windows included), so a toast
-   never covers a window's close button or the AUDIO / DEV badges */
+/* Bottom-left, above every window, narrow: clear of window close and
+   task buttons (Exit, Save, Back...) and of the AUDIO / DEV badges */
 .toast-container {
     position: fixed;
     bottom: 24px;
-    right: 24px;
+    left: 24px;
     z-index: 20000;
     pointer-events: none;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: flex-start;
     gap: 8px;
-    max-width: min(360px, calc(100vw - 48px));
+    max-width: min(300px, calc(100vw - 48px));
 }
 
 .toast {
@@ -802,7 +802,7 @@ input:checked + .toggle-slider:before {
     font-size: 14px;
     font-weight: 500;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-    transform: translateX(100px);
+    transform: translateX(-100px);
     opacity: 0;
     transition: all 0.3s ease;
     margin-bottom: 8px;
@@ -813,6 +813,10 @@ input:checked + .toggle-slider:before {
 .toast.show {
     transform: translateX(0);
     opacity: 1;
+}
+
+.toast.toast-info {
+    background-color: #007aff;
 }
 
 .toast.toast-error {

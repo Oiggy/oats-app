@@ -64,9 +64,13 @@
 .practice-cast-player-page {
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: safe center;
     height: 100%;
     padding: 24px;
+    /* scroll rather than cut off controls on smaller screens */
+    max-height: 95vh;
+    box-sizing: border-box;
+    overflow-y: auto;
 }
 
 .player-content {

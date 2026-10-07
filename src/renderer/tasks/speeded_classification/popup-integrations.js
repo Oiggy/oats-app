@@ -629,6 +629,11 @@ class SpeededClassificationPopup {
         this.isOpen = true;
         
         this.bindTaskEvents();
+
+        // Every new screen starts at the top (the window keeps its scroll
+        // position otherwise, hiding the start of the next instructions)
+        const stage = document.getElementById('task-stage');
+        if (stage) new MutationObserver(() => { stage.scrollTop = 0; }).observe(stage, { childList: true });
         this.initializeTask();
     }
 

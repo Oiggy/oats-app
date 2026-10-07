@@ -1102,6 +1102,12 @@ class Dashboard {
             // Update UI
             this.updateDeveloperModeBadge(false);
             this.showToast(`Developer Mode disabled (Session: ${duration})`, 'info');
+
+            // The auto-filled test participant must not carry over into
+            // normal use: start again from the pre-task survey.
+            if (this.currentSubject && this.currentSubject.startsWith('DEV_')) {
+                this.resetParticipant();
+            }
             
             console.log(`🔧 Developer Mode session ended for ${devName} (Duration: ${duration})`);
         }
@@ -2113,6 +2119,31 @@ class Dashboard {
                 modalContent.innerHTML = '';
             }, 300);
         }
+    }
+
+    // Back to step 1 with no participant (task choice and configuration
+    // must be repeated for the next participant).
+    resetParticipant() {
+        this.currentSubject = null;
+        this.currentFormData = null;
+        this.selectedTask = null;
+        this.selectedTaskValue = null;
+        this.currentState = 'idle';
+        const subjectDisplay = document.getElementById('subject-display');
+        if (subjectDisplay) {
+            subjectDisplay.textContent = 'No participant yet';
+            subjectDisplay.classList.add('empty');
+        }
+        const taskDropdown = document.getElementById('task-dropdown');
+        if (taskDropdown) {
+            taskDropdown.value = '';
+            taskDropdown.disabled = true;
+        }
+        ['task-config-btn', 'run-task-btn'].forEach((id) => {
+            const btn = document.getElementById(id);
+            if (btn) btn.disabled = true;
+        });
+        this.initializeDashboard();
     }
 
     initializeDashboard() {
