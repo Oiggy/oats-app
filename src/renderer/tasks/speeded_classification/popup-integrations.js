@@ -1,4 +1,29 @@
 // Speeded Classification Task Popup Integration with Onscreen Buttons and Audio
+//
+// Garner (1974) speeded classification paradigm, implemented as in
+// Sommers & Danielson (1999), Psychology and Aging 14(3), Experiment 2:
+//
+//   Stimuli   8 words (bad, buff, beach, bill / pad, puff, peach, pill)
+//             x 8 talkers (4 male m1-m4, 4 female f1-f4) = 64 stimuli,
+//             listed in stimulus_list.csv; audio in ./audio/<stimulus_id>.wav
+//   Dimensions  phoneme-relevant (respond /b/ vs /p/)
+//               voice-relevant   (respond male vs female)
+//   Conditions  control     - irrelevant dimension held constant
+//                 phoneme: one b/p pair (e.g. buff-puff) by the 4 talkers of
+//                          one sex = 8 stimuli, each presented 8 times
+//                 voice:   one word by all 8 talkers = 8 stimuli, each x8
+//                 (pseudo-random, never the same stimulus twice in a row)
+//               orthogonal  - all 64 stimuli once each, pseudo-random
+//   Each participant runs all 4 conditions; dimension order and
+//   control/orthogonal order are counterbalanced (see Task Configuration).
+//   12 practice trials (with feedback) before each condition; no feedback
+//   on test trials.
+//   Trial: 500-Hz warning tone -> 500 ms -> stimulus. RT is measured from
+//   stimulus onset. 3-s response deadline, 2-s silent interval before the
+//   next warning tone.
+//   Scoring: interference = mean correct RT (orthogonal) - mean correct RT
+//   (control), per dimension, after removing RTs > 2 SD from each
+//   condition's mean.
 class SpeededClassificationPopup {
     constructor() {
         this.isOpen = false;
@@ -10,11 +35,31 @@ class SpeededClassificationPopup {
         this.phases = [];
         this.results = [];
         this.audioContext = null;
-        this.stimuli = {};
+        this.stimulusList = [];
         this.audioBuffers = {};
         this.audioFilePaths = {};
+        this.missingAudio = [];
         this.asioEngine = null;
-        this.responseStartTime = null;
+        this.counterbalancing = null;
+        this.cancelResponse = null;
+    }
+
+    static get CONFIG_VERSION() {
+        return 2;
+    }
+
+    // b/p minimal pairs used for the phoneme-relevant control condition
+    static get PHONEME_PAIRS() {
+        return {
+            'bad-pad': ['bad', 'pad'],
+            'buff-puff': ['buff', 'puff'],
+            'beach-peach': ['beach', 'peach'],
+            'bill-pill': ['bill', 'pill']
+        };
+    }
+
+    static get WORDS() {
+        return ['bad', 'pad', 'buff', 'puff', 'beach', 'peach', 'bill', 'pill'];
     }
 
     async loadTask(participantId) {
@@ -30,6 +75,7 @@ class SpeededClassificationPopup {
     }
 
     async loadConfiguration() {
+        const defaults = this.getDefaultConfig();
         try {
             const os = window.require('os');
             const path = window.require('path');
@@ -46,28 +92,65 @@ class SpeededClassificationPopup {
             
             const configPath = path.join(baseDir, 'cfg_speeded_classification_task.json');
             const configData = await fs.readFile(configPath, 'utf8');
-            this.config = JSON.parse(configData);
+            const saved = JSON.parse(configData);
+
+            // The dashboard's configuration form for this task stores the old
+            // placeholder fields (1-2 trials, 10 s timeout, ...), which don't
+            // describe the paper's design. From such a file only the playback
+            // volume is used; trials and timing follow the paper.
+            if (saved.version !== SpeededClassificationPopup.CONFIG_VERSION) {
+                this.config = defaults;
+                const volume = saved.parameters && saved.parameters.audio && parseFloat(saved.parameters.audio.volume);
+                if (!isNaN(volume) && volume > 0) this.config.parameters.audio.volume = volume;
+                const savedAudio = saved.parameters && saved.parameters.audio;
+                if (savedAudio && Array.isArray(savedAudio.output_channels)) {
+                    this.config.parameters.audio.output_channels = savedAudio.output_channels;
+                }
+                return;
+            }
+            this.config = this.mergeConfig(defaults, saved);
         } catch (error) {
             console.log('No configuration found, using defaults');
-            this.config = this.getDefaultConfig();
+            this.config = defaults;
         }
+    }
+
+    mergeConfig(defaults, saved) {
+        const merged = JSON.parse(JSON.stringify(defaults));
+        const params = saved.parameters || {};
+        for (const section of Object.keys(merged.parameters)) {
+            if (params[section] && typeof params[section] === 'object') {
+                Object.assign(merged.parameters[section], params[section]);
+            }
+        }
+        merged.timestamp = saved.timestamp || null;
+        return merged;
     }
 
     getDefaultConfig() {
         return {
             task: 'speeded-classification',
+            version: SpeededClassificationPopup.CONFIG_VERSION,
             parameters: {
                 trials: {
-                    practice_phoneme: 1,
-                    practice_voice: 1,
-                    main_phoneme: 2,
-                    main_voice: 2
+                    practice_per_condition: 12,  // 12 practice trials before each condition
+                    control_repetitions: 8,      // 8 stimuli x 8 = 64 control trials
+                    orthogonal_repetitions: 1    // 64 stimuli x 1 = 64 orthogonal trials
+                },
+                counterbalancing: {
+                    dimension_order: 'random',           // 'phoneme_first' | 'voice_first' | 'random'
+                    condition_order: 'random',           // 'control_first' | 'orthogonal_first' | 'random'
+                    phoneme_control_pair: 'random',      // 'bad-pad' | 'buff-puff' | 'beach-peach' | 'bill-pill' | 'random'
+                    phoneme_control_talker_sex: 'random',// 'male' | 'female' | 'random'
+                    voice_control_word: 'random'         // any of the 8 words | 'random'
                 },
                 timing: {
-                    iti: 1000,
-                    pre_stimulus_delay: 1500,
-                    response_timeout: 10000,
-                    error_display_duration: 2000
+                    warning_tone_frequency: 500,      // Hz
+                    warning_tone_duration: 100,       // ms
+                    warning_to_stimulus_delay: 500,   // ms, tone offset -> stimulus onset
+                    iti: 2000,                        // ms silent interval after the response
+                    response_timeout: 3000,           // ms from stimulus onset
+                    error_display_duration: 1500      // ms, practice feedback only
                 },
                 audio: {
                     volume: 0.7
@@ -95,6 +178,41 @@ class SpeededClassificationPopup {
         }
     }
 
+    // Output channels chosen in this task's configuration (1-based in the
+    // config, 0-based for the engine). Unset = use the global ASIO setup.
+    getOutputChannels() {
+        const channels = this.config && this.config.parameters && this.config.parameters.audio
+            ? this.config.parameters.audio.output_channels
+            : null;
+        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
+    }
+
+    // Short label for the results file naming the channels this task used.
+    describeAudioBackend() {
+        if (!(this.asioEngine && this.asioEngine.isEnabled())) return 'Web Audio (ASIO unavailable)';
+        return this.asioEngine.describeBackend({ outputChannels: this.getOutputChannels() });
+    }
+
+    // Logs the stimulus volume this participant heard (dB re. the stimulus
+    // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
+    // stimulus-levels.csv, and returns the line for the results file.
+    logStimulusLevel(taskName) {
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const levels = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'stimulus-level.js'));
+            return levels.logStimulusLevel({
+                participantId: this.participantId,
+                task: taskName,
+                volume: this.config.parameters.audio.volume,
+                backend: this.asioEngine && this.asioEngine.isEnabled() ? 'ASIO' : 'fallback'
+            });
+        } catch (error) {
+            console.error('Could not log stimulus level:', error);
+            return 'unavailable';
+        }
+    }
+
     async initializeAudioContext() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -107,113 +225,112 @@ class SpeededClassificationPopup {
         }
     }
 
-    async loadStimuli() {
-        // Define stimuli with paths to audio files
-        this.stimuli = {
-            phoneme: {
-                practice: [
-                    { file: 'ba_practice.wav', category: 'ba', correct_response: 'B' },
-                    { file: 'pa_practice.wav', category: 'pa', correct_response: 'P' }
-                ],
-                main: [
-                    { file: 'ba_1.wav', category: 'ba', correct_response: 'B' },
-                    { file: 'pa_1.wav', category: 'pa', correct_response: 'P' },
-                    { file: 'ba_2.wav', category: 'ba', correct_response: 'B' },
-                    { file: 'pa_2.wav', category: 'pa', correct_response: 'P' }
-                ]
-            },
-            voice: {
-                practice: [
-                    { file: 'male_practice.wav', category: 'male', correct_response: 'Male' },
-                    { file: 'female_practice.wav', category: 'female', correct_response: 'Female' }
-                ],
-                main: [
-                    { file: 'male_1.wav', category: 'male', correct_response: 'Male' },
-                    { file: 'female_1.wav', category: 'female', correct_response: 'Female' },
-                    { file: 'male_2.wav', category: 'male', correct_response: 'Male' },
-                    { file: 'female_2.wav', category: 'female', correct_response: 'Female' }
-                ]
-            }
-        };
+    getTaskDir() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'speeded_classification');
+    }
 
-        // Attempt to load actual audio files
+    // stimulus_list.csv mirrors Speeded_Classification_Task_Stimuli.xlsx:
+    // stimulus_id,word,initial_phoneme,talker_sex,talker
+    async loadStimuli() {
+        const path = window.require('path');
+        const fs = window.require('fs').promises;
+
+        const csvPath = path.join(this.getTaskDir(), 'stimulus_list.csv');
+        const csv = await fs.readFile(csvPath, 'utf8');
+        const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const header = lines.shift().split(',').map(h => h.trim());
+
+        this.stimulusList = lines.map(line => {
+            const cells = line.split(',').map(c => c.trim());
+            const row = {};
+            header.forEach((key, i) => { row[key] = cells[i]; });
+            return {
+                stimulus_id: row.stimulus_id,
+                word: row.word.toLowerCase(),
+                initial_phoneme: row.initial_phoneme.toLowerCase(),
+                talker_sex: row.talker_sex.toLowerCase(),
+                talker: row.talker.toLowerCase()
+            };
+        });
+
         await this.loadAudioFiles();
+    }
+
+    // Builds a case-insensitive index of the audio folder so that e.g.
+    // "bad_m1.wav", "Bad_M1.WAV" or "bad_m1.mp3" are all found.
+    buildAudioIndex(audioDir) {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const index = {};
+        if (!fs.existsSync(audioDir)) return index;
+        const preference = ['.wav', '.mp3', '.flac', '.ogg'];
+        for (const file of fs.readdirSync(audioDir)) {
+            const ext = path.extname(file).toLowerCase();
+            if (!preference.includes(ext)) continue;
+            const key = path.basename(file, path.extname(file)).toLowerCase();
+            const existing = index[key];
+            if (!existing || preference.indexOf(ext) < preference.indexOf(path.extname(existing).toLowerCase())) {
+                index[key] = path.join(audioDir, file);
+            }
+        }
+        return index;
     }
 
     async loadAudioFiles() {
         const path = window.require('path');
-        const fs = window.require('fs');
-        const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        
-        // Use app.getAppPath() to get the correct resource path in packaged app
-        const appPath = app.getAppPath();
-        const audioDir = path.join(appPath, 'src', 'renderer', 'tasks', 'speeded_classification', 'audio');
-        
+        const audioDir = path.join(this.getTaskDir(), 'audio');
+        const index = this.buildAudioIndex(audioDir);
+
         console.log('Loading audio files from:', audioDir);
-        
-        for (const [type, phases] of Object.entries(this.stimuli)) {
-            for (const [phase, stimuli] of Object.entries(phases)) {
-                for (const stimulus of stimuli) {
-                    const audioPath = path.join(audioDir, stimulus.file);
-                    
-                    try {
-                        // Check if file exists
-                        if (fs.existsSync(audioPath)) {
-                            this.audioFilePaths[stimulus.file] = audioPath;
-                            await this.loadAudioBuffer(audioPath, stimulus.file);
-                            console.log(`Loaded audio file: ${stimulus.file}`);
-                        } else {
-                            console.warn(`Audio file not found: ${audioPath}`);
-                            // Create a fallback tone for missing files
-                            this.audioBuffers[stimulus.file] = await this.createFallbackAudio(stimulus);
-                        }
-                    } catch (error) {
-                        console.error(`Error loading audio file ${stimulus.file}:`, error);
-                        this.audioBuffers[stimulus.file] = await this.createFallbackAudio(stimulus);
-                    }
+        this.missingAudio = [];
+
+        for (const stimulus of this.stimulusList) {
+            const audioPath = index[stimulus.stimulus_id.toLowerCase()];
+            try {
+                if (audioPath) {
+                    this.audioFilePaths[stimulus.stimulus_id] = audioPath;
+                    await this.loadAudioBuffer(audioPath, stimulus);
+                } else {
+                    console.warn(`Audio file not found for stimulus: ${stimulus.stimulus_id}`);
+                    this.missingAudio.push(stimulus.stimulus_id);
+                    this.audioBuffers[stimulus.stimulus_id] = await this.createFallbackAudio(stimulus);
                 }
+            } catch (error) {
+                console.error(`Error loading audio file ${stimulus.stimulus_id}:`, error);
+                this.missingAudio.push(stimulus.stimulus_id);
+                this.audioBuffers[stimulus.stimulus_id] = await this.createFallbackAudio(stimulus);
             }
         }
     }
 
-    async loadAudioBuffer(filePath, filename) {
+    async loadAudioBuffer(filePath, stimulus) {
         const fs = window.require('fs').promises;
-        
-        try {
-            const audioData = await fs.readFile(filePath);
-            const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
-            
-            if (this.audioContext) {
-                const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-                this.audioBuffers[filename] = audioBuffer;
-            }
-        } catch (error) {
-            console.error(`Failed to load audio buffer for ${filename}:`, error);
-            this.audioBuffers[filename] = await this.createFallbackAudio({file: filename});
+        const audioData = await fs.readFile(filePath);
+        const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
+        if (this.audioContext) {
+            this.audioBuffers[stimulus.stimulus_id] = await this.audioContext.decodeAudioData(arrayBuffer);
         }
     }
 
+    // Placeholder sound used only when a recording is missing, so the task
+    // flow can still be tested. Missing files are listed on the welcome
+    // screen and in the saved results.
     async createFallbackAudio(stimulus) {
         if (!this.audioContext) return null;
         
-        // Create different tones for different stimuli
         const duration = 0.5;
         const sampleRate = this.audioContext.sampleRate;
-        const buffer = this.audioContext.createBuffer(1, duration * sampleRate, sampleRate);
+        const buffer = this.audioContext.createBuffer(1, Math.round(duration * sampleRate), sampleRate);
         const data = buffer.getChannelData(0);
         
-        // Different frequencies for different categories
-        let frequency = 440; // Default A note
-        if (stimulus.category === 'ba' || stimulus.category === 'male') {
-            frequency = 220; // Lower tone
-        } else if (stimulus.category === 'pa' || stimulus.category === 'female') {
-            frequency = 880; // Higher tone
-        }
+        const frequency = stimulus.talker_sex === 'male' ? 150 : 300;
+        const burst = stimulus.initial_phoneme === 'p' ? 0.02 : 0;
         
-        // Generate sine wave
         for (let i = 0; i < data.length; i++) {
-            data[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0.3;
-            // Apply fade out to avoid clicks
+            const t = i / sampleRate;
+            data[i] = t < burst ? (Math.random() * 2 - 1) * 0.2 : Math.sin(2 * Math.PI * frequency * t) * 0.3;
             if (i > data.length * 0.8) {
                 data[i] *= (data.length - i) / (data.length * 0.2);
             }
@@ -222,82 +339,250 @@ class SpeededClassificationPopup {
         return buffer;
     }
 
+    pickRandom(items) {
+        return items[Math.floor(Math.random() * items.length)];
+    }
+
+    shuffle(items) {
+        const array = [...items];
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    // Pseudo-random order in which the identical stimulus is never
+    // presented on two successive trials (paper, control conditions).
+    shuffleNoImmediateRepeat(items, keyFn = s => s.stimulus_id) {
+        const distinct = new Set(items.map(keyFn)).size;
+        if (distinct < 2) return this.shuffle(items);
+
+        for (let attempt = 0; attempt < 500; attempt++) {
+            const pool = this.shuffle(items);
+            const sequence = [];
+            let ok = true;
+            while (pool.length) {
+                const last = sequence.length ? keyFn(sequence[sequence.length - 1]) : null;
+                // Prefer the stimulus with the most remaining copies to avoid dead ends
+                const counts = {};
+                pool.forEach(s => { counts[keyFn(s)] = (counts[keyFn(s)] || 0) + 1; });
+                const candidates = pool
+                    .map((s, i) => ({ s, i }))
+                    .filter(({ s }) => keyFn(s) !== last);
+                if (!candidates.length) { ok = false; break; }
+                const maxCount = Math.max(...candidates.map(({ s }) => counts[keyFn(s)]));
+                const remaining = pool.length;
+                const forced = maxCount > Math.ceil(remaining / 2)
+                    ? candidates.filter(({ s }) => counts[keyFn(s)] === maxCount)
+                    : candidates;
+                const choice = this.pickRandom(forced);
+                sequence.push(choice.s);
+                pool.splice(choice.i, 1);
+            }
+            if (ok) return sequence;
+        }
+        return this.shuffle(items);
+    }
+
+    resolveCounterbalancing() {
+        const cb = this.config.parameters.counterbalancing;
+        const pairs = SpeededClassificationPopup.PHONEME_PAIRS;
+
+        const dimensionOrder = cb.dimension_order === 'phoneme_first' ? ['phoneme', 'voice']
+            : cb.dimension_order === 'voice_first' ? ['voice', 'phoneme']
+            : this.pickRandom([['phoneme', 'voice'], ['voice', 'phoneme']]);
+
+        const conditionOrder = cb.condition_order === 'control_first' ? ['control', 'orthogonal']
+            : cb.condition_order === 'orthogonal_first' ? ['orthogonal', 'control']
+            : this.pickRandom([['control', 'orthogonal'], ['orthogonal', 'control']]);
+
+        const phonemePair = pairs[cb.phoneme_control_pair] ? cb.phoneme_control_pair : this.pickRandom(Object.keys(pairs));
+        const phonemeSex = ['male', 'female'].includes(cb.phoneme_control_talker_sex)
+            ? cb.phoneme_control_talker_sex : this.pickRandom(['male', 'female']);
+        const voiceWord = SpeededClassificationPopup.WORDS.includes(cb.voice_control_word)
+            ? cb.voice_control_word : this.pickRandom(SpeededClassificationPopup.WORDS);
+
+        return {
+            dimension_order: dimensionOrder,
+            condition_order: conditionOrder,
+            phoneme_control_pair: phonemePair,
+            phoneme_control_talker_sex: phonemeSex,
+            voice_control_word: voiceWord,
+            requested: { ...cb }
+        };
+    }
+
+    getConditionStimulusSet(dimension, condition, cb) {
+        if (condition === 'orthogonal') {
+            return [...this.stimulusList];
+        }
+        if (dimension === 'phoneme') {
+            const words = SpeededClassificationPopup.PHONEME_PAIRS[cb.phoneme_control_pair];
+            return this.stimulusList.filter(s => words.includes(s.word) && s.talker_sex === cb.phoneme_control_talker_sex);
+        }
+        return this.stimulusList.filter(s => s.word === cb.voice_control_word);
+    }
+
+    getCorrectResponse(stimulus, dimension) {
+        return dimension === 'phoneme' ? stimulus.initial_phoneme : stimulus.talker_sex;
+    }
+
+    buildTestSequence(set, condition) {
+        const trials = this.config.parameters.trials;
+        const reps = condition === 'control'
+            ? Math.max(1, trials.control_repetitions)
+            : Math.max(1, trials.orthogonal_repetitions);
+        const items = [];
+        for (let r = 0; r < reps; r++) items.push(...set);
+        return condition === 'control' || reps > 1 ? this.shuffleNoImmediateRepeat(items) : this.shuffle(items);
+    }
+
+    // Practice trials are drawn from the same stimulus set as the upcoming
+    // condition, balanced across the two response categories.
+    buildPracticeSequence(set, dimension, count) {
+        if (count <= 0) return [];
+        const categories = [...new Set(set.map(s => this.getCorrectResponse(s, dimension)))];
+        const pools = {};
+        const draw = (category) => {
+            if (!pools[category] || !pools[category].length) {
+                pools[category] = this.shuffle(set.filter(s => this.getCorrectResponse(s, dimension) === category));
+            }
+            return pools[category].pop();
+        };
+        const items = [];
+        for (let i = 0; i < count; i++) {
+            items.push(draw(categories[i % categories.length]));
+        }
+        return this.shuffleNoImmediateRepeat(items);
+    }
+
+    getResponseButtons(dimension) {
+        return dimension === 'phoneme'
+            ? [
+                { label: 'B', value: 'b', key: 'b', description: 'word starts with /b/' },
+                { label: 'P', value: 'p', key: 'p', description: 'word starts with /p/' }
+            ]
+            : [
+                { label: 'Male', value: 'male', key: 'm', description: 'male voice' },
+                { label: 'Female', value: 'female', key: 'f', description: 'female voice' }
+            ];
+    }
+
+    getInstructions(dimension, isPractice, practiceCount) {
+        const task = dimension === 'phoneme'
+            ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>B</strong> key (or click B) for words starting with B.\nPress the <strong>P</strong> key (or click P) for words starting with P.'
+            : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>M</strong> key (or click Male) for a male voice.\nPress the <strong>F</strong> key (or click Female) for a female voice.';
+        const tail = isPractice
+            ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first do ${practiceCount} practice trials with feedback.`
+            : '\n\nThe practice is over. Respond as quickly and accurately as possible.\nNo feedback will be provided.';
+        return task + tail;
+    }
+
     setupExperimentalPhases() {
         const trialParams = this.config.parameters.trials;
-        
-        this.phases = [
-            {
-                name: 'practice_phoneme',
-                type: 'phoneme',
-                isPractice: true,
-                trialCount: trialParams.practice_phoneme,
-                title: 'Practice: Phoneme Classification',
-                instructions: 'Listen to each sound and classify it by clicking the buttons below.\n\nClick "B" for /ba/ sounds\nClick "P" for /pa/ sounds\n\nYou will receive feedback during practice.',
-                responseButtons: [
-                    { label: 'B', value: 'B', description: '/ba/ sound' },
-                    { label: 'P', value: 'P', description: '/pa/ sound' }
-                ],
-                stimuli: this.getRandomizedStimuli('phoneme', 'practice', trialParams.practice_phoneme)
-            },
-            {
-                name: 'practice_voice',
-                type: 'voice', 
-                isPractice: true,
-                trialCount: trialParams.practice_voice,
-                title: 'Practice: Voice Classification',
-                instructions: 'Listen to each voice and classify it by clicking the buttons below.\n\nClick "Male" for male voices\nClick "Female" for female voices\n\nYou will receive feedback during practice.',
-                responseButtons: [
-                    { label: 'Male', value: 'Male', description: 'Male voice' },
-                    { label: 'Female', value: 'Female', description: 'Female voice' }
-                ],
-                stimuli: this.getRandomizedStimuli('voice', 'practice', trialParams.practice_voice)
-            },
-            {
-                name: 'main_phoneme',
-                type: 'phoneme',
-                isPractice: false,
-                trialCount: trialParams.main_phoneme,
-                title: 'Main Task: Phoneme Classification',
-                instructions: 'Now for the main task. Listen to each sound and classify it by clicking the buttons below.\n\nClick "B" for /ba/ sounds\nClick "P" for /pa/ sounds\n\nRespond as quickly and accurately as possible.\nNo feedback will be provided.',
-                responseButtons: [
-                    { label: 'B', value: 'B', description: '/ba/ sound' },
-                    { label: 'P', value: 'P', description: '/pa/ sound' }
-                ],
-                stimuli: this.getRandomizedStimuli('phoneme', 'main', trialParams.main_phoneme)
-            },
-            {
-                name: 'main_voice',
-                type: 'voice',
-                isPractice: false,
-                trialCount: trialParams.main_voice,
-                title: 'Main Task: Voice Classification', 
-                instructions: 'Final task. Listen to each voice and classify it by clicking the buttons below.\n\nClick "Male" for male voices\nClick "Female" for female voices\n\nRespond as quickly and accurately as possible.\nNo feedback will be provided.',
-                responseButtons: [
-                    { label: 'Male', value: 'Male', description: 'Male voice' },
-                    { label: 'Female', value: 'Female', description: 'Female voice' }
-                ],
-                stimuli: this.getRandomizedStimuli('voice', 'main', trialParams.main_voice)
+        const cb = this.resolveCounterbalancing();
+        this.counterbalancing = cb;
+        this.phases = [];
+
+        let blockNumber = 0;
+        const totalBlocks = cb.dimension_order.length * cb.condition_order.length;
+        const dimensionLabel = { phoneme: 'Phoneme Classification', voice: 'Voice Classification' };
+
+        for (const dimension of cb.dimension_order) {
+            for (const condition of cb.condition_order) {
+                blockNumber++;
+                const set = this.getConditionStimulusSet(dimension, condition, cb);
+                const responseButtons = this.getResponseButtons(dimension);
+                const practiceCount = trialParams.practice_per_condition;
+
+                if (practiceCount > 0) {
+                    const stimuli = this.buildPracticeSequence(set, dimension, practiceCount);
+                    this.phases.push({
+                        name: `practice_${dimension}_${condition}`,
+                        type: dimension,
+                        dimension,
+                        condition,
+                        block: blockNumber,
+                        isPractice: true,
+                        trialCount: stimuli.length,
+                        title: `Block ${blockNumber} of ${totalBlocks} – Practice: ${dimensionLabel[dimension]}`,
+                        instructions: this.getInstructions(dimension, true, practiceCount),
+                        responseButtons,
+                        stimuli
+                    });
+                }
+
+                const stimuli = this.buildTestSequence(set, condition);
+                this.phases.push({
+                    name: `main_${dimension}_${condition}`,
+                    type: dimension,
+                    dimension,
+                    condition,
+                    block: blockNumber,
+                    isPractice: false,
+                    trialCount: stimuli.length,
+                    title: `Block ${blockNumber} of ${totalBlocks} – ${dimensionLabel[dimension]}`,
+                    instructions: this.getInstructions(dimension, false, practiceCount),
+                    responseButtons,
+                    stimuli,
+                    stimulusSet: set.map(s => s.stimulus_id)
+                });
             }
-        ];
+        }
 
         // Remove phases with 0 trials
         this.phases = this.phases.filter(phase => phase.trialCount > 0);
     }
 
-    getRandomizedStimuli(type, phase, count) {
-        const available = [...this.stimuli[type][phase]];
-        const selected = [];
-        
-        for (let i = 0; i < count; i++) {
-            if (available.length === 0) {
-                // Replenish if we need more trials than available stimuli
-                available.push(...this.stimuli[type][phase]);
-            }
-            const randomIndex = Math.floor(Math.random() * available.length);
-            selected.push(available.splice(randomIndex, 1)[0]);
-        }
-        
-        return selected;
+    renderMissingAudioWarning() {
+        if (!this.missingAudio.length) return '';
+        const shown = this.missingAudio.slice(0, 20).join(', ');
+        const more = this.missingAudio.length > 20 ? ` … and ${this.missingAudio.length - 20} more` : '';
+        return `
+            <div class="audio-warning">
+                <strong>⚠️ ${this.missingAudio.length} of ${this.stimulusList.length} stimulus recordings are missing</strong>
+                and will be replaced by placeholder tones (for testing only — do not run participants).
+                Add the files to <code>src/renderer/tasks/speeded_classification/audio/</code>
+                named by stimulus ID (e.g. <code>bad_m1.wav</code>).<br>
+                Missing: ${shown}${more}
+            </div>
+        `;
+    }
+
+    // Experimenter-facing counterbalancing choices, shown on the welcome
+    // screen. "Random" draws the value when the task starts; the values
+    // actually used are written to the results file.
+    renderCounterbalancingControls() {
+        const cb = this.config.parameters.counterbalancing;
+        const select = (id, key, options) => `
+            <div>
+                <label for="${id}">${options.label}</label>
+                <select id="${id}" data-cb="${key}">
+                    ${options.values.map(([value, text]) =>
+                        `<option value="${value}" ${cb[key] === value ? 'selected' : ''}>${text}</option>`
+                    ).join('')}
+                </select>
+            </div>`;
+        const words = SpeededClassificationPopup.WORDS.map(w => [w, w]);
+        return `
+            <details class="counterbalancing-panel">
+                <summary>Counterbalancing (experimenter)</summary>
+                <div class="counterbalancing-grid">
+                    ${select('cb-dimension-order', 'dimension_order', { label: 'Dimension order', values: [['random', 'Random'], ['phoneme_first', 'Phoneme-relevant first'], ['voice_first', 'Voice-relevant first']] })}
+                    ${select('cb-condition-order', 'condition_order', { label: 'Control / orthogonal order', values: [['random', 'Random'], ['control_first', 'Control first'], ['orthogonal_first', 'Orthogonal first']] })}
+                    ${select('cb-phoneme-pair', 'phoneme_control_pair', { label: 'Phoneme control: b/p pair', values: [['random', 'Random'], ['bad-pad', 'bad – pad'], ['buff-puff', 'buff – puff'], ['beach-peach', 'beach – peach'], ['bill-pill', 'bill – pill']] })}
+                    ${select('cb-phoneme-sex', 'phoneme_control_talker_sex', { label: 'Phoneme control: talkers', values: [['random', 'Random'], ['male', 'Male (m1–m4)'], ['female', 'Female (f1–f4)']] })}
+                    ${select('cb-voice-word', 'voice_control_word', { label: 'Voice control: word', values: [['random', 'Random'], ...words] })}
+                </div>
+            </details>
+        `;
+    }
+
+    readCounterbalancingControls() {
+        document.querySelectorAll('[data-cb]').forEach(el => {
+            this.config.parameters.counterbalancing[el.dataset.cb] = el.value;
+        });
     }
 
     openTaskPopup() {
@@ -332,8 +617,11 @@ class SpeededClassificationPopup {
                 <div id="task-stage" class="task-stage">
                     <div class="task-welcome">
                         <h3>Welcome to the Speeded Classification Task</h3>
-                        <p>This task consists of ${this.phases.length} phases with a total of ${totalTrials} trials.</p>
-                        <p>You will classify audio stimuli as quickly and accurately as possible using onscreen buttons.</p>
+                        <p>You will hear spoken words. In each block you will classify every word either by its first sound (B or P) or by the speaker's voice (male or female).</p>
+                        <p>Each trial starts with a short beep, followed half a second later by the word. Respond as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
+                        <p>This task has ${this.phases.filter(p => !p.isPractice).length} blocks (${totalTrials} trials in total, including practice).</p>
+                        ${this.renderMissingAudioWarning()}
+                        ${this.renderCounterbalancingControls()}
                         <div class="audio-test">
                             <button id="audio-test-btn" class="task-button task-button-secondary">
                                 🔊 Test Audio
@@ -440,6 +728,66 @@ class SpeededClassificationPopup {
 
                 .audio-test {
                     margin: 20px 0;
+                }
+
+                .audio-warning {
+                    background: #fff3cd;
+                    border: 2px solid #ffc107;
+                    color: #664d03;
+                    border-radius: 10px;
+                    padding: 12px 16px;
+                    margin: 16px 0;
+                    font-size: 14px;
+                    text-align: left;
+                    max-height: 120px;
+                    overflow-y: auto;
+                }
+
+                .counterbalancing-panel {
+                    text-align: left;
+                    background: #f8f9fa;
+                    border: 1px solid #e5e5e7;
+                    border-radius: 10px;
+                    padding: 12px 16px;
+                    margin: 16px 0;
+                }
+
+                .counterbalancing-panel summary {
+                    cursor: pointer;
+                    font-weight: 600;
+                    color: #1d1d1f;
+                    font-size: 14px;
+                }
+
+                .counterbalancing-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 10px 16px;
+                    margin-top: 12px;
+                }
+
+                .counterbalancing-grid label {
+                    display: block;
+                    font-size: 12px;
+                    color: #6e6e73;
+                    margin-bottom: 4px;
+                }
+
+                .counterbalancing-grid select {
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 13px;
+                    border: 1px solid #d2d2d7;
+                    border-radius: 6px;
+                    background: white;
+                }
+
+                .key-hint {
+                    display: block;
+                    font-size: 12px;
+                    font-weight: 500;
+                    opacity: 0.7;
+                    margin-top: 4px;
                 }
 
                 .task-welcome h3, .phase-instructions h3 {
@@ -693,6 +1041,8 @@ class SpeededClassificationPopup {
         });
     }
 
+    // Plays the warning tone followed by one real stimulus so the
+    // experimenter can check presentation level before starting.
     async testAudio() {
         const testBtn = document.getElementById('audio-test-btn');
         const originalText = testBtn.textContent;
@@ -701,54 +1051,18 @@ class SpeededClassificationPopup {
         testBtn.disabled = true;
         
         try {
-            // Play a test tone
-            await this.playTestTone();
+            const sample = this.stimulusList.find(s => !this.missingAudio.includes(s.stimulus_id)) || this.stimulusList[0];
+            const playback = await this.startTrialAudio(sample);
+            await playback.ended;
             testBtn.textContent = '✅ Audio OK';
-            setTimeout(() => {
-                testBtn.textContent = originalText;
-                testBtn.disabled = false;
-            }, 2000);
         } catch (error) {
             testBtn.textContent = '❌ Audio Error';
             console.error('Audio test failed:', error);
-            setTimeout(() => {
-                testBtn.textContent = originalText;
-                testBtn.disabled = false;
-            }, 2000);
         }
-    }
-
-    async playTestTone() {
-        if (this.asioEngine && this.asioEngine.isEnabled()) {
-            await this.asioEngine.playTone(440, 500, this.config.parameters.audio.volume * 0.3, {
-                outputChannels: this.getOutputChannels()
-            });
-            return;
-        }
-
-        if (!this.audioContext) {
-            throw new Error('Audio context not available');
-        }
-
-        const oscillator = this.audioContext.createOscillator();
-        const gainNode = this.audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(this.audioContext.destination);
-        
-        oscillator.frequency.value = 440;
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(this.config.parameters.audio.volume * 0.3, this.audioContext.currentTime + 0.1);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.5);
-        
-        oscillator.start(this.audioContext.currentTime);
-        oscillator.stop(this.audioContext.currentTime + 0.5);
-        
-        return new Promise(resolve => {
-            oscillator.onended = resolve;
-        });
+        setTimeout(() => {
+            testBtn.textContent = originalText;
+            testBtn.disabled = false;
+        }, 2000);
     }
 
     initializeTask() {
@@ -762,11 +1076,19 @@ class SpeededClassificationPopup {
     }
 
     async startExperiment() {
+        // Build the trial sequence with the experimenter's counterbalancing choices
+        this.readCounterbalancingControls();
+        this.setupExperimentalPhases();
+
         this.taskState = 'running';
         this.startTime = new Date();
         
         document.getElementById('begin-task-btn').style.display = 'none';
         document.getElementById('pause-task-btn').disabled = false;
+
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            await this.audioContext.resume();
+        }
         
         await this.runExperiment();
     }
@@ -779,6 +1101,7 @@ class SpeededClassificationPopup {
             
             // Show phase instructions
             await this.showPhaseInstructions();
+            if (this.taskState === 'stopped') break;
             
             // Run trials for this phase
             for (this.currentTrialInPhase = 0; this.currentTrialInPhase < this.currentPhase.trialCount; this.currentTrialInPhase++) {
@@ -810,17 +1133,18 @@ class SpeededClassificationPopup {
                 <p>${this.currentPhase.instructions.replace(/\n/g, '<br>')}</p>
                 <div class="response-buttons-preview">
                     ${this.currentPhase.responseButtons.map(button => 
-                        `<div class="preview-button">${button.label}</div>`
+                        `<div class="preview-button">${button.label}<span class="key-hint">key: ${button.key.toUpperCase()}</span></div>`
                     ).join('')}
                 </div>
                 <button id="start-phase-btn" class="task-button task-button-primary">
-                    Start ${this.currentPhase.isPractice ? 'Practice' : 'Main Task'}
+                    Start ${this.currentPhase.isPractice ? 'Practice' : 'Block'}
                 </button>
             </div>
         `;
         
         return new Promise(resolve => {
             document.getElementById('start-phase-btn').addEventListener('click', resolve);
+            this.cancelInstructions = resolve;
         });
     }
 
@@ -834,173 +1158,276 @@ class SpeededClassificationPopup {
         
         progressDisplay.textContent = `Trial ${trialNumber} of ${totalTrials} (${this.currentPhase.title})`;
         
-        // Fixation cross
+        // Warning signal: fixation cross on screen while the 500-Hz tone plays
         taskStage.innerHTML = '<div class="fixation-cross">+</div>';
-        await this.wait(this.config.parameters.timing.pre_stimulus_delay);
-        
-        // Present stimulus with response buttons
-        taskStage.innerHTML = `
-            <div class="stimulus-display">
-                <div class="stimulus-icon">${this.currentPhase.type === 'phoneme' ? '🔊' : '👤'}</div>
-                <div class="stimulus-text">Listen carefully...</div>
-                <div class="response-buttons">
-                    ${this.currentPhase.responseButtons.map(button => 
-                        `<button class="response-button" data-response="${button.value}">
-                            ${button.label}
-                        </button>`
-                    ).join('')}
-                </div>
-            </div>
-        `;
-        
-        // Play audio stimulus
-        const playback = await this.playStimulus(stimulus);
 
-        // Reaction time is measured from the end of the stimulus. With ASIO
-        // the stream clock says when the last sample actually left the
-        // interface; everything is on the performance.now() clock.
-        this.responseStartTime = playback && playback.offsetPerfMs != null
-            ? playback.offsetPerfMs
-            : performance.now();
+        // Schedules warning tone -> delay -> stimulus; returns the stimulus
+        // onset (performance.now() clock) and a promise for playback end.
+        const playback = await this.startTrialAudio(stimulus);
+
+        // Responses are collected from stimulus onset, as in the paper
+        const responsePromise = this.collectResponse(playback.onsetPerf, this.currentPhase.responseButtons);
+
+        const untilOnset = playback.onsetPerf - performance.now();
+        if (untilOnset > 0) await this.wait(untilOnset);
+
+        if (this.taskState !== 'stopped') {
+            taskStage.innerHTML = `
+                <div class="stimulus-display">
+                    <div class="stimulus-icon">${this.currentPhase.type === 'phoneme' ? '🔊' : '👤'}</div>
+                    <div class="stimulus-text">Listen carefully...</div>
+                    <div class="response-buttons">
+                        ${this.currentPhase.responseButtons.map(button => 
+                            `<button class="response-button" data-response="${button.value}">
+                                ${button.label}<span class="key-hint">${button.key.toUpperCase()}</span>
+                            </button>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+        }
         
-        // Collect response
-        const response = await this.collectResponse();
+        const response = await responsePromise;
+        if (response.response === 'aborted') return;
+
+        const correctResponse = this.getCorrectResponse(stimulus, this.currentPhase.dimension);
         
         // Record trial result
         const trialResult = {
             phase: this.currentPhase.name,
+            block: this.currentPhase.block,
+            dimension: this.currentPhase.dimension,
+            condition: this.currentPhase.condition,
+            is_practice: this.currentPhase.isPractice,
             trial_in_phase: this.currentTrialInPhase + 1,
             global_trial: trialNumber,
-            stimulus: stimulus.file,
-            correct_response: stimulus.correct_response,
+            stimulus: stimulus.stimulus_id,
+            word: stimulus.word,
+            initial_phoneme: stimulus.initial_phoneme,
+            talker: stimulus.talker,
+            talker_sex: stimulus.talker_sex,
+            stimulus_category: correctResponse,
+            correct_response: correctResponse,
             participant_response: response.response,
+            response_source: response.source,
             reaction_time: response.time,
-            accuracy: response.response === stimulus.correct_response ? 1 : 0,
-            audio_backend: playback && playback.backend ? playback.backend : 'none',
-            timing_reliable: !playback || playback.timingReliable !== false,
-            stimulus_category: stimulus.category,
+            timed_out: response.response === 'timeout',
+            accuracy: response.response === correctResponse ? 1 : 0,
+            audio_placeholder: this.missingAudio.includes(stimulus.stimulus_id),
+            audio_backend: playback.backend,
+            timing_reliable: playback.timingReliable,
             timestamp: new Date().toISOString()
         };
         
         this.results.push(trialResult);
+
+        // Let the word finish before the silent interval starts
+        await Promise.race([playback.ended, this.wait(5000)]);
+        // An output underrun while the tone or word played shifts the onset
+        trialResult.timing_reliable = playback.timingReliable;
         
-        // Show feedback for practice trials
+        // Feedback on practice trials only (none on test trials)
         if (this.currentPhase.isPractice) {
             await this.showFeedback(trialResult);
         }
         
-        // Inter-trial interval
+        // 2-s silent interval before the next warning tone
         taskStage.innerHTML = '';
         await this.wait(this.config.parameters.timing.iti);
     }
 
-    // Output channels chosen in this task's configuration (1-based in the
-    // UI, 0-based for the engine). Empty = use the global ASIO setup.
-    // Logs the stimulus volume this participant heard (dB re. the stimulus
-    // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
-    // stimulus-levels.csv, and returns the line for the results file.
-    logStimulusLevel(taskName) {
-        try {
-            const path = window.require('path');
-            const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const levels = window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'stimulus-level.js'));
-            return levels.logStimulusLevel({
-                participantId: this.participantId,
-                task: taskName,
-                volume: this.config.parameters.audio.volume,
-                backend: this.asioEngine && this.asioEngine.isEnabled() ? 'ASIO' : 'fallback'
-            });
-        } catch (error) {
-            console.error('Could not log stimulus level:', error);
-            return 'unavailable';
+    // ASIO: warning tone, silent gap and word go out as one continuous sound
+    // on this task's output channels, so the tone-to-word gap is sample-exact
+    // and the word onset comes from the interface's own clock (known before
+    // the word is heard, so responses are timed from true word onset).
+    async startTrialAudioAsio(stimulus) {
+        const timing = this.config.parameters.timing;
+        const engine = this.asioEngine;
+        const filePath = this.audioFilePaths[stimulus.stimulus_id];
+        const buffer = this.audioBuffers[stimulus.stimulus_id];
+        let word;
+        if (filePath) {
+            word = await engine.loadFile(filePath);
+        } else if (buffer) {
+            word = await engine.resampleAudioBuffer(buffer);
+        } else {
+            word = [new Float32Array(Math.round(engine.sampleRate * 0.5))];
         }
-    }
 
-    getOutputChannels() {
-        const channels = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.output_channels
-            : null;
-        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
-    }
-
-    async playStimulus(stimulus) {
-        try {
-            if (this.asioEngine && this.asioEngine.isEnabled() && this.audioFilePaths[stimulus.file]) {
-                return await this.asioEngine.playFile(
-                    this.audioFilePaths[stimulus.file],
-                    this.config.parameters.audio.volume,
-                    { outputChannels: this.getOutputChannels() }
-                );
-            }
-
-            if (this.audioContext && this.audioBuffers[stimulus.file]) {
-                const source = this.audioContext.createBufferSource();
-                const gainNode = this.audioContext.createGain();
-                
-                source.buffer = this.audioBuffers[stimulus.file];
-                source.connect(gainNode);
-                gainNode.connect(this.audioContext.destination);
-                
-                gainNode.gain.value = this.config.parameters.audio.volume;
-                
-                source.start(this.audioContext.currentTime);
-                
-                // Wait for audio to finish
-                return new Promise(resolve => {
-                    source.onended = () => resolve({ backend: 'WebAudio', offsetPerfMs: performance.now(), timingReliable: true });
-                });
-            } else {
-                console.warn(`No audio buffer for ${stimulus.file}, using silence`);
-                await this.wait(500); // Simulate audio duration
-            }
-        } catch (error) {
-            console.error('Error playing stimulus:', error);
-            await this.wait(500); // Fallback duration
-        }
-    }
-
-    async collectResponse() {
-        return new Promise(resolve => {
-            const responseButtons = document.querySelectorAll('.response-button');
-            let responded = false;
-            
-            const timeout = setTimeout(() => {
-                if (!responded) {
-                    responded = true;
-                    responseButtons.forEach(btn => btn.removeEventListener('click', handleClick));
-                    resolve({
-                        response: 'timeout',
-                        time: this.config.parameters.timing.response_timeout
-                    });
-                }
-            }, this.config.parameters.timing.response_timeout);
-            
-            const handleClick = (e) => {
-                if (!responded) {
-                    responded = true;
-                    clearTimeout(timeout);
-                    
-                    // Visual feedback
-                    e.target.classList.add('clicked');
-                    
-                    const response = e.target.dataset.response;
-                    // Event timestamp = when the click happened, not when this
-                    // handler got to run.
-                    const reactionTime = (e.timeStamp || performance.now()) - this.responseStartTime;
-                    
-                    responseButtons.forEach(btn => btn.removeEventListener('click', handleClick));
-                    
-                    resolve({
-                        response: response,
-                        time: reactionTime
-                    });
-                }
-            };
-            
-            responseButtons.forEach(btn => {
-                btn.addEventListener('click', handleClick);
-            });
+        let onStarted;
+        const started = new Promise((resolve) => { onStarted = resolve; });
+        const played = engine.playSequence([
+            { toneHz: timing.warning_tone_frequency, durationMs: timing.warning_tone_duration, level: 0.3, rampMs: 5 },
+            { silenceMs: timing.warning_to_stimulus_delay },
+            word
+        ], {
+            volume: this.config.parameters.audio.volume,
+            outputChannels: this.getOutputChannels(),
+            onStart: onStarted
         });
+
+        const first = await Promise.race([started, played, this.wait(2000).then(() => null)]);
+        if (!first || first.cancelled || first.partOnsetPerfMs[2] == null) {
+            engine.clearOutputQueue();
+            throw new Error('ASIO did not start playback');
+        }
+
+        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
+        playback.ended = played.then((result) => {
+            playback.timingReliable = !result.cancelled && result.timingReliable !== false;
+            return result;
+        }, () => { playback.timingReliable = false; });
+        return playback;
+    }
+
+    // Maps an AudioContext time to the performance.now() clock, taking
+    // output latency into account when the browser exposes it.
+    contextTimeToPerformance(contextTime) {
+        const ctx = this.audioContext;
+        if (ctx.getOutputTimestamp) {
+            const ts = ctx.getOutputTimestamp();
+            if (ts && ts.performanceTime > 0 && ts.contextTime > 0) {
+                return ts.performanceTime + (contextTime - ts.contextTime) * 1000;
+            }
+        }
+        return performance.now() + (contextTime - ctx.currentTime) * 1000;
+    }
+
+    async startTrialAudio(stimulus) {
+        const timing = this.config.parameters.timing;
+        const volume = this.config.parameters.audio.volume;
+        const toneSec = timing.warning_tone_duration / 1000;
+        const delaySec = timing.warning_to_stimulus_delay / 1000;
+        if (this.asioEngine && this.asioEngine.isEnabled()) {
+            try {
+                return await this.startTrialAudioAsio(stimulus);
+            } catch (error) {
+                console.error('ASIO playback failed, falling back to Web Audio:', error);
+            }
+        }
+
+        if (!this.audioContext) {
+            await this.wait(timing.warning_tone_duration + timing.warning_to_stimulus_delay);
+            return { onsetPerf: performance.now(), ended: this.wait(500), backend: 'none', timingReliable: false };
+        }
+
+        const ctx = this.audioContext;
+        if (ctx.state === 'suspended') await ctx.resume();
+
+        // Everything is scheduled on the audio clock so the
+        // tone-to-stimulus interval is sample-accurate.
+        const toneStart = ctx.currentTime + 0.05;
+        const toneEnd = toneStart + toneSec;
+        const stimulusStart = toneEnd + delaySec;
+
+        const oscillator = ctx.createOscillator();
+        const toneGain = ctx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = timing.warning_tone_frequency;
+        oscillator.connect(toneGain);
+        toneGain.connect(ctx.destination);
+        const toneLevel = volume * 0.3;
+        toneGain.gain.setValueAtTime(0, toneStart);
+        toneGain.gain.linearRampToValueAtTime(toneLevel, toneStart + 0.005);
+        toneGain.gain.setValueAtTime(toneLevel, Math.max(toneStart + 0.005, toneEnd - 0.005));
+        toneGain.gain.linearRampToValueAtTime(0, toneEnd);
+        oscillator.start(toneStart);
+        oscillator.stop(toneEnd + 0.01);
+
+        let ended;
+        const buffer = this.audioBuffers[stimulus.stimulus_id];
+        if (buffer) {
+            const source = ctx.createBufferSource();
+            const gainNode = ctx.createGain();
+            source.buffer = buffer;
+            source.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            gainNode.gain.value = volume;
+            ended = new Promise(resolve => { source.onended = resolve; });
+            source.start(stimulusStart);
+            this.currentSource = source;
+        } else {
+            console.warn(`No audio buffer for ${stimulus.stimulus_id}, using silence`);
+            ended = this.wait((stimulusStart - ctx.currentTime) * 1000 + 500);
+        }
+
+        return { onsetPerf: this.contextTimeToPerformance(stimulusStart), ended, backend: 'WebAudio', timingReliable: true };
+    }
+
+    // Collects a keyboard or onscreen-button response. RT is measured from
+    // stimulus onset; responses before onset are ignored; no response within
+    // response_timeout ms of onset ends the trial as a timeout.
+    collectResponse(onsetPerf, responseButtons) {
+        return new Promise(resolve => {
+            const timeoutMs = this.config.parameters.timing.response_timeout;
+            const keyMap = {};
+            responseButtons.forEach(b => { keyMap[b.key.toLowerCase()] = b.value; });
+            const stage = document.getElementById('task-stage');
+            let done = false;
+
+            const eventTime = (e) => {
+                const now = performance.now();
+                return (e && e.timeStamp > 0 && Math.abs(now - e.timeStamp) < 1000) ? e.timeStamp : now;
+            };
+
+            const cleanup = () => {
+                clearTimeout(timer);
+                document.removeEventListener('keydown', onKey);
+                if (stage) stage.removeEventListener('click', onClick);
+                this.cancelResponse = null;
+            };
+
+            const finish = (value, time, source, buttonEl) => {
+                if (done) return;
+                const rt = time - onsetPerf;
+                if (rt < 0) return; // before stimulus onset
+                done = true;
+                cleanup();
+                if (rt > timeoutMs) {
+                    resolve({ response: 'timeout', time: null, source: 'none' });
+                    return;
+                }
+                if (buttonEl) buttonEl.classList.add('clicked');
+                resolve({ response: value, time: Math.round(rt), source });
+            };
+
+            const onKey = (e) => {
+                if (e.repeat) return;
+                const value = keyMap[(e.key || '').toLowerCase()];
+                if (!value) return;
+                e.preventDefault();
+                const btn = stage ? stage.querySelector(`.response-button[data-response="${value}"]`) : null;
+                finish(value, eventTime(e), 'keyboard', btn);
+            };
+
+            const onClick = (e) => {
+                const btn = e.target.closest ? e.target.closest('.response-button') : null;
+                if (!btn) return;
+                finish(btn.dataset.response, eventTime(e), 'button', btn);
+            };
+
+            const timer = setTimeout(() => {
+                if (done) return;
+                done = true;
+                cleanup();
+                resolve({ response: 'timeout', time: null, source: 'none' });
+            }, Math.max(0, onsetPerf + timeoutMs - performance.now()));
+
+            document.addEventListener('keydown', onKey);
+            if (stage) stage.addEventListener('click', onClick);
+
+            this.cancelResponse = () => {
+                if (done) return;
+                done = true;
+                cleanup();
+                resolve({ response: 'aborted', time: null, source: 'none' });
+            };
+        });
+    }
+
+    formatResponseLabel(value) {
+        const labels = { b: 'B', p: 'P', male: 'Male', female: 'Female' };
+        return labels[value] || value;
     }
 
     async showFeedback(trialResult) {
@@ -1027,7 +1454,7 @@ class SpeededClassificationPopup {
                 <div class="feedback incorrect">
                     <div>❌</div>
                     <div>Incorrect</div>
-                    <div>The correct answer was: ${trialResult.correct_response}</div>
+                    <div>The correct answer was: ${this.formatResponseLabel(trialResult.correct_response)}</div>
                 </div>
             `;
         }
@@ -1054,19 +1481,19 @@ class SpeededClassificationPopup {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         
-        // Calculate summary statistics
         const summary = this.calculateSummary();
+        const g = summary.garner;
+        const fmt = (v) => (v === null || isNaN(v)) ? 'N/A' : `${v.toFixed(0)}ms`;
         
         taskStage.innerHTML = `
             <div class="task-complete">
                 <h3>Task Complete! 🎉</h3>
                 <div class="summary">
                     <h4>Performance Summary</h4>
-                    <p><strong>Total Trials:</strong> ${summary.totalTrials}</p>
-                    <p><strong>Overall Accuracy:</strong> ${(summary.overallAccuracy * 100).toFixed(1)}%</p>
-                    <p><strong>Mean Response Time:</strong> ${summary.meanRT.toFixed(0)}ms</p>
-                    <p><strong>Practice Accuracy:</strong> ${(summary.practiceAccuracy * 100).toFixed(1)}%</p>
-                    <p><strong>Main Task Accuracy:</strong> ${(summary.mainAccuracy * 100).toFixed(1)}%</p>
+                    <p><strong>Test Trials:</strong> ${summary.mainTrials} (+ ${summary.practiceTrials} practice)</p>
+                    <p><strong>Test Accuracy:</strong> ${(summary.mainAccuracy * 100).toFixed(1)}%</p>
+                    <p><strong>Phoneme relevant:</strong> control ${fmt(g.phoneme.control.meanRT)}, orthogonal ${fmt(g.phoneme.orthogonal.meanRT)} → interference ${fmt(g.phoneme.interference)}</p>
+                    <p><strong>Voice relevant:</strong> control ${fmt(g.voice.control.meanRT)}, orthogonal ${fmt(g.voice.orthogonal.meanRT)} → interference ${fmt(g.voice.interference)}</p>
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -1082,19 +1509,82 @@ class SpeededClassificationPopup {
         });
     }
 
+    // ---------------------------------------------------------------
+    // Scoring (Sommers & Danielson, 1999, Experiment 2)
+    // ---------------------------------------------------------------
+
+    mean(values) {
+        return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    }
+
+    sampleSD(values) {
+        if (values.length < 2) return null;
+        const m = this.mean(values);
+        return Math.sqrt(values.reduce((s, v) => s + (v - m) ** 2, 0) / (values.length - 1));
+    }
+
+    // RT summary for one condition: no-response trials and errors are
+    // excluded, then RTs more than 2 SD from the condition mean are trimmed.
+    // Trimmed trials are flagged on the trial records (rt_outlier).
+    summarizeCondition(trials) {
+        const total = trials.length;
+        const correct = trials.filter(t => t.accuracy === 1).length;
+        const timeouts = trials.filter(t => t.timed_out).length;
+        const rtTrials = trials.filter(t => t.accuracy === 1 && !t.timed_out && t.reaction_time !== null);
+        const rts = rtTrials.map(t => t.reaction_time);
+        const m = this.mean(rts);
+        const sd = this.sampleSD(rts);
+
+        trials.forEach(t => { t.rt_outlier = false; });
+        const kept = [];
+        rtTrials.forEach(t => {
+            if (sd !== null && Math.abs(t.reaction_time - m) > 2 * sd) {
+                t.rt_outlier = true;
+            } else {
+                kept.push(t.reaction_time);
+            }
+        });
+
+        return {
+            total,
+            correct,
+            accuracy: total ? correct / total : null,
+            timeouts,
+            nCorrectRTs: rts.length,
+            nTrimmed: rts.length - kept.length,
+            meanRT: this.mean(kept),
+            sdRT: this.sampleSD(kept),
+            untrimmedMeanRT: m
+        };
+    }
+
     calculateSummary() {
-        const validResponses = this.results.filter(r => r.participant_response !== 'timeout');
-        const practiceTrials = this.results.filter(r => r.phase.includes('practice'));
-        const mainTrials = this.results.filter(r => !r.phase.includes('practice'));
-        
+        const main = this.results.filter(r => !r.is_practice);
+        const practice = this.results.filter(r => r.is_practice);
+        const validResponses = main.filter(r => !r.timed_out && r.reaction_time !== null);
+
+        const garner = {};
+        for (const dimension of ['phoneme', 'voice']) {
+            garner[dimension] = {};
+            for (const condition of ['control', 'orthogonal']) {
+                const trials = main.filter(r => r.dimension === dimension && r.condition === condition);
+                garner[dimension][condition] = this.summarizeCondition(trials);
+            }
+            const c = garner[dimension].control.meanRT;
+            const o = garner[dimension].orthogonal.meanRT;
+            garner[dimension].interference = (c !== null && o !== null) ? o - c : null;
+            garner[dimension].percentIncrease = (c !== null && o !== null && c > 0) ? (o - c) / c * 100 : null;
+        }
+
         return {
             totalTrials: this.results.length,
-            overallAccuracy: this.results.reduce((sum, r) => sum + r.accuracy, 0) / this.results.length,
-            meanRT: validResponses.reduce((sum, r) => sum + r.reaction_time, 0) / validResponses.length,
-            practiceAccuracy: practiceTrials.length > 0 ? 
-                practiceTrials.reduce((sum, r) => sum + r.accuracy, 0) / practiceTrials.length : 0,
-            mainAccuracy: mainTrials.length > 0 ? 
-                mainTrials.reduce((sum, r) => sum + r.accuracy, 0) / mainTrials.length : 0
+            mainTrials: main.length,
+            practiceTrials: practice.length,
+            overallAccuracy: this.results.length ? this.results.reduce((s, r) => s + r.accuracy, 0) / this.results.length : 0,
+            meanRT: validResponses.length ? this.mean(validResponses.map(r => r.reaction_time)) : 0,
+            practiceAccuracy: practice.length ? practice.reduce((s, r) => s + r.accuracy, 0) / practice.length : 0,
+            mainAccuracy: main.length ? main.reduce((s, r) => s + r.accuracy, 0) / main.length : 0,
+            garner
         };
     }
 
@@ -1143,20 +1633,43 @@ class SpeededClassificationPopup {
         const taskDir = path.join(participantDir, `sct_${timestamp}`);
         await fs.mkdir(taskDir, { recursive: true });
         
-        // Generate text file content
+        // Human-readable report (also computes the outlier flags)
         const textContent = this.generateResultsTextContent();
-        
-        // Save as text file
         const filePath = path.join(taskDir, 'results.txt');
         await fs.writeFile(filePath, textContent, 'utf8');
+
+        // Trial-level data for analysis
+        const csvPath = path.join(taskDir, 'trials.csv');
+        await fs.writeFile(csvPath, this.generateTrialsCSV(), 'utf8');
         
         console.log(`Results saved to: ${filePath}`);
+    }
+
+    generateTrialsCSV() {
+        const columns = [
+            'participant_id', 'global_trial', 'block', 'phase', 'is_practice', 'dimension', 'condition',
+            'trial_in_phase', 'stimulus', 'word', 'initial_phoneme', 'talker', 'talker_sex',
+            'correct_response', 'participant_response', 'response_source', 'reaction_time',
+            'timed_out', 'accuracy', 'rt_outlier', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
+        ];
+        const escape = (v) => {
+            const s = v === null || v === undefined ? '' : String(v);
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const lines = [columns.join(',')];
+        for (const trial of this.results) {
+            const row = { participant_id: this.participantId, ...trial };
+            lines.push(columns.map(c => escape(row[c])).join(','));
+        }
+        return lines.join('\n') + '\n';
     }
 
     generateResultsTextContent() {
         const summary = this.calculateSummary();
         const startTime = this.startTime ? this.startTime.toLocaleString() : 'Unknown';
         const endTime = new Date().toLocaleString();
+        const fmtMs = (v) => (v === null || v === undefined || isNaN(v)) ? 'N/A' : v.toFixed(1);
+        const fmtPct = (v) => (v === null || v === undefined || isNaN(v)) ? 'N/A' : `${(v * 100).toFixed(1)}%`;
         
         let content = '';
         
@@ -1169,101 +1682,120 @@ class SpeededClassificationPopup {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
-        content += `Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio (ASIO unavailable)'}\n`;
+        content += `Task: Speeded Classification Task (Garner, 1974; Sommers & Danielson, 1999)\n`;
+        content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Speeded Classification')}\n`;
-        content += `Task: Speeded Classification Task\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;
         content += `Total Duration: ${this.calculateDuration()}\n\n`;
+
+        // Counterbalancing actually used
+        const cb = this.counterbalancing;
+        content += 'COUNTERBALANCING (as run)\n';
+        content += '-'.repeat(30) + '\n';
+        content += `Dimension Order: ${cb.dimension_order.join(' -> ')}\n`;
+        content += `Condition Order (within each dimension): ${cb.condition_order.join(' -> ')}\n`;
+        content += `Phoneme-relevant Control Pair: ${cb.phoneme_control_pair} (${cb.phoneme_control_talker_sex} talkers)\n`;
+        content += `Voice-relevant Control Word: ${cb.voice_control_word} (all 8 talkers)\n`;
+        content += `Requested Settings: ${JSON.stringify(cb.requested)}\n\n`;
         
         // Configuration
         content += 'TASK CONFIGURATION\n';
         content += '-'.repeat(30) + '\n';
         const config = this.config.parameters;
-        content += `Practice Phoneme Trials: ${config.trials.practice_phoneme}\n`;
-        content += `Practice Voice Trials: ${config.trials.practice_voice}\n`;
-        content += `Main Phoneme Trials: ${config.trials.main_phoneme}\n`;
-        content += `Main Voice Trials: ${config.trials.main_voice}\n`;
-        content += `Inter-trial Interval: ${config.timing.iti}ms\n`;
-        content += `Pre-stimulus Delay: ${config.timing.pre_stimulus_delay}ms\n`;
-        content += `Response Timeout: ${config.timing.response_timeout}ms\n`;
-        content += `Error Display Duration: ${config.timing.error_display_duration}ms\n`;
-        content += `Audio Volume: ${config.audio.volume}\n\n`;
+        content += `Practice Trials per Condition: ${config.trials.practice_per_condition}\n`;
+        content += `Control Repetitions per Stimulus: ${config.trials.control_repetitions}\n`;
+        content += `Orthogonal Repetitions per Stimulus: ${config.trials.orthogonal_repetitions}\n`;
+        content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
+        content += `Warning Tone -> Stimulus Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
+        content += `Response Deadline (from stimulus onset): ${config.timing.response_timeout}ms\n`;
+        content += `Silent Interval after Response: ${config.timing.iti}ms\n`;
+        content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
+        content += `Audio Volume: ${config.audio.volume}\n`;
+        content += `Audio Output: ${(this.asioEngine && this.asioEngine.isEnabled()) ? 'ASIO' : 'Web Audio'}\n`;
+        if (this.missingAudio.length) {
+            content += `WARNING: ${this.missingAudio.length} stimulus recordings were missing and replaced by placeholder tones: ${this.missingAudio.join(', ')}\n`;
+        }
+        content += '\n';
+
+        // Garner interference
+        content += 'GARNER INTERFERENCE (test trials only)\n';
+        content += '-'.repeat(60) + '\n';
+        content += 'RTs from correct trials, measured from stimulus onset; no-response\n';
+        content += 'trials excluded; RTs > 2 SD from each condition mean removed.\n';
+        content += 'Interference = orthogonal RT - control RT.\n\n';
+        content += 'Dimension        | Control M (SD)      | Orthogonal M (SD)   | Interference | % Increase\n';
+        content += '-'.repeat(90) + '\n';
+        for (const dimension of ['phoneme', 'voice']) {
+            const d = summary.garner[dimension];
+            const label = (dimension === 'phoneme' ? 'Phoneme relevant' : 'Voice relevant').padEnd(16);
+            const ctrl = `${fmtMs(d.control.meanRT)} (${fmtMs(d.control.sdRT)})`.padEnd(19);
+            const orth = `${fmtMs(d.orthogonal.meanRT)} (${fmtMs(d.orthogonal.sdRT)})`.padEnd(19);
+            const pct = d.percentIncrease === null ? 'N/A' : `${d.percentIncrease.toFixed(1)}%`;
+            content += `${label} | ${ctrl} | ${orth} | ${fmtMs(d.interference).padStart(12)} | ${pct}\n`;
+        }
+        content += '\n';
+
+        content += 'ACCURACY AND TRIAL COUNTS (test trials only)\n';
+        content += '-'.repeat(60) + '\n';
+        content += 'Dimension | Condition  | Trials | Correct | Accuracy | No-resp | RTs used | RTs trimmed\n';
+        content += '-'.repeat(90) + '\n';
+        for (const dimension of ['phoneme', 'voice']) {
+            for (const condition of ['control', 'orthogonal']) {
+                const c = summary.garner[dimension][condition];
+                content += `${dimension.padEnd(9)} | ${condition.padEnd(10)} | ${String(c.total).padStart(6)} | ${String(c.correct).padStart(7)} | ${fmtPct(c.accuracy).padStart(8)} | ${String(c.timeouts).padStart(7)} | ${String(c.nCorrectRTs - c.nTrimmed).padStart(8)} | ${String(c.nTrimmed).padStart(11)}\n`;
+            }
+        }
+        content += '\n';
         
         // Performance Summary
         content += 'PERFORMANCE SUMMARY\n';
         content += '-'.repeat(30) + '\n';
-        content += `Total Trials Completed: ${summary.totalTrials}\n`;
-        content += `Overall Accuracy: ${(summary.overallAccuracy * 100).toFixed(1)}%\n`;
-        content += `Mean Response Time: ${summary.meanRT.toFixed(0)}ms\n`;
+        content += `Total Trials Completed: ${summary.totalTrials} (${summary.mainTrials} test, ${summary.practiceTrials} practice)\n`;
         content += `Practice Accuracy: ${(summary.practiceAccuracy * 100).toFixed(1)}%\n`;
-        content += `Main Task Accuracy: ${(summary.mainAccuracy * 100).toFixed(1)}%\n\n`;
+        content += `Test Accuracy: ${(summary.mainAccuracy * 100).toFixed(1)}%\n`;
+        content += `Mean Test RT (all responded trials, untrimmed): ${summary.meanRT ? summary.meanRT.toFixed(0) : 'N/A'}ms\n\n`;
         
         // Phase-by-phase breakdown
         content += 'PHASE BREAKDOWN\n';
         content += '-'.repeat(30) + '\n';
         for (const phase of this.phases) {
-            if (phase.trialCount === 0) continue;
-            
             const phaseTrials = this.results.filter(r => r.phase === phase.name);
+            if (!phaseTrials.length) continue;
             const phaseAccuracy = phaseTrials.reduce((sum, r) => sum + r.accuracy, 0) / phaseTrials.length;
-            const validPhaseTrials = phaseTrials.filter(r => r.participant_response !== 'timeout');
+            const validPhaseTrials = phaseTrials.filter(r => !r.timed_out && r.reaction_time !== null);
             const phaseMeanRT = validPhaseTrials.length > 0 ? 
                 validPhaseTrials.reduce((sum, r) => sum + r.reaction_time, 0) / validPhaseTrials.length : 0;
             
-            content += `${phase.title}:\n`;
+            content += `${phase.title} [${phase.dimension}-relevant, ${phase.condition}${phase.isPractice ? ', practice' : ''}]:\n`;
             content += `  Trials: ${phaseTrials.length}\n`;
             content += `  Accuracy: ${(phaseAccuracy * 100).toFixed(1)}%\n`;
-            content += `  Mean RT: ${phaseMeanRT.toFixed(0)}ms\n\n`;
+            content += `  Mean RT (untrimmed): ${phaseMeanRT.toFixed(0)}ms\n`;
+            if (phase.stimulusSet) {
+                content += phase.stimulusSet.length === this.stimulusList.length
+                    ? `  Stimulus Set: all ${phase.stimulusSet.length} stimuli\n`
+                    : `  Stimulus Set (${phase.stimulusSet.length}): ${phase.stimulusSet.join(', ')}\n`;
+            }
+            content += '\n';
         }
         
         // Detailed Trial Data
         content += 'DETAILED TRIAL DATA\n';
         content += '-'.repeat(60) + '\n';
-        content += 'Trial | Phase           | Stimulus     | Category | Correct | Response | RT(ms) | Accurate\n';
-        content += '-'.repeat(85) + '\n';
+        content += 'Trial | Phase                     | Stimulus  | Correct | Response | RT(ms) | Accurate | Outlier\n';
+        content += '-'.repeat(95) + '\n';
         
         for (const trial of this.results) {
             const trialNum = trial.global_trial.toString().padStart(5);
-            const phase = trial.phase.padEnd(15);
-            const stimulus = trial.stimulus.padEnd(12);
-            const category = trial.stimulus_category.padEnd(8);
+            const phase = trial.phase.padEnd(25);
+            const stimulus = trial.stimulus.padEnd(9);
             const correct = trial.correct_response.padEnd(7);
-            const response = (trial.participant_response === 'timeout' ? 'TIMEOUT' : trial.participant_response).padEnd(8);
-            const rt = (trial.participant_response === 'timeout' ? 'N/A' : trial.reaction_time.toString()).padStart(6);
-            const accurate = trial.accuracy === 1 ? 'YES' : 'NO';
+            const response = (trial.timed_out ? 'TIMEOUT' : trial.participant_response).padEnd(8);
+            const rt = (trial.reaction_time === null ? 'N/A' : trial.reaction_time.toString()).padStart(6);
+            const accurate = (trial.accuracy === 1 ? 'YES' : 'NO').padEnd(8);
+            const outlier = trial.rt_outlier ? 'YES' : '';
             
-            content += `${trialNum} | ${phase} | ${stimulus} | ${category} | ${correct} | ${response} | ${rt} | ${accurate}\n`;
-        }
-        
-        // Response time distribution
-        content += '\n' + 'RESPONSE TIME STATISTICS\n';
-        content += '-'.repeat(30) + '\n';
-        const validRTs = this.results.filter(r => r.participant_response !== 'timeout').map(r => r.reaction_time);
-        if (validRTs.length > 0) {
-            validRTs.sort((a, b) => a - b);
-            const median = validRTs[Math.floor(validRTs.length / 2)];
-            const q1 = validRTs[Math.floor(validRTs.length * 0.25)];
-            const q3 = validRTs[Math.floor(validRTs.length * 0.75)];
-            const min = Math.min(...validRTs);
-            const max = Math.max(...validRTs);
-            
-            content += `Minimum RT: ${min}ms\n`;
-            content += `25th Percentile (Q1): ${q1}ms\n`;
-            content += `Median RT: ${median}ms\n`;
-            content += `75th Percentile (Q3): ${q3}ms\n`;
-            content += `Maximum RT: ${max}ms\n`;
-            content += `Standard Deviation: ${this.calculateStandardDeviation(validRTs).toFixed(1)}ms\n\n`;
-        }
-        
-        // Accuracy by category
-        content += 'ACCURACY BY CATEGORY\n';
-        content += '-'.repeat(30) + '\n';
-        const categories = [...new Set(this.results.map(r => r.stimulus_category))];
-        for (const category of categories) {
-            const categoryTrials = this.results.filter(r => r.stimulus_category === category);
-            const categoryAccuracy = categoryTrials.reduce((sum, r) => sum + r.accuracy, 0) / categoryTrials.length;
-            content += `${category}: ${(categoryAccuracy * 100).toFixed(1)}% (${categoryTrials.length} trials)\n`;
+            content += `${trialNum} | ${phase} | ${stimulus} | ${correct} | ${response} | ${rt} | ${accurate} | ${outlier}\n`;
         }
         
         content += '\n' + '='.repeat(60) + '\n';
@@ -1281,13 +1813,6 @@ class SpeededClassificationPopup {
         return `${minutes}m ${seconds}s`;
     }
 
-    calculateStandardDeviation(values) {
-        const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
-        const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
-        const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / values.length;
-        return Math.sqrt(variance);
-    }
-
     exitTask() {
         if (this.taskState === 'running') {
             if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
@@ -1299,12 +1824,18 @@ class SpeededClassificationPopup {
     }
 
     closeTaskPopup() {
+        this.taskState = 'stopped';
+        this.isPaused = false;
+        if (this.cancelResponse) this.cancelResponse();
+        if (this.cancelInstructions) this.cancelInstructions();
+        try { if (this.currentSource) this.currentSource.stop(); } catch (e) { /* already stopped */ }
+        try { if (this.asioEngine && this.asioEngine.isEnabled()) this.asioEngine.clearOutputQueue(); } catch (e) { /* engine gone */ }
+
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.classList.remove('open', 'task-modal');
             modalOverlay.setAttribute('aria-hidden', 'true');
             this.isOpen = false;
-            this.taskState = 'stopped';
             
             setTimeout(() => {
                 const modalContent = modalOverlay.querySelector('.modal-content');

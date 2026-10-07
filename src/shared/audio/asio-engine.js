@@ -697,7 +697,7 @@ class AsioEngine extends EventEmitter {
     async startCapture(options = {}) {
         if (!this.isEnabled()) throw new Error(`ASIO is not available: ${this.statusReason}`);
         const channel = options.inputChannel != null ? options.inputChannel : this.config.inputChannel;
-        if (channel < 0 || channel >= this.inChannelCount) {
+        if (!Number.isInteger(channel) || channel < 0 || channel >= this.inChannelCount) {
             throw new Error(`Input channel ${channel + 1} does not exist on ${this.device.name}`);
         }
         let resolveStart;

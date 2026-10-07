@@ -80,16 +80,27 @@ The Routing tab above sends **Loopback ← Playback 1–2**, which gives the 4i4
 
 Expected timing difference: loopback is digital and skips the analogue converters. The stimulus therefore appears in the WAV a few milliseconds earlier than `stimulus_onset_in_recording_ms` in `_timing.json`, which includes the full interface round-trip latency. This is normal. To check timing exactly, use a physical loopback cable instead: a ¼" cable from rear **Output 3** into front **Input 1**, with **Out 3** ticked in Audio Setup and Input 1 selected.
 
-### Per-task output channels
+### Per-task output and input channels
 
-A task can send its stimuli to different outputs than the global setting by
-adding `output_channels` (1-based) to the `audio` section of its config file,
-e.g. `"audio": { "volume": 1.0, "output_channels": [3, 4] }`. Supported by
-Auditory Stroop, Speeded Classification and all Speech-in-Noise tasks. There
-is no UI for this yet: Speech-in-Noise tasks keep the setting when their
-configuration is re-saved, but Auditory Stroop and Speeded Classification
-rebuild their config from the form and drop it, falling back to the global
-channels.
+Every task's ASIO playback and recording uses the channels chosen in Audio
+Setup, unless the task's own config file chooses different ones. To override,
+add these (1-based) to the `audio` section of the task's file in
+`task-configurations/`:
+
+- `output_channels`: where the task's stimuli play, e.g. `[3, 4]`. Auditory
+  Stroop, Speeded Classification and all Speech-in-Noise tasks.
+- `input_channel`: which input the task records, e.g. `2`. Stroop Colour
+  Word, Reading Span and Speech-in-Noise Words, Nonwords, HINT and CST.
+
+Example: `"audio": { "volume": 1.0, "output_channels": [3, 4], "input_channel": 2 }`.
+
+- There is no UI for this yet. Re-saving a task's configuration form keeps the
+  override.
+- A channel the interface doesn't have is an error, not silently dropped: the
+  task plays nothing on ASIO and falls back to Web Audio (`audio_backend` in
+  the results shows it), or the recording fails to start.
+- The **Audio Backend** line in each results file names the channels the
+  task actually used.
 
 ### Live status and built-in help
 
@@ -162,7 +173,7 @@ From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knob
 |---|---|---|---|
 | Stroop Colour Word | — (visual) | ASIO input | Recording start from the stream clock; `stimulus_offset` in results |
 | Reading Span | — | ASIO input | — (recall recordings, no RT measured) |
-| Auditory Stroop | ASIO | — | RT from the stimulus's actual end time to the click's event timestamp |
+| Auditory Stroop | ASIO | — | RT from **word onset** to the key/click event timestamp; per-trial `audio_backend`, `timing_reliable` |
 | Speeded Classification | ASIO | — | Same as Auditory Stroop |
 | SIN: Words, Nonwords, HINT, CST | ASIO | ASIO input | `<take>_timing.json` next to each WAV: stimulus onset inside the recording |
 | SIN: Practice, Practice Sentence | ASIO | — | — |
@@ -180,8 +191,14 @@ minus the recording's start sample, plus the interface's round-trip latency,
 is where that stimulus appears in the recording. The `_timing.json` files
 store exactly this number.
 
-Wall-clock times (`performance.now()`), used for visual stimuli and mouse
-responses, are derived from the stream clock. RtAudio only reports the total
+Auditory Stroop and Speeded Classification play each trial's warning tone,
+silent gap and word as one continuous sound, so the tone-to-word gap is exact
+to the sample. The engine reports the word's start time from the interface's
+clock before the word is heard, so responses are timed from true word onset
+and responses before it are ignored.
+
+Wall-clock times (`performance.now()`), used for visual stimuli and
+key/mouse responses, are derived from the stream clock. RtAudio only reports the total
 input+output latency for ASIO, so it's split in half by default. If you
 measure the real split (e.g. with a loopback cable), set `outputLatencyMs` /
 `inputLatencyMs` in `cfg_audio_asio.json`. Sample-domain alignment between a
