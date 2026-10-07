@@ -88,6 +88,7 @@ function nowMs() {
 // How long the driver may go without delivering audio before the device
 // is treated as disconnected (unplugged, powered off, driver reset).
 const DISCONNECT_TIMEOUT_MS = 1500;
+const MAX_CACHED_FILES = 150;
 
 // Emits 'statuschange' (with getStatus()) whenever ASIO starts, fails to
 // start, disconnects or is shut down, so the UI can react in real time.
@@ -699,16 +700,24 @@ class AsioEngine extends EventEmitter {
         return Array.from({ length: rendered.numberOfChannels }, (_, c) => rendered.getChannelData(c).slice());
     }
 
-    // Decoded stimuli are cached per path (tasks replay the same files).
+    // Decoded stimuli are cached per path (tasks replay the same files),
+    // keeping the most recently used ones so a long session running many
+    // tasks doesn't hold every stimulus in memory.
     async loadFile(filePath) {
         this._cache = this._cache || new Map();
         const key = `${filePath}@${this.sampleRate}`;
-        if (!this._cache.has(key)) {
-            const bytes = fs.readFileSync(filePath);
-            const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-            this._cache.set(key, await this._decodeToStreamRate(arrayBuffer));
+        if (this._cache.has(key)) {
+            const data = this._cache.get(key);
+            this._cache.delete(key);
+            this._cache.set(key, data); // most recently used last
+            return data;
         }
-        return this._cache.get(key);
+        const bytes = fs.readFileSync(filePath);
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const data = await this._decodeToStreamRate(arrayBuffer);
+        this._cache.set(key, data);
+        while (this._cache.size > MAX_CACHED_FILES) this._cache.delete(this._cache.keys().next().value);
+        return data;
     }
 
     // Plays a WAV/MP3 file. Kept compatible with the previous signature.

@@ -573,8 +573,8 @@ class StroopColorWordPopup {
                 await this.wait(100);
             }
             
-            // Check for breaks in main phase
-            if (phase === 'main' && this.breakTrials.includes(this.currentTrial + 1)) {
+            // Break after trial N of the main phase (N trials completed)
+            if (phase === 'main' && this.breakTrials.includes(this.currentTrial)) {
                 await this.showBreakScreen();
             }
             
@@ -594,12 +594,12 @@ class StroopColorWordPopup {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         
-        progressDisplay.textContent = `Break after trial ${this.currentTrial + 1}`;
+        progressDisplay.textContent = `Break after trial ${this.currentTrial}`;
         
         taskStage.innerHTML = `
             <div class="break-screen">
                 <h3>Break Time</h3>
-                <p>You have completed ${this.currentTrial + 1} trials out of ${this.mainStimuli.length}.</p>
+                <p>You have completed ${this.currentTrial} of ${this.mainStimuli.length} trials.</p>
                 <p>Take a moment to rest. Press continue when you're ready to proceed.</p>
                 
                 <button id="continue-btn" class="task-button task-button-primary">
