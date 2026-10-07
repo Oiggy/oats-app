@@ -169,7 +169,7 @@ Each listening task that saves results (Words, Nonwords, HINT, CST, Auditory Str
 2. Play a stimulus or calibration tone at 100% volume and measure the level at the earphone (sound level meter with an insert-earphone coupler).
 3. Enter that number in **Audio Setup → SPL calibration**.
 
-From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knobs, earphones or interface change. The practice tasks (Practice, Practice Sentence) don't save results, so they aren't logged.
+From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knobs, earphones or interface change. Practice items (built into Words, Nonwords, HINT and CST) play at the task's volume.
 
 ## What each task uses ASIO for
 
@@ -180,7 +180,7 @@ From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knob
 | Auditory Stroop | ASIO | — | RT from **word onset** to the key/click event timestamp; per-trial `audio_backend`, `timing_reliable` |
 | Speeded Classification | ASIO | — | Same as Auditory Stroop |
 | SIN: Words, Nonwords, HINT, CST | ASIO | ASIO input | `<take>_timing.json` next to each WAV: stimulus onset inside the recording |
-| SIN: Practice, Practice Sentence | ASIO | — | — |
+| SIN practice (inside Words/Nonwords: word practice; HINT/CST: sentence practice) | ASIO | — | Results record `Practice: done / skipped` |
 | CVC | no audio | — | — |
 
 Every results file has an **Audio Backend** line naming the backend, device,
