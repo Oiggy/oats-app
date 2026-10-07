@@ -117,6 +117,9 @@ class AsioEngine extends EventEmitter {
         this.underruns = 0;
         this.slip = 0;
         this._silentSamples = [];
+        this._slipPending = false;
+        this._lastInputAt = null;
+        this._queuedAtLastInput = 0;
         // Recent (performance.now() - blockIndex * period) values; the minimum
         // filters out JS delivery jitter when mapping the audio clock to
         // wall-clock time.
@@ -323,7 +326,7 @@ class AsioEngine extends EventEmitter {
                 this._handleDisconnect('the interface stopped sending audio');
                 return;
             }
-            this._checkSlip();
+            if (this._slipPending && !this._slipCheckTimer) this._checkSlip();
         }, 100);
     }
 
@@ -437,15 +440,19 @@ class AsioEngine extends EventEmitter {
 
         if (this.capture && !this.capture.interrupted) this._captureBlock(input, blockIndex);
 
-        // More driver callbacks than frames played (beyond the jitter between
-        // the two event streams): the queue ran dry while the app was busy
-        // and the driver played silence.
-        const silent = this.blocksReceived - this.framesConsumed;
-        if (silent - this.slip > 2) {
-            this._setSlip(silent);
-            this._scheduleSlipCheck();
+        // The queue can only run dry if the app went quiet for a good part of
+        // the pre-buffer. Only then is the silence count re-measured (the raw
+        // event counts jitter, so they must not be acted on otherwise).
+        const now = nowMs();
+        if (this._lastInputAt != null) {
+            // Driver periods that went by while the app was busy, against the
+            // audio that was queued (minus slack for events not yet seen).
+            const periods = (now - this._lastInputAt) / this._periodMs();
+            if (periods > this._queuedAtLastInput - 3) this._beginSlipCheck();
         }
         this._fillOutput();
+        this._lastInputAt = now;
+        this._queuedAtLastInput = this.framesWritten - this.framesConsumed;
         this._settleJobs();
     }
 
@@ -462,30 +469,36 @@ class AsioEngine extends EventEmitter {
         }
     }
 
-    // Exact count of silent driver callbacks: callbacks so far minus frames
-    // played. The two arrive as separate events, so this is read between
-    // events and only trusted when three reads in a row agree.
-    _checkSlip() {
-        if (!this.started) return;
-        const silent = this.blocksReceived - this.framesConsumed;
-        this._silentSamples.push(silent);
-        if (this._silentSamples.length > 3) this._silentSamples.shift();
-        if (this._silentSamples.length === 3 && this._silentSamples.every((v) => v === silent) && silent !== this.slip) {
-            this._setSlip(silent);
-        }
-    }
-
-    // Right after a busy spell, settle the exact count quickly rather than
-    // waiting for the watchdog.
-    _scheduleSlipCheck() {
+    // After the app was busy: hold new sounds (so none starts with a wrong
+    // timestamp) and measure how many driver callbacks played silence.
+    _beginSlipCheck() {
+        this._slipPending = true;
+        this._silentSamples = [];
         if (this._slipCheckTimer) return;
-        let reads = 0;
         const tick = () => {
+            this._slipCheckTimer = null;
             this._checkSlip();
-            reads += 1;
-            this._slipCheckTimer = reads < 4 ? setTimeout(tick, 15) : null;
+            if (this._slipPending && this.started) this._slipCheckTimer = setTimeout(tick, 15);
         };
         this._slipCheckTimer = setTimeout(tick, 15);
+    }
+
+    // Silent driver callbacks = callbacks so far - frames played. The two
+    // arrive as separate events, so a single reading can be off by an event
+    // or two; it is read from a timer 8 times and the most frequent value
+    // taken (ties: the smaller, so jitter never invents a dropout). Silence
+    // can't be un-played, so the count only ever goes up.
+    _checkSlip() {
+        if (!this.started || !this._slipPending) return;
+        this._silentSamples.push(this.blocksReceived - this.framesConsumed);
+        if (this._silentSamples.length < 8) return;
+        const counts = {};
+        this._silentSamples.forEach((v) => { counts[v] = (counts[v] || 0) + 1; });
+        const settled = Number(Object.keys(counts).sort((x, y) => counts[y] - counts[x] || x - y)[0]);
+        if (settled > this.slip) this._setSlip(settled);
+        this._slipPending = false;
+        this._silentSamples = [];
+        this._settleJobs();
     }
 
     // Silent driver callbacks so far changed: shift sounds still waiting to
@@ -518,7 +531,7 @@ class AsioEngine extends EventEmitter {
         let i = 0;
         while (i < this.frameSize) {
             if (!this.activeJob) {
-                if (this.outputJobs.length === 0) break;
+                if (this.outputJobs.length === 0 || this._slipPending) break;
                 this.activeJob = this.outputJobs.shift();
                 this.activeJob.startSample = frameIndex * this.frameSize + i;
                 this.activeJob.underrunsAtStart = this.underruns;
@@ -560,7 +573,7 @@ class AsioEngine extends EventEmitter {
     // Resolves playback promises once their last frame has been handed to
     // the driver.
     _settleJobs() {
-        if (this.pendingDrains.length === 0) return;
+        if (this.pendingDrains.length === 0 || this._slipPending) return;
         const playedThrough = this.blocksReceived * this.frameSize;
         while (this.pendingDrains.length > 0 && this.pendingDrains[0].endSample <= playedThrough) {
             const job = this.pendingDrains.shift();
@@ -900,6 +913,9 @@ class AsioEngine extends EventEmitter {
         this.underruns = 0;
         this.slip = 0;
         this._silentSamples = [];
+        this._slipPending = false;
+        this._lastInputAt = null;
+        this._queuedAtLastInput = 0;
         this.clockSamples = [];
         this.clockOffsetMs = null;
         this._cache = null;
