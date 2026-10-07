@@ -56,7 +56,6 @@ class Dashboard {
         this.initializeDashboard();
         this.setupDeveloperMode();
         this.setupAudioSetup();
-        await this.loadTaskVisibilitySettings();
         console.log('OATS Dashboard initialized');
     }
 
@@ -1287,7 +1286,10 @@ class Dashboard {
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.addEventListener('click', (e) => {
-                if (e.target === modalOverlay) {
+                // A task window is closed with its own Exit button (which
+                // confirms and stops the task); a stray click must not hide
+                // it while the task keeps running.
+                if (e.target === modalOverlay && !modalOverlay.classList.contains('task-modal')) {
                     this.closeModal();
                 }
             });
@@ -1295,93 +1297,12 @@ class Dashboard {
 
         // Escape key to close modal
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
+            const overlay = document.getElementById('modal-overlay');
+            if (e.key === 'Escape' && overlay && overlay.classList.contains('open') && !overlay.classList.contains('task-modal')) {
                 this.closeModal();
             }
         });
-
-        // Practice Sentence show/hide toggle
-        const showPracticeSentenceToggle = document.getElementById('show-practice-sentence-toggle');
-        if (showPracticeSentenceToggle) {
-            showPracticeSentenceToggle.addEventListener('change', (e) => {
-                this.applyPracticeSentenceVisibility(e.target.checked);
-                this.saveTaskVisibilitySettings(e.target.checked);
-            });
-        }
     }
-
-    // Shows/hides the "Practice Sentence" option in the task dropdown.
-    applyPracticeSentenceVisibility(show) {
-        const option = document.querySelector('#task-dropdown option[value="hint-practice"]');
-        if (!option) return;
-        option.hidden = !show;
-
-        // If the option was selected while being hidden (e.g. toggled off
-        // mid-selection), reset the dropdown to the placeholder.
-        const taskDropdown = document.getElementById('task-dropdown');
-        if (!show && taskDropdown && taskDropdown.value === 'hint-practice') {
-            taskDropdown.value = '';
-            this.handleTaskSelection('');
-        }
-    }
-
-    getTaskConfigDir() {
-        const os = window.require('os');
-        const path = window.require('path');
-
-        if (process.platform === 'win32') {
-            return path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
-        }
-        return path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
-    }
-
-    async loadTaskVisibilitySettings() {
-        const toggle = document.getElementById('show-practice-sentence-toggle');
-        let showPracticeSentence = true; // default: visible
-
-        try {
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
-            const configPath = path.join(this.getTaskConfigDir(), 'cfg_dashboard_settings.json');
-            const configData = await fs.readFile(configPath, 'utf8');
-            const config = JSON.parse(configData);
-            if (typeof config.showPracticeSentenceTask === 'boolean') {
-                showPracticeSentence = config.showPracticeSentenceTask;
-            }
-        } catch (error) {
-            console.log('No dashboard settings found, using defaults');
-        }
-
-        if (toggle) {
-            toggle.checked = showPracticeSentence;
-        }
-        this.applyPracticeSentenceVisibility(showPracticeSentence);
-    }
-
-    async saveTaskVisibilitySettings(showPracticeSentence) {
-        try {
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
-            const configDir = this.getTaskConfigDir();
-
-            await fs.mkdir(configDir, { recursive: true });
-
-            const configPath = path.join(configDir, 'cfg_dashboard_settings.json');
-
-            let config = {};
-            try {
-                config = JSON.parse(await fs.readFile(configPath, 'utf8'));
-            } catch (error) {
-                // No existing file yet, start fresh
-            }
-
-            config.showPracticeSentenceTask = showPracticeSentence;
-            await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving dashboard settings:', error);
-        }
-    }
-
 
     handleTaskSelection(taskValue) {
         console.log('handleTaskSelection called with:', taskValue);
@@ -1507,18 +1428,6 @@ class Dashboard {
                 window.readingSpanConfig = new ReadingSpanConfig();
             }
             return window.readingSpanConfig.generateConfigHTML();
-        } else if (this.selectedTaskValue === 'hint-practice') {
-            // Initialize Practice Sentence config
-            if (!window.practiceSentenceConfig) {
-                window.practiceSentenceConfig = new PracticeSentenceConfig();
-            }
-            return window.practiceSentenceConfig.generateConfigHTML();
-        } else if (this.selectedTaskValue === 'cast-practice') {
-            // Initialize Practice CaST config
-            if (!window.practiceCastConfig) {
-                window.practiceCastConfig = new PracticeCastConfig();
-            }
-            return window.practiceCastConfig.generateConfigHTML();
         } else if (this.selectedTaskValue === 'cst') {
             // Initialize CST config
             if (!window.cstConfig) {
@@ -1824,16 +1733,6 @@ class Dashboard {
                     window.readingSpanConfig.bindConfigEvents();
                 }
             },
-            'hint-practice': () => {
-                if (window.practiceSentenceConfig) {
-                    window.practiceSentenceConfig.bindConfigEvents();
-                }
-            },
-            'cast-practice': () => {
-                if (window.practiceCastConfig) {
-                    window.practiceCastConfig.bindConfigEvents();
-                }
-            },
             'cst': () => {
                 if (window.cstConfig) {
                     window.cstConfig.bindConfigEvents();
@@ -2127,18 +2026,6 @@ class Dashboard {
             'reading-span': async () => {
                 if (window.readingSpanConfig) {
                     await window.readingSpanConfig.loadExistingConfiguration();
-                }
-            },
-            'hint-practice': async () => {
-                if (window.practiceSentenceConfig) {
-                    await window.practiceSentenceConfig.loadExistingConfiguration();
-                    window.practiceSentenceConfig.updateUIFromConfig();
-                }
-            },
-            'cast-practice': async () => {
-                if (window.practiceCastConfig) {
-                    await window.practiceCastConfig.loadExistingConfiguration();
-                    window.practiceCastConfig.updateUIFromConfig();
                 }
             },
             'cst': async () => {
@@ -3929,10 +3816,8 @@ class Dashboard {
             'reading-span': 'loadReadingSpanTask',
             'speeded-classification': 'loadSpeededClassificationTask',
             'auditory-stroop': 'loadAuditoryStroopTask',
-            'cast-practice': 'loadPracticeCastTask',
             'cast-nonword': 'loadCaSTNonwordTask',
             'cast-word': 'loadCaSTWordTask',
-            'hint-practice': 'loadPracticeSentenceTask',
             'hint': 'loadHINTTask',
             'cst': 'loadCSTTask'
         };

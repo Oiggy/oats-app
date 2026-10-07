@@ -1,8 +1,12 @@
-// popup-integrations.js
-
+// Practice items for the Speech-in-Noise tasks. Runs inside its parent
+// task (Words/Nonwords: word practice; HINT/CST: sentence practice), using
+// the parent's volume, and hands control back when done.
 class PracticeSentenceTask {
-    constructor(participantId) {
+    constructor(participantId, options = {}) {
         this.participantId = participantId;
+        this.volume = options.volume == null ? 1 : options.volume;
+        this.onFinish = options.onFinish || null;
+        this.itemsPlayed = new Set();
         this.config = null;
         this.audioContext = null;
         this.audioBuffers = {};
@@ -43,25 +47,9 @@ class PracticeSentenceTask {
         }
     }
 
+    // Practice uses the parent task's volume (no configuration of its own)
     async loadConfiguration() {
-        const os = window.require('os');
-        const path = window.require('path');
-        const fs = window.require('fs').promises;
-        
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
-        }
-        
-        const configPath = path.join(baseDir, 'cfg_practice_sentence_task.json');
-        const configData = await fs.readFile(configPath, 'utf8');
-        this.config = JSON.parse(configData);
-        
-        console.log('Practice Sentence Configuration loaded:', this.config);
+        this.config = { parameters: { audio: { volume: this.volume } } };
     }
 
     // Loads the shared ASIO audio engine. Only actually used for playback
@@ -80,39 +68,8 @@ class PracticeSentenceTask {
         }
     }
 
-    // Shared Test Audio check (beep on each Audio Setup output, then a
-    // sample, and a verdict on whether ASIO is really in use).
-    getAudioCheck() {
-        const path = window.require('path');
-        const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'audio-check.js'));
-    }
 
-    audioCheckHTML() {
-        try {
-            return this.getAudioCheck().html({
-                buttonClass: 'task-btn task-btn-secondary',
-                caption: 'For the tester: checks each audio output with a beep before you start'
-            });
-        } catch (error) {
-            console.error('Audio check unavailable:', error);
-            return '';
-        }
-    }
 
-    async testAudio() {
-        try {
-            this.audioCheck = await this.getAudioCheck().run({
-                engine: this.asioEngine,
-                volume: this.config.parameters.audio.volume,
-                button: document.getElementById('audio-check-btn'),
-                resultEl: document.getElementById('audio-check-result'),
-                revealAfter: this.modalContent ? this.modalContent.querySelector('.instruction-buttons') : null
-            });
-        } catch (error) {
-            console.error('Audio test failed:', error);
-        }
-    }
 
     async initializeAudioContext() {
         try {
@@ -227,11 +184,9 @@ We'll start with a few practice items now.`;
                         ${instructionText.replace(/\n/g, '<br>')}
                     </div>
                     
-                    ${this.audioCheckHTML()}
-
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-sin-btn">
-                            Main Menu
+                            Back
                         </button>
                         <button class="task-btn task-btn-primary" id="start-practice-btn">
                             Start
@@ -241,12 +196,10 @@ We'll start with a few practice items now.`;
             </div>
         `;
 
-        const audioCheckBtn = document.getElementById('audio-check-btn');
-        if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
         
         // Attach event listeners
         document.getElementById('back-to-sin-btn').addEventListener('click', () => {
-            this.closeTask();
+            this.finish('exit');
         });
         
         document.getElementById('start-practice-btn').addEventListener('click', () => {
@@ -291,7 +244,7 @@ We'll start with a few practice items now.`;
                     
                     <div class="bottom-controls">
                         <button class="task-btn task-btn-secondary" id="back-menu-btn">
-                            Main Menu
+                            Back to Task
                         </button>
                     </div>
                 </div>
@@ -303,7 +256,7 @@ We'll start with a few practice items now.`;
         document.getElementById('play-btn').addEventListener('click', () => this.handlePlay());
         document.getElementById('stop-btn').addEventListener('click', () => this.handleStop());
         document.getElementById('next-btn').addEventListener('click', () => this.handleNext());
-        document.getElementById('back-menu-btn').addEventListener('click', () => this.closeTask());
+        document.getElementById('back-menu-btn').addEventListener('click', () => this.finish('exit'));
     }
 
     handleBack() {
@@ -325,6 +278,7 @@ We'll start with a few practice items now.`;
         this.updateStatus('Playing…');
         
         const audioPath = this.audioFiles[this.currentIndex];
+        this.itemsPlayed.add(this.currentIndex);
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
@@ -396,7 +350,7 @@ We'll start with a few practice items now.`;
             this.currentIndex++;
             this.refreshPlayerUI();
         } else {
-            alert('Practice finished.');
+            this.finish('complete');
         }
     }
 
@@ -485,6 +439,12 @@ We'll start with a few practice items now.`;
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
     }
 
+    // Leaves the practice and returns to the parent task
+    finish(result) {
+        this.closeTask();
+        if (this.onFinish) this.onFinish({ result, itemsPlayed: this.itemsPlayed.size, totalItems: this.totalItems });
+    }
+
     closeTask() {
         this.stopAudio();
         this.stopResponseTimer();
@@ -497,25 +457,7 @@ We'll start with a few practice items now.`;
     }
 
     cleanup() {
+        if (window.practiceSentenceTaskInstance === this) window.practiceSentenceTaskInstance = null;
         console.log('Practice Sentence task cleanup completed');
-        window.practiceSentenceTaskInstance = null;
     }
 }
-
-// Global function to load and start the Practice Sentence task
-async function loadPracticeSentenceTask(participantId) {
-    try {
-        console.log('Loading Practice Sentence task for participant:', participantId);
-        
-        // Create and initialize task instance
-        window.practiceSentenceTaskInstance = new PracticeSentenceTask(participantId);
-        await window.practiceSentenceTaskInstance.init();
-        
-    } catch (error) {
-        console.error('Error loading Practice Sentence task:', error);
-        alert('Error loading Practice Sentence task. Please check the configuration and try again.');
-    }
-}
-
-// Make it globally available
-window.loadPracticeSentenceTask = loadPracticeSentenceTask;

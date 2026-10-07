@@ -318,12 +318,17 @@ class HINTTask {
                     
                     ${this.audioCheckHTML()}
 
+                    ${this.practiceResult ? `<div class="practice-done-note" style="margin: 4px 0 12px; color: #28a745; font-weight: 600;">✓ Practice done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)</div>` : ''}
+
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
                         </button>
-                        <button class="task-btn task-btn-primary" id="start-hint-btn">
-                            Start
+                        <button class="task-btn ${this.practiceResult ? 'task-btn-secondary' : 'task-btn-primary'}" id="practice-btn">
+                            ${this.practiceResult ? 'Practice Again' : 'Start Practice'}
+                        </button>
+                        <button class="task-btn ${this.practiceResult ? 'task-btn-primary' : 'task-btn-secondary'}" id="start-hint-btn">
+                            ${this.practiceResult ? 'Start Task' : 'Skip Practice'}
                         </button>
                     </div>
                 </div>
@@ -334,9 +339,12 @@ class HINTTask {
         if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
         
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
-            this.saveResults();
+            // Nothing to save unless the task was started
+            if (this.taskStarted) this.saveResults();
             this.closeTask();
         });
+
+        document.getElementById('practice-btn').addEventListener('click', () => this.startPractice());
         
         document.getElementById('start-hint-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
@@ -347,7 +355,29 @@ class HINTTask {
         });
     }
 
+    // Built-in sentence practice: hides this task, runs the practice items at this
+    // task's volume, then comes back to the instruction page.
+    async startPractice() {
+        this.stopAudio();
+        this.modalOverlay.style.display = 'none';
+        const practice = new PracticeSentenceTask(this.participantId, {
+            volume: this.config.parameters.audio.volume,
+            onFinish: (result) => {
+                if (result.result === 'complete' || result.itemsPlayed > 0) this.practiceResult = result;
+                this.modalOverlay.style.display = '';
+                this.showInstructionPage();
+            }
+        });
+        window.practiceSentenceTaskInstance = practice;
+        await practice.init();
+        if (!practice.modalOverlay || !practice.modalOverlay.parentNode) {
+            // Practice couldn't open (its error was shown): come back
+            this.modalOverlay.style.display = '';
+        }
+    }
+
     showPlayerPage() {
+        this.taskStarted = true;
         this.currentPage = 'player';
         
         this.modalContent.innerHTML = `
@@ -821,6 +851,7 @@ class HINTTask {
             output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
             output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: HINT')}`);
             output.push(`Audio Check: ${this.getAudioCheck().summarize(this.audioCheck)}`);
+            output.push(`Practice: ${this.practiceResult ? `done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)` : 'skipped'}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
             output.push(`Task: HINT`);
             output.push('');
