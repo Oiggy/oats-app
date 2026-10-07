@@ -179,12 +179,16 @@ class AsioEngine extends EventEmitter {
         };
     }
 
-    // Short label for results files.
-    describeBackend() {
+    // Short label for results files. A task that uses its own channels
+    // passes them ({ outputChannels, inputChannel }, 0-based) so the label
+    // names the channels it really used.
+    describeBackend(channels = {}) {
         const s = this.getStatus();
         if (s.backend !== 'ASIO') return `Fallback (Web Audio/sox) - ASIO unavailable: ${s.reason}`;
+        const out = channels.outputChannels && channels.outputChannels.length ? channels.outputChannels : s.outputChannels;
+        const inp = channels.inputChannel != null ? channels.inputChannel : s.inputChannel;
         return `ASIO - ${s.device} @ ${s.sampleRate} Hz, ${s.frameSize}-sample buffer, ` +
-            `out ch ${s.outputChannels.map((c) => c + 1).join('+')}, in ch ${s.inputChannel + 1}, ` +
+            `out ch ${out.map((c) => c + 1).join('+')}, in ch ${inp + 1}, ` +
             `stream latency ${s.streamLatencyMs.toFixed(1)} ms`;
     }
 
@@ -459,6 +463,13 @@ class AsioEngine extends EventEmitter {
                 this.activeJob = this.outputJobs.shift();
                 this.activeJob.startSample = frameIndex * this.frameSize + i;
                 this.activeJob.underrunsAtStart = this.underruns;
+                if (this.activeJob.onStart) {
+                    // Fires before the first sample is heard (it is still in
+                    // the pre-buffer), so callers learn the exact onset early.
+                    const onStart = this.activeJob.onStart;
+                    this.activeJob.onStart = null;
+                    try { onStart(this._jobTiming(this.activeJob, false)); } catch (error) { console.error('[asio-engine] onStart failed:', error); }
+                }
             }
             const job = this.activeJob;
             const take = Math.min(this.frameSize - i, job.length - job.position);
@@ -514,8 +525,15 @@ class AsioEngine extends EventEmitter {
     // ---- playback ------------------------------------------------------------------
 
     _resolveRoutes(channelData, outputChannels) {
-        const channels = (outputChannels && outputChannels.length ? outputChannels : this.config.outputChannels)
-            .filter((c) => c >= 0 && c < this.outChannelCount);
+        const requested = outputChannels && outputChannels.length ? outputChannels : this.config.outputChannels;
+        // A task's own channel choice must be honoured exactly: a channel the
+        // device doesn't have is an error, not something to quietly drop.
+        const missing = requested.filter((c) => !(Number.isInteger(c) && c >= 0 && c < this.outChannelCount));
+        if (missing.length) {
+            throw new Error(`Output channel ${missing.map((c) => c + 1).join('+')} does not exist on ` +
+                `${this.device ? this.device.name : 'the ASIO device'} (${this.outChannelCount} outputs)`);
+        }
+        const channels = requested;
         if (channels.length === 0) throw new Error('No valid ASIO output channel selected');
 
         if (channelData.length >= 2 && channels.length >= 2) {
@@ -529,20 +547,59 @@ class AsioEngine extends EventEmitter {
         return channels.map((channel) => ({ channel, data: mono }));
     }
 
-    // Queues decoded audio. options: { volume, outputChannels }.
+    // Queues decoded audio. options: { volume, outputChannels, onStart }.
     // Resolves with sample-accurate onset/offset timing once played.
+    // onStart(timing) is called as soon as the onset is fixed, while the
+    // sound is still in the pre-buffer (i.e. before it is heard).
     playChannelData(channelData, options = {}) {
         if (!this.isEnabled()) {
             return Promise.reject(new Error(`ASIO is not available: ${this.statusReason}`));
         }
-        const routes = this._resolveRoutes(channelData, options.outputChannels);
+        let routes;
+        try {
+            routes = this._resolveRoutes(channelData, options.outputChannels);
+        } catch (error) {
+            return Promise.reject(error);
+        }
         const gain = options.volume == null ? 1 : options.volume;
         return new Promise((resolve) => {
             this.outputJobs.push({
                 routes, gain, position: 0, length: routes[0].data.length,
-                startSample: null, endSample: null, resolve
+                startSample: null, endSample: null, resolve, onStart: options.onStart || null
             });
         });
+    }
+
+    // Plays several parts back to back as one sample-continuous sound, so
+    // the gaps between them are exact. Each part is decoded channel data
+    // (Float32Array[] at the stream rate), { silenceMs } or
+    // { toneHz, durationMs, level, rampMs }. options as for playChannelData.
+    // Timing (both for onStart and the resolved value) adds partOnsetSamples
+    // and partOnsetPerfMs: when each part starts.
+    playSequence(parts, options = {}) {
+        const pieces = parts.map((part) => {
+            if (Array.isArray(part)) return part;
+            if (part.silenceMs != null) return [new Float32Array(Math.max(0, Math.round(part.silenceMs / 1000 * this.sampleRate)))];
+            return [this.toneData(part.toneHz, part.durationMs, part.level, part.rampMs)];
+        });
+        const channelCount = Math.max(...pieces.map((p) => p.length));
+        const total = pieces.reduce((n, p) => n + p[0].length, 0);
+        const data = Array.from({ length: channelCount }, () => new Float32Array(Math.max(1, total)));
+        const offsets = [];
+        let position = 0;
+        for (const piece of pieces) {
+            offsets.push(position);
+            for (let c = 0; c < channelCount; c++) data[c].set(piece[c % piece.length], position);
+            position += piece[0].length;
+        }
+        const withParts = (timing) => Object.assign(timing, {
+            partOnsetSamples: offsets.map((o) => (timing.onsetSample != null ? timing.onsetSample + o : null)),
+            partOnsetPerfMs: offsets.map((o) => (timing.onsetSample != null ? this.outputSampleToPerfMs(timing.onsetSample + o) : null))
+        });
+        const onStart = options.onStart;
+        return this.playChannelData(data, Object.assign({}, options, {
+            onStart: onStart ? (timing) => onStart(withParts(timing)) : null
+        })).then(withParts);
     }
 
     async _decodeToStreamRate(arrayBuffer) {
@@ -593,16 +650,21 @@ class AsioEngine extends EventEmitter {
         return this.playChannelData(channelData, Object.assign({}, options, { volume }));
     }
 
-    // Short sine test tone with fade in/out.
-    playTone(frequency = 440, durationMs = 500, volume = 0.3, options = {}) {
-        const n = Math.round(durationMs / 1000 * this.sampleRate);
-        const fade = Math.min(Math.round(0.01 * this.sampleRate), Math.floor(n / 2));
+    // Sine tone samples at the stream rate with linear fade in/out.
+    toneData(frequency, durationMs, level = 1, rampMs = 10) {
+        const n = Math.max(1, Math.round(durationMs / 1000 * this.sampleRate));
+        const fade = Math.max(1, Math.min(Math.round(rampMs / 1000 * this.sampleRate), Math.floor(n / 2)));
         const data = new Float32Array(n);
         for (let i = 0; i < n; i++) {
             const env = Math.min(1, i / fade, (n - 1 - i) / fade);
-            data[i] = Math.sin(2 * Math.PI * frequency * i / this.sampleRate) * env;
+            data[i] = Math.sin(2 * Math.PI * frequency * i / this.sampleRate) * env * level;
         }
-        return this.playChannelData([data], Object.assign({}, options, { volume }));
+        return data;
+    }
+
+    // Short sine test tone with fade in/out.
+    playTone(frequency = 440, durationMs = 500, volume = 0.3, options = {}) {
+        return this.playChannelData([this.toneData(frequency, durationMs)], Object.assign({}, options, { volume }));
     }
 
     // Cancels queued and currently playing output.
