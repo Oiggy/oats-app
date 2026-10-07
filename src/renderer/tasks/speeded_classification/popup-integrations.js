@@ -178,6 +178,43 @@ class SpeededClassificationPopup {
         }
     }
 
+    isDevMode() {
+        return typeof this.participantId === 'string' && this.participantId.startsWith('DEV_');
+    }
+
+    // Developer Mode only: ends the task now and goes to the results, so a
+    // technician can check the output without running every trial. The
+    // results say the run was cut short.
+    finishEarly() {
+        if (this.taskState !== 'running' || this.finishedEarly) return;
+        if (!confirm('Finish the task now and go to the results?\n\nDeveloper Mode test: the results will be marked as an incomplete run.')) return;
+        this.finishedEarly = true;
+        this.isPaused = false;
+        if (this.cancelResponse) this.cancelResponse();
+        if (this.cancelInstructions) this.cancelInstructions();
+        try { if (this.currentSource) this.currentSource.stop(); } catch (e) { /* already stopped */ }
+        try { if (this.asioEngine && this.asioEngine.isEnabled()) this.asioEngine.clearOutputQueue(); } catch (e) { /* engine gone */ }
+        const finishBtn = document.getElementById('finish-early-btn');
+        if (finishBtn) finishBtn.disabled = true;
+        // Between phases no trial loop is running to notice the flag.
+        if (!this.trialLoopRunning) this.completeTask();
+    }
+
+    // Which audio path played the trials, e.g.
+    // "ASIO on 72 of 72 trials; timing reliable on 72 of 72".
+    describeTrialAudio() {
+        const n = this.results.length;
+        if (!n) return 'no trials run';
+        const counts = {};
+        this.results.forEach((t) => {
+            const backend = t.audio_backend || 'none';
+            counts[backend] = (counts[backend] || 0) + 1;
+        });
+        const used = Object.keys(counts).map((b) => `${b} on ${counts[b]} of ${n} trials`).join(', ');
+        const reliable = this.results.filter((t) => t.timing_reliable === true).length;
+        return `${used}; timing reliable on ${reliable} of ${n}`;
+    }
+
     // Output channels chosen in this task's configuration (1-based in the
     // config, 0-based for the engine). Unset = use the global ASIO setup.
     getOutputChannels() {
@@ -645,6 +682,9 @@ class SpeededClassificationPopup {
                     <button id="pause-task-btn" class="task-button task-button-secondary" disabled>
                         Pause
                     </button>
+                    ${this.isDevMode() ? `<button id="finish-early-btn" class="task-button task-button-secondary" disabled title="Developer Mode only: end now and go to the results">
+                        Finish Now (Dev)
+                    </button>` : ''}
                     <button id="exit-task-btn" class="task-button task-button-danger">
                         Exit Task
                     </button>
@@ -1023,6 +1063,8 @@ class SpeededClassificationPopup {
 
         // Exit button
         modalOverlay.querySelector('#exit-task-btn').addEventListener('click', () => this.exitTask());
+        const finishBtn = modalOverlay.querySelector('#finish-early-btn');
+        if (finishBtn) finishBtn.addEventListener('click', () => this.finishEarly());
 
         // Begin button
         modalOverlay.querySelector('#begin-task-btn').addEventListener('click', () => this.startExperiment());
@@ -1081,10 +1123,13 @@ class SpeededClassificationPopup {
         this.setupExperimentalPhases();
 
         this.taskState = 'running';
+        this.finishedEarly = false;
         this.startTime = new Date();
         
         document.getElementById('begin-task-btn').style.display = 'none';
         document.getElementById('pause-task-btn').disabled = false;
+        const finishEarlyBtn = document.getElementById('finish-early-btn');
+        if (finishEarlyBtn) finishEarlyBtn.disabled = false;
 
         if (this.audioContext && this.audioContext.state === 'suspended') {
             await this.audioContext.resume();
@@ -1094,28 +1139,31 @@ class SpeededClassificationPopup {
     }
 
     async runExperiment() {
+        this.trialLoopRunning = true;
         for (this.currentPhaseIndex = 0; this.currentPhaseIndex < this.phases.length; this.currentPhaseIndex++) {
-            if (this.taskState === 'stopped') break;
+            if (this.taskState === 'stopped' || this.finishedEarly) break;
             
             this.currentPhase = this.phases[this.currentPhaseIndex];
             
             // Show phase instructions
             await this.showPhaseInstructions();
-            if (this.taskState === 'stopped') break;
+            if (this.taskState === 'stopped' || this.finishedEarly) break;
             
             // Run trials for this phase
             for (this.currentTrialInPhase = 0; this.currentTrialInPhase < this.currentPhase.trialCount; this.currentTrialInPhase++) {
-                if (this.taskState === 'stopped') break;
+                if (this.taskState === 'stopped' || this.finishedEarly) break;
                 
-                while (this.isPaused) {
+                while (this.isPaused && !this.finishedEarly) {
                     await this.wait(100);
                 }
+                if (this.finishedEarly) break;
                 
                 await this.runSingleTrial();
                 this.totalTrialsCompleted++;
             }
         }
         
+        this.trialLoopRunning = false;
         if (this.taskState !== 'stopped') {
             this.completeTask();
         }
@@ -1494,6 +1542,8 @@ class SpeededClassificationPopup {
                     <p><strong>Test Accuracy:</strong> ${(summary.mainAccuracy * 100).toFixed(1)}%</p>
                     <p><strong>Phoneme relevant:</strong> control ${fmt(g.phoneme.control.meanRT)}, orthogonal ${fmt(g.phoneme.orthogonal.meanRT)} → interference ${fmt(g.phoneme.interference)}</p>
                     <p><strong>Voice relevant:</strong> control ${fmt(g.voice.control.meanRT)}, orthogonal ${fmt(g.voice.orthogonal.meanRT)} → interference ${fmt(g.voice.interference)}</p>
+                    <p><strong>Audio:</strong> ${this.describeTrialAudio()}</p>
+                    ${this.finishedEarly ? `<p><strong>⚠️ Developer Mode test:</strong> finished early after ${this.results.length} trials</p>` : ''}
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -1503,6 +1553,8 @@ class SpeededClassificationPopup {
         
         progressDisplay.textContent = 'Task completed successfully';
         document.getElementById('pause-task-btn').disabled = true;
+        const finishEarlyBtn = document.getElementById('finish-early-btn');
+        if (finishEarlyBtn) finishEarlyBtn.disabled = true;
         
         document.getElementById('save-results-btn').addEventListener('click', () => {
             this.saveResults();
@@ -1685,6 +1737,8 @@ class SpeededClassificationPopup {
         content += `Task: Speeded Classification Task (Garner, 1974; Sommers & Danielson, 1999)\n`;
         content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Speeded Classification')}\n`;
+        content += `Audio Playback: ${this.describeTrialAudio()}\n`;
+        if (this.finishedEarly) content += `NOTE: Developer Mode test, finished early after ${this.results.length} trials (incomplete run)\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;
         content += `Total Duration: ${this.calculateDuration()}\n\n`;
@@ -1712,7 +1766,7 @@ class SpeededClassificationPopup {
         content += `Silent Interval after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
         content += `Audio Volume: ${config.audio.volume}\n`;
-        content += `Audio Output: ${(this.asioEngine && this.asioEngine.isEnabled()) ? 'ASIO' : 'Web Audio'}\n`;
+        content += `Audio Output: ${this.describeTrialAudio()}\n`;
         if (this.missingAudio.length) {
             content += `WARNING: ${this.missingAudio.length} stimulus recordings were missing and replaced by placeholder tones: ${this.missingAudio.join(', ')}\n`;
         }

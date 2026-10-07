@@ -163,6 +163,43 @@ class AuditoryStroopPopup {
         }
     }
 
+    isDevMode() {
+        return typeof this.participantId === 'string' && this.participantId.startsWith('DEV_');
+    }
+
+    // Developer Mode only: ends the task now and goes to the results, so a
+    // technician can check the output without running every trial. The
+    // results say the run was cut short.
+    finishEarly() {
+        if (this.taskState !== 'running' || this.finishedEarly) return;
+        if (!confirm('Finish the task now and go to the results?\n\nDeveloper Mode test: the results will be marked as an incomplete run.')) return;
+        this.finishedEarly = true;
+        this.isPaused = false;
+        if (this.cancelResponse) this.cancelResponse();
+        if (this.cancelInstructions) this.cancelInstructions();
+        try { if (this.currentSource) this.currentSource.stop(); } catch (e) { /* already stopped */ }
+        try { if (this.asioEngine && this.asioEngine.isEnabled()) this.asioEngine.clearOutputQueue(); } catch (e) { /* engine gone */ }
+        const finishBtn = document.getElementById('finish-early-btn');
+        if (finishBtn) finishBtn.disabled = true;
+        // Between phases no trial loop is running to notice the flag.
+        if (!this.trialLoopRunning) this.completeTask();
+    }
+
+    // Which audio path played the trials, e.g.
+    // "ASIO on 72 of 72 trials; timing reliable on 72 of 72".
+    describeTrialAudio() {
+        const n = this.results.length;
+        if (!n) return 'no trials run';
+        const counts = {};
+        this.results.forEach((t) => {
+            const backend = t.audio_backend || 'none';
+            counts[backend] = (counts[backend] || 0) + 1;
+        });
+        const used = Object.keys(counts).map((b) => `${b} on ${counts[b]} of ${n} trials`).join(', ');
+        const reliable = this.results.filter((t) => t.timing_reliable === true).length;
+        return `${used}; timing reliable on ${reliable} of ${n}`;
+    }
+
     // Output channels chosen in this task's configuration (1-based in the
     // config, 0-based for the engine). Unset = use the global ASIO setup.
     getOutputChannels() {
@@ -438,6 +475,9 @@ class AuditoryStroopPopup {
                     <button id="pause-task-btn" class="task-button task-button-secondary" disabled>
                         Pause
                     </button>
+                    ${this.isDevMode() ? `<button id="finish-early-btn" class="task-button task-button-secondary" disabled title="Developer Mode only: end now and go to the results">
+                        Finish Now (Dev)
+                    </button>` : ''}
                     <button id="exit-task-btn" class="task-button task-button-danger">
                         Exit Task
                     </button>
@@ -780,6 +820,8 @@ class AuditoryStroopPopup {
 
         // Exit button
         modalOverlay.querySelector('#exit-task-btn').addEventListener('click', () => this.exitTask());
+        const finishBtn = modalOverlay.querySelector('#finish-early-btn');
+        if (finishBtn) finishBtn.addEventListener('click', () => this.finishEarly());
 
         // Pause button
         modalOverlay.querySelector('#pause-task-btn').addEventListener('click', () => this.togglePause());
@@ -846,6 +888,7 @@ class AuditoryStroopPopup {
     }
 
     async startPracticePhase() {
+        this.finishedEarly = false;
         this.currentTrial = 0;
         this.taskState = 'running';
         this.startTime = new Date();
@@ -856,6 +899,8 @@ class AuditoryStroopPopup {
         
         // Enable pause button
         document.getElementById('pause-task-btn').disabled = false;
+        const finishEarlyBtn = document.getElementById('finish-early-btn');
+        if (finishEarlyBtn) finishEarlyBtn.disabled = false;
 
         if (!this.practiceStimuli.length) {
             this.startMainPhase();
@@ -938,17 +983,25 @@ class AuditoryStroopPopup {
 
     async runTrialSequence(phase) {
         const stimuli = phase === 'practice' ? this.practiceStimuli : this.mainStimuli;
+        this.trialLoopRunning = true;
         
         for (this.currentTrial = 0; this.currentTrial < stimuli.length; this.currentTrial++) {
-            if (this.taskState === 'stopped') break;
+            if (this.taskState === 'stopped' || this.finishedEarly) break;
             
-            while (this.isPaused) {
+            while (this.isPaused && !this.finishedEarly) {
                 await this.wait(100);
             }
+            if (this.finishedEarly) break;
             
             await this.runSingleTrial(phase, stimuli[this.currentTrial]);
         }
         
+        this.trialLoopRunning = false;
+        if (this.finishedEarly) {
+            if (this.taskState === 'running') this.completeTask();
+            return;
+        }
+
         if (this.taskState !== 'stopped') {
             if (phase === 'practice') {
                 this.startMainPhase();
@@ -1286,6 +1339,8 @@ class AuditoryStroopPopup {
                     <p><strong>Accuracy:</strong> ${(summary.accuracy * 100).toFixed(1)}%</p>
                     <p><strong>Mean RT:</strong> congruent ${fmt(c.congruent.meanRT)}, neutral ${fmt(c.neutral.meanRT)}, incongruent ${fmt(c.incongruent.meanRT)}</p>
                     <p><strong>Stroop interference (incongruent − neutral):</strong> ${fmt(summary.interference)}</p>
+                    <p><strong>Audio:</strong> ${this.describeTrialAudio()}</p>
+                    ${this.finishedEarly ? `<p><strong>⚠️ Developer Mode test:</strong> finished early after ${this.results.length} trials</p>` : ''}
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -1295,6 +1350,8 @@ class AuditoryStroopPopup {
         
         progressDisplay.textContent = 'Task completed successfully';
         document.getElementById('pause-task-btn').disabled = true;
+        const finishEarlyBtn = document.getElementById('finish-early-btn');
+        if (finishEarlyBtn) finishEarlyBtn.disabled = true;
         
         document.getElementById('save-results-btn').addEventListener('click', () => {
             this.saveResults();
@@ -1465,6 +1522,8 @@ class AuditoryStroopPopup {
         content += `Task: Auditory Stroop Task (Sommers & Danielson, 1999)\n`;
         content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Auditory Stroop')}\n`;
+        content += `Audio Playback: ${this.describeTrialAudio()}\n`;
+        if (this.finishedEarly) content += `NOTE: Developer Mode test, finished early after ${this.results.length} trials (incomplete run)\n`;
         content += `Start Time: ${startTime}\n`;
         content += `End Time: ${endTime}\n`;
         content += `Total Duration: ${this.calculateDuration()}\n\n`;
@@ -1481,7 +1540,7 @@ class AuditoryStroopPopup {
         content += `Delay after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
         content += `Audio Volume: ${config.audio.volume}\n`;
-        content += `Audio Output: ${(this.asioEngine && this.asioEngine.isEnabled()) ? 'ASIO' : 'Web Audio'}\n`;
+        content += `Audio Output: ${this.describeTrialAudio()}\n`;
         if (this.missingAudio.length) {
             content += `WARNING: ${this.missingAudio.length} stimulus recordings were missing and replaced by placeholder tones: ${this.missingAudio.join(', ')}\n`;
         }
