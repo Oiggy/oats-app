@@ -64,6 +64,22 @@ OATS Audio Setup:
 
 Quick check: play any audio in Windows with the Scarlett as the output device. If it's audible in the earphones, OATS's **Test output** will be too.
 
+#### Testing recording without a microphone (Loopback)
+
+The Routing tab above sends **Loopback ← Playback 1–2**, which gives the 4i4 a digital copy of everything playing on Playback 1–2. In ASIO this appears as **Input 5** (left) and **Input 6** (right). Recording from it checks that OATS records, saves and times audio correctly through ASIO, with no microphone or extra cables.
+
+1. **Pause or close any other audio** (YouTube, music, notifications). Loopback records everything sent to Playback 1–2, both OATS stimuli and any Windows audio, mixed together.
+2. In OATS, click **AUDIO** and set **Recording input channel = Input 5**. Click **Save & Apply**.
+3. Click **Test output**, then straight away **Test input (2 s)**. It should report "Input OK" with a peak level.
+4. Run **Speech in Noise: Words** for 2–3 items.
+5. Open `%APPDATA%\Oats\sessions\<participant>\Speech_in_Noise\CaST_word\recordings\` (`<participant>` is the ID used, e.g. `DEV_...`) and check:
+   - each `.wav` plays back the stimulus word and noise that was heard;
+   - each `.wav` has a matching `_timing.json`;
+   - the results file's **Audio Backend** line reads `ASIO - Focusrite USB ASIO ...`.
+6. **Set Recording input channel back to Input 1** and **Save & Apply** before running participants. Otherwise OATS records the stimulus instead of the participant.
+
+Expected timing difference: loopback is digital and skips the analogue converters. The stimulus therefore appears in the WAV a few milliseconds earlier than `stimulus_onset_in_recording_ms` in `_timing.json`, which includes the full interface round-trip latency. This is normal. To check timing exactly, use a physical loopback cable instead: a ¼" cable from rear **Output 3** into front **Input 1**, with **Out 3** ticked in Audio Setup and Input 1 selected.
+
 ### Per-task output channels
 
 A task can send its stimuli to different outputs than the global setting by
