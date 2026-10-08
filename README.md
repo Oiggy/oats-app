@@ -55,6 +55,71 @@ settings. The badge reads **AUDIO: ASIO** in green while ASIO is running.
 
 Details: [docs/asio-support.md](docs/asio-support.md).
 
+## Microphone (speaking tasks)
+
+### Why the mic goes into the Scarlett
+
+Spoken reaction times are measured from stimulus onset to the start of the
+participant's voice. OATS plays the stimulus and records the mic in **one
+ASIO stream on the Scarlett**, on one sample clock, so it knows exactly which
+recorded sample lines up with stimulus onset. What remains is the
+converters' fixed delay of a few milliseconds, the same on every trial and
+for every participant, so comparisons are unaffected. The ASIO buffer size
+changes how responsive the app feels, not reaction-time accuracy.
+
+Do **not** use the laptop's built-in mic or a USB mic: they run on a
+different clock through Windows audio and add tens of milliseconds of delay
+that varies from trial to trial.
+
+### Which tasks need a mic
+
+| Task | Mic | What it's for |
+| --- | --- | --- |
+| Stroop Colour Word | **Essential** | Reaction time is measured from voice onset |
+| Reading Span | Yes | Recalled words are recorded |
+| Speech in Noise (Words, Nonwords, HINT, CST) | Recommended | Repetitions are recorded so scoring can be checked later; the tester still scores live |
+| CVC, Speeded Classification, Auditory Stroop | No | Key presses / buttons |
+
+### Connecting it
+
+```
+Mic ──XLR──► Scarlett INPUT 1 (front)
+Scarlett OUTPUTS (Out 1/2) ──► JDS Atom Amp 2 ──► participant's headphones
+```
+
+1. **Mic**: a close-talking mic works best for voice-onset detection.
+   - **Headset mic**: keeps the same distance from the mouth on every trial,
+     which gives the most consistent onsets.
+   - **Dynamic mic on a stand** (e.g. Shure SM58 type), 5-10 cm from the
+     mouth, slightly off to one side. Dynamic mics pick up less room noise.
+2. **Cable**: XLR into **Input 1** on the front of the Scarlett.
+   - Leave **INST** off.
+   - Turn **48V** on only for a condenser mic. A dynamic mic doesn't need it.
+3. **Gain**: have the participant speak at a normal loud voice and turn up
+   Input 1's gain until the ring around the knob shows green, sometimes
+   amber, never red. If your model has Auto Gain, use it.
+4. **Focusrite Control 2**:
+   - Turn **Direct Monitor off**. Otherwise the participant's own voice is
+     fed into Out 1/2, which also carry the stimuli to the headphones.
+   - Check Input 1 isn't routed to the outputs.
+5. **In OATS**:
+   - AUDIO > **Recording input channel** = **Input 1** (the default).
+   - Click **Test input (2 s)** and confirm the level moves.
+   - In Stroop, use **Test Microphone** on the first screen before starting.
+
+### Tips
+
+- **Headphones**: closed-back headphones (fed from the Atom) stop the
+  stimulus leaking into the mic, so the stimulus can't be mistaken for a
+  voice onset.
+- **Quiet room, same mic position for everyone**: voice onset is detected
+  with a level threshold, so background noise or a mic that's too far away
+  delays or blurs onsets. In Stroop's results this shows up as low
+  "RT confidence".
+- **Absolute timing**: to measure the Scarlett's fixed delay itself rather
+  than compare conditions, a one-off loopback test can do it: a cable from
+  a spare output (e.g. Out 3) into Input 3 or 4.
+
 ## Where data is saved
 
 On Windows, everything is under `%APPDATA%\Oats` (elsewhere `~/Documents/Oats`):
