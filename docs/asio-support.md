@@ -41,7 +41,7 @@ Signal path:
 Cabling:
 - The Scarlett's front **headphone jack** connects to the cable that splits into two RCA plugs.
 - **Red RCA → `R IN`** on the back of the Atom Amp 2, and **white RCA → `L IN`**. Use the "IN" pair, not the "OUT" pair: the OUT sockets are line outputs and the amp makes no sound if you're plugged into them.
-- The RadioEar IP30 insert earphones (or their adapter) plug into the front jack marked with the headphone icon. Nothing goes in the other front port.
+- The RadioEar IP30 insert earphones plug directly (no adapter) into the front jack marked with the headphone icon. Nothing goes in the other front port.
 
 Atom Amp 2:
 - The **GAIN** and **INPUT** buttons are both pressed in.
