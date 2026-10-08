@@ -1723,6 +1723,7 @@ class SpeededClassificationPopup {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}\n`;
         content += `Task: Speeded Classification Task (Garner, 1974; Sommers & Danielson, 1999)\n`;
         content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Speeded Classification')}\n`;

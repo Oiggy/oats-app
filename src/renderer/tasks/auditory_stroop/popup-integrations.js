@@ -1509,6 +1509,7 @@ class AuditoryStroopPopup {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}\n`;
         content += `Task: Auditory Stroop Task (Sommers & Danielson, 1999)\n`;
         content += `Audio Backend: ${this.describeAudioBackend()}\n`;
         content += `Stimulus Level: ${this.logStimulusLevel('Auditory Stroop')}\n`;

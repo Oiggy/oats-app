@@ -64,7 +64,7 @@ Oats/
 ├── participants/<participant ID>/       real participants
 │   ├── biodata.txt                      pre-task survey
 │   ├── <taskname>task_<YYYY-MM-DD_HH-MM-SS-mmmZ>/
-│   │   ├── results.txt                  readable summary (+ audio backend, Test Audio result)
+│   │   ├── results.txt                  readable summary (+ app version, audio backend, Test Audio result)
 │   │   ├── trials.csv                   trial-level data (where the task has trials)
 │   │   └── recordings / *.wav           spoken responses (tasks that record)
 │   └── speechinnoise_summary.csv        per-SNR scores across the Speech-in-Noise tasks
@@ -72,6 +72,9 @@ Oats/
 ├── task-configurations/                 saved task settings
 └── stimulus-levels.csv                  stimulus level log
 ```
+
+Every `results.txt` (and `biodata.txt`) records the app version that wrote
+it, e.g. `App Version: OATS 1.0.3 (Brodbeck Lab)`.
 
 Every task run gets one folder named `<full task name>task_<run start time>`,
 for example `auditorystrooptask_2026-10-08_13-55-21-514Z`.

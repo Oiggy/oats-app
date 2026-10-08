@@ -748,6 +748,7 @@ class CaSTNonwordTask {
             output.push('='.repeat(60));
             output.push('');
             output.push(`Participant ID: ${this.participantId}`);
+            output.push(`App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}`);
             output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
             output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: Nonwords')}`);
             output.push(`Audio Check: ${this.getAudioCheck().summarize(this.audioCheck)}`);

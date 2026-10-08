@@ -64,13 +64,9 @@ class Dashboard {
     // Installed apps) and the publisher. Runs from source say "dev".
     showAppVersion() {
         const el = document.getElementById('app-version');
-        if (!el) return;
-        try {
-            const { app } = window.require('@electron/remote');
-            el.textContent = `OATS v${app.getVersion()}${app.isPackaged ? '' : ' (dev)'} · Brodbeck Lab`;
-        } catch (error) {
-            el.textContent = 'OATS · Brodbeck Lab';
-        }
+        if (!el || !window.oatsAppInfo) return;
+        const info = window.oatsAppInfo;
+        el.textContent = `OATS v${info.version()}${info.isInstalled() ? '' : ' (dev)'} · ${info.publisher}`;
     }
 
     getAsioEngine() {
@@ -3776,6 +3772,7 @@ class Dashboard {
         // Session Information
         content += '[Session Information]\n';
         content += `Participant ID: ${participantId}\n`;
+        content += `App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}\n`;
         content += `Session Date: ${sessionDate}\n`;
         content += `Start Time: ${startTime}\n`;
         content += `Experimenter Initials: ${formData.experimenter_initials || 'N/A'}\n\n`;

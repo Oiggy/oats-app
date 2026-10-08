@@ -994,6 +994,7 @@ class ReadingSpanTask {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}\n`;
         content += `Audio Backend: ${this.audioRecorder ? this.audioRecorder.describeBackend() : 'unknown'}\n`;
         content += `Task: Reading Span Task\n`;
         content += `Start Time: ${this.sessionStartTime.toLocaleString()}\n`;

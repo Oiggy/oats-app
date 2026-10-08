@@ -27,7 +27,7 @@
     "electron-builder": "^24.6.0"
   },
   "build": {
-    "appId": "com.yourcompany.oats",
+    "appId": "io.github.oiggy.oats",
     "productName": "OATS",
     "directories": {
       "output": "dist"

@@ -758,6 +758,7 @@ class CVCTask {
         content += 'SESSION INFORMATION\n';
         content += '-'.repeat(30) + '\n';
         content += `Participant ID: ${this.participantId}\n`;
+        content += `App Version: ${globalThis.oatsAppInfo?.line() ?? 'unknown'}\n`;
         content += `Task: CVC Task\n`;
         content += `Start Time: ${this.sessionData.startTime.toLocaleString()}\n`;
         content += `End Time: ${endTime.toLocaleString()}\n`;
