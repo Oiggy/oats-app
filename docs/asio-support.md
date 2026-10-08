@@ -36,12 +36,12 @@ first device whose name contains "Focusrite" is used, at 48 kHz with a
 This is the verified working setup for stimulus playback to insert earphones.
 
 Signal path:
-**Laptop → Scarlett 4i4 (USB) → Scarlett headphone jack → RCA cable → Atom Amp 2 RCA inputs → Atom headphone output → earphone adapter → insert earphones**
+**Laptop → Scarlett 4i4 (USB) → Scarlett headphone jack → RCA cable → Atom Amp 2 RCA inputs → JDS headphone-icon jack (front) → RadioEar IP30 insert earphones**
 
 Cabling:
 - The Scarlett's front **headphone jack** connects to the cable that splits into two RCA plugs.
 - **Red RCA → `R IN`** on the back of the Atom Amp 2, and **white RCA → `L IN`**. Use the "IN" pair, not the "OUT" pair: the OUT sockets are line outputs and the amp makes no sound if you're plugged into them.
-- The earphone adapter plugs into the Atom Amp 2's front headphone output.
+- The RadioEar IP30 insert earphones (or their adapter) plug into the front jack marked with the headphone icon. Nothing goes in the other front port.
 
 Atom Amp 2:
 - The **GAIN** and **INPUT** buttons are both pressed in.

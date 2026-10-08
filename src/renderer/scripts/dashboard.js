@@ -384,7 +384,7 @@ class Dashboard {
             <div class="audio-setup-modal" id="audio-guide-root">
                 <div class="modal-header"><h2 class="modal-title">JDS + Focusrite Scarlett 4i4 4th Gen</h2></div>
                 <div class="modal-body audio-guide">
-                    <p class="audio-hint">Set-up for stimulus playback through JDS Labs Atom Amp 2 to insert earphones, with
+                    <p class="audio-hint">Set-up for stimulus playback through JDS Labs Atom Amp 2 to RadioEar IP30 insert earphones, with
                     recording on the Scarlett.</p>
 
                     <div class="audio-guide-steps">
@@ -402,8 +402,9 @@ class Dashboard {
                         <li>Plug the cable from the Scarlett's <strong>front headphone jack</strong> into the back of the
                         Atom Amp 2: <strong>red RCA &rarr; R IN</strong>, <strong>white RCA &rarr; L IN</strong>.
                         Use the <strong>IN</strong> pair, not the OUT pair. The amp is silent if the cables are in OUT.</li>
-                        <li>Plug the earphone adapter into the Atom Amp 2 <strong>front headphone output</strong>, and the
-                        insert earphones into the adapter (red = right, blue = left).</li>
+                        <li>Plug the <strong>RadioEar IP30</strong> insert earphones (or their adapter) into the front jack
+                        marked with the <strong>headphone icon</strong>. Nothing goes in the other front port.
+                        Red = right, blue = left.</li>
                         <li>On the Atom Amp 2, press <strong>GAIN</strong> and <strong>INPUT</strong> in. INPUT pressed
                         = RCA input. Start with the volume low.</li>
                     </ol>

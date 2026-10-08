@@ -84,7 +84,8 @@ that varies from trial to trial.
 
 ```
 Mic ──XLR──► Scarlett front INPUT 1
-Scarlett front HEADPHONE jack (Playback 1–2) ──RCA──► JDS Atom Amp 2 (IN) ──► insert earphones
+Scarlett front HEADPHONE jack (Playback 1–2) ──RCA──► JDS Atom Amp 2 (R/L IN, back)
+                                              JDS headphone-icon jack (front) ──► RadioEar IP30 insert earphones
 ```
 
 The full step-by-step rig setup (Scarlett, Atom, mic, Focusrite Control 2,
@@ -111,7 +112,7 @@ OATS) is also in the app: **AUDIO** > the **JDS + Focusrite** set-up guide.
 
 ### Tips
 
-- **Earphones**: insert earphones (fed from the Atom) keep the stimulus
+- **Earphones**: the IP30 insert earphones (in the JDS headphone-icon jack) keep the stimulus
   from leaking into the mic, so it can't be mistaken for a voice onset.
 - **Levels**: tape the Scarlett headphone knob and the Atom volume knob, so
   every participant hears the same level.
