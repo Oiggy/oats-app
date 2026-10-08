@@ -1,5 +1,8 @@
 name: Build Windows Installer (Any Branch)
 
+# Runs by hand (Actions > Run workflow, any branch) and, through
+# windows-installer-development.yml, on every push to development.
+#
 # Versions
 # - Every build of `development` is a new release: the version goes up by one
 #   (1.0.0, 1.0.1, 1.0.2, ...), is tagged vX.Y.Z on the commit it was built
@@ -14,18 +17,19 @@ name: Build Windows Installer (Any Branch)
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
 
-# Two development builds at once would both claim the same version
-concurrency:
-  group: windows-installer-${{ github.ref_name == 'development' && 'development' || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   build-windows-installer:
     runs-on: windows-latest
+    # Two development builds at once (a push and a manual run) would both
+    # claim the same version, so they take turns
+    concurrency:
+      group: oats-windows-installer-${{ github.ref_name == 'development' && 'development' || github.run_id }}
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository

@@ -1,37 +1,16 @@
 name: Build Windows Installer (Development)
 
+# Every push to development builds a new version: same steps as the manual
+# workflow (version, installer, tag, GitHub Release). See windows-installer.yml.
+
 on:
   push:
     branches:
       - development
 
+permissions:
+  contents: write
+
 jobs:
-  build-windows-installer:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Windows installer
-        run: npm run build-win -- --publish never
-        env:
-          CI: true
-
-      - name: Upload installer artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: oats-windows-installer-development
-          path: |
-            dist/*.exe
-            dist/*.msi
-          if-no-files-found: error
+  build:
+    uses: ./.github/workflows/windows-installer.yml

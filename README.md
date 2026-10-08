@@ -83,10 +83,11 @@ Developer Mode activity: see [developer_mode.md](developer_mode.md).
 
 Versions come from builds of the **development** branch:
 
-- Each run of the **Build Windows Installer** workflow on `development` is a
-  new version, one patch higher than the last (1.0.0, 1.0.1, 1.0.2, ...). The
-  commit is tagged `vX.Y.Z` and a GitHub Release with the installer is
-  published.
+- Every build of `development` is a new version, one patch higher than the
+  last (1.0.0, 1.0.1, 1.0.2, ...). `development` builds automatically on
+  every push (merge), and can also be built by hand. The commit is tagged
+  `vX.Y.Z` and a GitHub Release with the installer is published under
+  **Releases**.
 - To start a new minor or major version, raise `"version"` in
   `package.json` on `development` (e.g. to `1.1.0`); the next development
   build uses it, and later builds count up from there.
@@ -98,9 +99,9 @@ The version appears in the app (dashboard, bottom right), in the installer
 name (`OATS Setup 1.0.3.exe`), and in Windows **Settings > Apps > Installed
 apps** / **Programs and Features**, with **Brodbeck Lab** as the publisher.
 
-To build: GitHub > **Actions** > **Build Windows Installer (Any Branch)** >
-**Run workflow**, pick the branch. The installer is attached to the run (and,
-for `development`, to the release).
+To build any branch by hand: GitHub > **Actions** > **Build Windows Installer
+(Any Branch)** > **Run workflow**, pick the branch. The installer is attached
+to the run (and, for `development`, to the release).
 
 ## Running from source
 
