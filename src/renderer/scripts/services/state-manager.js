@@ -41,7 +41,7 @@ export class StateManager {
                 biodataBtn.disabled = false;
                 taskDropdown.disabled = true;
                 runTaskBtn.disabled = true;
-                subjectDisplay.textContent = '**Subject ID**';
+                subjectDisplay.textContent = 'No participant yet';
                 subjectDisplay.classList.add('empty');
                 break;
 

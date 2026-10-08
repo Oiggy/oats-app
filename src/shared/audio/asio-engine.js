@@ -88,6 +88,7 @@ function nowMs() {
 // How long the driver may go without delivering audio before the device
 // is treated as disconnected (unplugged, powered off, driver reset).
 const DISCONNECT_TIMEOUT_MS = 1500;
+const MAX_CACHED_FILES = 150;
 
 // Emits 'statuschange' (with getStatus()) whenever ASIO starts, fails to
 // start, disconnects or is shut down, so the UI can react in real time.
@@ -115,6 +116,11 @@ class AsioEngine extends EventEmitter {
         this.framesWritten = 0;
         this.framesConsumed = 0;
         this.underruns = 0;
+        this.slip = 0;
+        this._silentSamples = [];
+        this._slipPending = false;
+        this._lastInputAt = null;
+        this._queuedAtLastInput = 0;
         // Recent (performance.now() - blockIndex * period) values; the minimum
         // filters out JS delivery jitter when mapping the audio clock to
         // wall-clock time.
@@ -154,7 +160,8 @@ class AsioEngine extends EventEmitter {
     // Tries to start the stream the first time it's asked, so every existing
     // `if (asioEngine.isEnabled())` check means "ASIO is actually running".
     isEnabled() {
-        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        if (!this.isPlatformSupported()) { this.statusReason = 'ASIO is only available on Windows'; return false; }
+        if (!this.config.enabled) { this.statusReason = 'ASIO is turned off in Audio Setup'; return false; }
         if (!this.started && !this.startAttempted) this._start();
         return this.started;
     }
@@ -179,12 +186,16 @@ class AsioEngine extends EventEmitter {
         };
     }
 
-    // Short label for results files.
-    describeBackend() {
+    // Short label for results files. A task that uses its own channels
+    // passes them ({ outputChannels, inputChannel }, 0-based) so the label
+    // names the channels it really used.
+    describeBackend(channels = {}) {
         const s = this.getStatus();
         if (s.backend !== 'ASIO') return `Fallback (Web Audio/sox) - ASIO unavailable: ${s.reason}`;
+        const out = channels.outputChannels && channels.outputChannels.length ? channels.outputChannels : s.outputChannels;
+        const inp = channels.inputChannel != null ? channels.inputChannel : s.inputChannel;
         return `ASIO - ${s.device} @ ${s.sampleRate} Hz, ${s.frameSize}-sample buffer, ` +
-            `out ch ${s.outputChannels.map((c) => c + 1).join('+')}, in ch ${s.inputChannel + 1}, ` +
+            `out ch ${out.map((c) => c + 1).join('+')}, in ch ${inp + 1}, ` +
             `stream latency ${s.streamLatencyMs.toFixed(1)} ms`;
     }
 
@@ -311,13 +322,17 @@ class AsioEngine extends EventEmitter {
         this._stopWatchdog();
         this.lastBlockAt = nowMs();
         this.watchdog = setInterval(() => {
-            if (this.started && nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
+            if (!this.started) return;
+            if (nowMs() - this.lastBlockAt > DISCONNECT_TIMEOUT_MS) {
                 this._handleDisconnect('the interface stopped sending audio');
+                return;
             }
-        }, 500);
+            if (this._slipPending && !this._slipCheckTimer) this._checkSlip();
+        }, 100);
     }
 
     _stopWatchdog() {
+        if (this._slipCheckTimer) { clearTimeout(this._slipCheckTimer); this._slipCheckTimer = null; }
         if (this.watchdog) clearInterval(this.watchdog);
         this.watchdog = null;
     }
@@ -350,7 +365,7 @@ class AsioEngine extends EventEmitter {
     // Returns true if ASIO is running afterwards.
     tryReconnect() {
         if (this.started) return true;
-        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        if (this.sleeping || !this.config.enabled || !this.isPlatformSupported()) return false;
         const previousReason = this.statusReason;
         this.startAttempted = false;
         const ok = this.isEnabled();
@@ -358,6 +373,34 @@ class AsioEngine extends EventEmitter {
         // the generic "no device found".
         if (!ok && this.disconnected) this.statusReason = previousReason;
         return ok;
+    }
+
+    // ---- laptop sleep ----------------------------------------------------------------
+
+    // While the computer sleeps the driver stops calling back, and the
+    // interface may not survive it. Release the stream before sleep (so
+    // nothing waits on a driver that has gone quiet) and open it again after
+    // wake, retrying while the USB interface and its driver come back.
+    suspendForSleep() {
+        this.sleeping = true;
+        clearTimeout(this._wakeTimer);
+        this._resumeAfterSleep = this.started || this.disconnected;
+        if (this.started) this._handleDisconnect('the computer went to sleep');
+    }
+
+    resumeAfterSleep() {
+        if (!this.sleeping) return;
+        this.sleeping = false;
+        clearTimeout(this._wakeTimer);
+        if (!this._resumeAfterSleep) return;
+        const delays = [1500, 2500, 4000, 6000, 10000, 15000];
+        const attempt = (i) => {
+            if (this.started || this.sleeping || i >= delays.length) return;
+            this._wakeTimer = setTimeout(() => {
+                if (!this.tryReconnect()) attempt(i + 1);
+            }, delays[i]);
+        };
+        attempt(0);
     }
 
     // Closes the stream so the next isEnabled() call reopens it with the
@@ -426,39 +469,108 @@ class AsioEngine extends EventEmitter {
 
         if (this.capture && !this.capture.interrupted) this._captureBlock(input, blockIndex);
 
-        // Output frame k is played in callback k only while the native queue
-        // never runs dry. If the event loop stalled past the pre-buffer, the
-        // driver played silence instead and every later frame slid back by
-        // that many callbacks. The two callbacks arrive on separate queues,
-        // so allow a couple of frames of slack before calling it an underrun.
-        const missing = this.blocksReceived - this.framesConsumed - 2;
-        if (missing > this.underruns) {
-            this.underruns = missing;
-            const t = nowMs();
-            if (!this._lastUnderrunLog || t - this._lastUnderrunLog > 1000) {
-                this._lastUnderrunLog = t;
-                console.warn(`[asio-engine] Output underrun (${this.underruns} silent frame(s) so far); ` +
-                    'timing for sounds/recordings in progress is flagged unreliable.');
-            }
+        // The queue can only run dry if the app went quiet for a good part of
+        // the pre-buffer. Only then is the silence count re-measured (the raw
+        // event counts jitter, so they must not be acted on otherwise).
+        const now = nowMs();
+        if (this._lastInputAt != null) {
+            // Driver periods that went by while the app was busy, against the
+            // audio that was queued (minus slack for events not yet seen).
+            const periods = (now - this._lastInputAt) / this._periodMs();
+            if (periods > this._queuedAtLastInput - 3) this._beginSlipCheck();
         }
-        while (this.framesWritten < this.blocksReceived + this.config.prebufferFrames) {
-            this._writeNextFrame();
-        }
-
+        this._fillOutput();
+        this._lastInputAt = now;
+        this._queuedAtLastInput = this.framesWritten - this.framesConsumed;
         this._settleJobs();
     }
 
+    // Keeps a small, fixed amount of audio queued in the driver (the
+    // pre-buffer), counted against frames the driver has actually played.
+    // If the app was busy for longer than that, the driver played silence in
+    // the meantime; writing the "missed" frames afterwards would only queue a
+    // backlog that delays every later sound. Instead the timeline skips past
+    // the silence (this.slip = callbacks that played no audio), so frame
+    // index + slip is still the driver callback the frame plays in.
+    _fillOutput() {
+        while (this.framesWritten - this.framesConsumed < this.config.prebufferFrames) {
+            this._writeNextFrame();
+        }
+    }
+
+    // After the app was busy: hold new sounds (so none starts with a wrong
+    // timestamp) and measure how many driver callbacks played silence.
+    _beginSlipCheck() {
+        this._slipPending = true;
+        this._silentSamples = [];
+        if (this._slipCheckTimer) return;
+        const tick = () => {
+            this._slipCheckTimer = null;
+            this._checkSlip();
+            if (this._slipPending && this.started) this._slipCheckTimer = setTimeout(tick, 15);
+        };
+        this._slipCheckTimer = setTimeout(tick, 15);
+    }
+
+    // Silent driver callbacks = callbacks so far - frames played. The two
+    // arrive as separate events, so a single reading can be off by an event
+    // or two; it is read from a timer 8 times and the most frequent value
+    // taken (ties: the smaller, so jitter never invents a dropout). Silence
+    // can't be un-played, so the count only ever goes up.
+    _checkSlip() {
+        if (!this.started || !this._slipPending) return;
+        this._silentSamples.push(this.blocksReceived - this.framesConsumed);
+        if (this._silentSamples.length < 8) return;
+        const counts = {};
+        this._silentSamples.forEach((v) => { counts[v] = (counts[v] || 0) + 1; });
+        const settled = Number(Object.keys(counts).sort((x, y) => counts[y] - counts[x] || x - y)[0]);
+        if (settled > this.slip) this._setSlip(settled);
+        this._slipPending = false;
+        this._silentSamples = [];
+        this._settleJobs();
+    }
+
+    // Silent driver callbacks so far changed: shift sounds still waiting to
+    // play (they come after the silence). Their timing is flagged unreliable
+    // through this.underruns, which every sound and recording compares.
+    _setSlip(value) {
+        const delta = value - this.slip;
+        if (delta === 0) return;
+        const firstUnplayed = (this.framesConsumed + this.slip) * this.frameSize;
+        const shift = delta * this.frameSize;
+        for (const job of [this.activeJob, ...this.pendingDrains, ...this.outputJobs]) {
+            if (!job) continue;
+            if (job.startSample != null && job.startSample >= firstUnplayed) job.startSample += shift;
+            if (job.endSample != null && job.endSample >= firstUnplayed) job.endSample += shift;
+        }
+        this.slip = value;
+        this.underruns += Math.abs(delta);
+        const t = nowMs();
+        if (!this._lastUnderrunLog || t - this._lastUnderrunLog > 1000) {
+            this._lastUnderrunLog = t;
+            console.warn(`[asio-engine] Output underrun: the app was busy and the interface played ${this.slip} silent ` +
+                'frame(s) so far; sounds/recordings in progress at that moment are flagged unreliable.');
+        }
+    }
+
     _writeNextFrame() {
-        const frameIndex = this.framesWritten;
+        const frameIndex = this.framesWritten + this.slip;
         const frame = new Float32Array(this.frameSize * this.outChannelCount);
 
         let i = 0;
         while (i < this.frameSize) {
             if (!this.activeJob) {
-                if (this.outputJobs.length === 0) break;
+                if (this.outputJobs.length === 0 || this._slipPending) break;
                 this.activeJob = this.outputJobs.shift();
                 this.activeJob.startSample = frameIndex * this.frameSize + i;
                 this.activeJob.underrunsAtStart = this.underruns;
+                if (this.activeJob.onStart) {
+                    // Fires before the first sample is heard (it is still in
+                    // the pre-buffer), so callers learn the exact onset early.
+                    const onStart = this.activeJob.onStart;
+                    this.activeJob.onStart = null;
+                    try { onStart(this._jobTiming(this.activeJob, false)); } catch (error) { console.error('[asio-engine] onStart failed:', error); }
+                }
             }
             const job = this.activeJob;
             const take = Math.min(this.frameSize - i, job.length - job.position);
@@ -490,7 +602,7 @@ class AsioEngine extends EventEmitter {
     // Resolves playback promises once their last frame has been handed to
     // the driver.
     _settleJobs() {
-        if (this.pendingDrains.length === 0) return;
+        if (this.pendingDrains.length === 0 || this._slipPending) return;
         const playedThrough = this.blocksReceived * this.frameSize;
         while (this.pendingDrains.length > 0 && this.pendingDrains[0].endSample <= playedThrough) {
             const job = this.pendingDrains.shift();
@@ -514,8 +626,15 @@ class AsioEngine extends EventEmitter {
     // ---- playback ------------------------------------------------------------------
 
     _resolveRoutes(channelData, outputChannels) {
-        const channels = (outputChannels && outputChannels.length ? outputChannels : this.config.outputChannels)
-            .filter((c) => c >= 0 && c < this.outChannelCount);
+        const requested = outputChannels && outputChannels.length ? outputChannels : this.config.outputChannels;
+        // A task's own channel choice must be honoured exactly: a channel the
+        // device doesn't have is an error, not something to quietly drop.
+        const missing = requested.filter((c) => !(Number.isInteger(c) && c >= 0 && c < this.outChannelCount));
+        if (missing.length) {
+            throw new Error(`Output channel ${missing.map((c) => c + 1).join('+')} does not exist on ` +
+                `${this.device ? this.device.name : 'the ASIO device'} (${this.outChannelCount} outputs)`);
+        }
+        const channels = requested;
         if (channels.length === 0) throw new Error('No valid ASIO output channel selected');
 
         if (channelData.length >= 2 && channels.length >= 2) {
@@ -529,20 +648,59 @@ class AsioEngine extends EventEmitter {
         return channels.map((channel) => ({ channel, data: mono }));
     }
 
-    // Queues decoded audio. options: { volume, outputChannels }.
+    // Queues decoded audio. options: { volume, outputChannels, onStart }.
     // Resolves with sample-accurate onset/offset timing once played.
+    // onStart(timing) is called as soon as the onset is fixed, while the
+    // sound is still in the pre-buffer (i.e. before it is heard).
     playChannelData(channelData, options = {}) {
         if (!this.isEnabled()) {
             return Promise.reject(new Error(`ASIO is not available: ${this.statusReason}`));
         }
-        const routes = this._resolveRoutes(channelData, options.outputChannels);
+        let routes;
+        try {
+            routes = this._resolveRoutes(channelData, options.outputChannels);
+        } catch (error) {
+            return Promise.reject(error);
+        }
         const gain = options.volume == null ? 1 : options.volume;
         return new Promise((resolve) => {
             this.outputJobs.push({
                 routes, gain, position: 0, length: routes[0].data.length,
-                startSample: null, endSample: null, resolve
+                startSample: null, endSample: null, resolve, onStart: options.onStart || null
             });
         });
+    }
+
+    // Plays several parts back to back as one sample-continuous sound, so
+    // the gaps between them are exact. Each part is decoded channel data
+    // (Float32Array[] at the stream rate), { silenceMs } or
+    // { toneHz, durationMs, level, rampMs }. options as for playChannelData.
+    // Timing (both for onStart and the resolved value) adds partOnsetSamples
+    // and partOnsetPerfMs: when each part starts.
+    playSequence(parts, options = {}) {
+        const pieces = parts.map((part) => {
+            if (Array.isArray(part)) return part;
+            if (part.silenceMs != null) return [new Float32Array(Math.max(0, Math.round(part.silenceMs / 1000 * this.sampleRate)))];
+            return [this.toneData(part.toneHz, part.durationMs, part.level, part.rampMs)];
+        });
+        const channelCount = Math.max(...pieces.map((p) => p.length));
+        const total = pieces.reduce((n, p) => n + p[0].length, 0);
+        const data = Array.from({ length: channelCount }, () => new Float32Array(Math.max(1, total)));
+        const offsets = [];
+        let position = 0;
+        for (const piece of pieces) {
+            offsets.push(position);
+            for (let c = 0; c < channelCount; c++) data[c].set(piece[c % piece.length], position);
+            position += piece[0].length;
+        }
+        const withParts = (timing) => Object.assign(timing, {
+            partOnsetSamples: offsets.map((o) => (timing.onsetSample != null ? timing.onsetSample + o : null)),
+            partOnsetPerfMs: offsets.map((o) => (timing.onsetSample != null ? this.outputSampleToPerfMs(timing.onsetSample + o) : null))
+        });
+        const onStart = options.onStart;
+        return this.playChannelData(data, Object.assign({}, options, {
+            onStart: onStart ? (timing) => onStart(withParts(timing)) : null
+        })).then(withParts);
     }
 
     async _decodeToStreamRate(arrayBuffer) {
@@ -570,16 +728,24 @@ class AsioEngine extends EventEmitter {
         return Array.from({ length: rendered.numberOfChannels }, (_, c) => rendered.getChannelData(c).slice());
     }
 
-    // Decoded stimuli are cached per path (tasks replay the same files).
+    // Decoded stimuli are cached per path (tasks replay the same files),
+    // keeping the most recently used ones so a long session running many
+    // tasks doesn't hold every stimulus in memory.
     async loadFile(filePath) {
         this._cache = this._cache || new Map();
         const key = `${filePath}@${this.sampleRate}`;
-        if (!this._cache.has(key)) {
-            const bytes = fs.readFileSync(filePath);
-            const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-            this._cache.set(key, await this._decodeToStreamRate(arrayBuffer));
+        if (this._cache.has(key)) {
+            const data = this._cache.get(key);
+            this._cache.delete(key);
+            this._cache.set(key, data); // most recently used last
+            return data;
         }
-        return this._cache.get(key);
+        const bytes = fs.readFileSync(filePath);
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const data = await this._decodeToStreamRate(arrayBuffer);
+        this._cache.set(key, data);
+        while (this._cache.size > MAX_CACHED_FILES) this._cache.delete(this._cache.keys().next().value);
+        return data;
     }
 
     // Plays a WAV/MP3 file. Kept compatible with the previous signature.
@@ -593,16 +759,21 @@ class AsioEngine extends EventEmitter {
         return this.playChannelData(channelData, Object.assign({}, options, { volume }));
     }
 
-    // Short sine test tone with fade in/out.
-    playTone(frequency = 440, durationMs = 500, volume = 0.3, options = {}) {
-        const n = Math.round(durationMs / 1000 * this.sampleRate);
-        const fade = Math.min(Math.round(0.01 * this.sampleRate), Math.floor(n / 2));
+    // Sine tone samples at the stream rate with linear fade in/out.
+    toneData(frequency, durationMs, level = 1, rampMs = 10) {
+        const n = Math.max(1, Math.round(durationMs / 1000 * this.sampleRate));
+        const fade = Math.max(1, Math.min(Math.round(rampMs / 1000 * this.sampleRate), Math.floor(n / 2)));
         const data = new Float32Array(n);
         for (let i = 0; i < n; i++) {
             const env = Math.min(1, i / fade, (n - 1 - i) / fade);
-            data[i] = Math.sin(2 * Math.PI * frequency * i / this.sampleRate) * env;
+            data[i] = Math.sin(2 * Math.PI * frequency * i / this.sampleRate) * env * level;
         }
-        return this.playChannelData([data], Object.assign({}, options, { volume }));
+        return data;
+    }
+
+    // Short sine test tone with fade in/out.
+    playTone(frequency = 440, durationMs = 500, volume = 0.3, options = {}) {
+        return this.playChannelData([this.toneData(frequency, durationMs)], Object.assign({}, options, { volume }));
     }
 
     // Cancels queued and currently playing output.
@@ -635,7 +806,7 @@ class AsioEngine extends EventEmitter {
     async startCapture(options = {}) {
         if (!this.isEnabled()) throw new Error(`ASIO is not available: ${this.statusReason}`);
         const channel = options.inputChannel != null ? options.inputChannel : this.config.inputChannel;
-        if (channel < 0 || channel >= this.inChannelCount) {
+        if (!Number.isInteger(channel) || channel < 0 || channel >= this.inChannelCount) {
             throw new Error(`Input channel ${channel + 1} does not exist on ${this.device.name}`);
         }
         let resolveStart;
@@ -752,11 +923,20 @@ class AsioEngine extends EventEmitter {
 
     // ---- teardown ------------------------------------------------------------------
 
+    // RtAudio's ASIO stop waits, with no time limit, for the driver's next
+    // callback. If callbacks have stopped (computer slept, interface
+    // unplugged) that wait never ends and freezes the app, so a stream that
+    // has gone quiet is left for closeStream(), which stops it without waiting.
+    _callbacksAlive() {
+        return !!(this.started && !this.disconnected && !this.sleeping && this.lastBlockAt && nowMs() - this.lastBlockAt < 250);
+    }
+
     stop() {
+        const alive = this._callbacksAlive();
         this._stopWatchdog();
         this.clearOutputQueue();
         this.capture = null;
-        if (this.rt) {
+        if (this.rt && alive) {
             try { if (this.rt.isStreamRunning()) this.rt.stop(); } catch (e) {
                 console.warn('[asio-engine] Error stopping stream:', e.message);
             }
@@ -777,6 +957,11 @@ class AsioEngine extends EventEmitter {
         this.framesWritten = 0;
         this.framesConsumed = 0;
         this.underruns = 0;
+        this.slip = 0;
+        this._silentSamples = [];
+        this._slipPending = false;
+        this._lastInputAt = null;
+        this._queuedAtLastInput = 0;
         this.clockSamples = [];
         this.clockOffsetMs = null;
         this._cache = null;

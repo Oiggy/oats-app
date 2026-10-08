@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, systemPreferences, screen } = require('electron');
 const path = require('path');
 const errorLogger = require('./src/shared/logging/error-logger');
 
@@ -47,6 +47,7 @@ class OATSApp {
       width: 800,
       height: 600,
       frame: false,
+      roundedCorners: true,
       alwaysOnTop: true,
       transparent: false,
       webPreferences: {
@@ -67,9 +68,15 @@ class OATSApp {
 
   createMainWindow() {
     // Different window settings based on platform
+    // 1200 x 800, or less on a smaller screen, so the whole window (and its
+    // rounded corners) is on screen without maximising
+    const { workAreaSize } = screen.getPrimaryDisplay();
     const windowOptions = {
-      width: 1200,
-      height: 800,
+      width: Math.min(1200, workAreaSize.width - 32),
+      height: Math.min(800, workAreaSize.height - 32),
+      minWidth: 960,
+      minHeight: 600,
+      roundedCorners: true,
       show: false,
       webPreferences: {
         nodeIntegration: true,
@@ -109,6 +116,19 @@ class OATSApp {
     }
   }
 
+  // Laptop sleep/wake: the dashboard releases the ASIO stream before sleep
+  // and reopens it after wake (see asio-engine.js suspendForSleep).
+  watchPowerState() {
+    const { powerMonitor } = require('electron');
+    const send = (state) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('power-state', state);
+      }
+    };
+    powerMonitor.on('suspend', () => send('suspend'));
+    powerMonitor.on('resume', () => send('resume'));
+  }
+
   async initialize() {
     app.whenReady().then(async () => {
       // Request microphone permissions first
@@ -116,6 +136,7 @@ class OATSApp {
       
       this.createLoadingWindow();
       this.createMainWindow();
+      this.watchPowerState();
       
       setTimeout(() => {
         this.showMainWindow();

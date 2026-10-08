@@ -217,7 +217,7 @@ class CSTConfig {
             }
         } catch (error) {
             console.error('Error saving config:', error);
-            alert('Failed to save configuration. Please try again.');
+            oatsDialog.alert('Failed to save configuration. Please try again.');
             
             saveBtn.classList.remove('loading');
             saveBtn.disabled = false;

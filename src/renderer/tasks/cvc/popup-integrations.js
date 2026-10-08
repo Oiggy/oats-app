@@ -17,7 +17,9 @@ class CVCTask {
         this.currentFlag = null;
         this.letterOnsetTime = null;
         this.responseGiven = false;
+        this.responseTime = null;
         this.trialTimer = null;
+        this.resultsSaved = false;
         
         // Phase counters
         this.realWordsCompleted = 0;
@@ -45,7 +47,11 @@ class CVCTask {
             this.showWelcomeScreen();
         } catch (error) {
             console.error('Error initializing CVC task:', error);
-            alert('Error loading CVC task. Please check configuration.');
+            const reason = error && error.code === 'ENOENT' && /cfg_cvc_task/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            oatsDialog.alert(`Error loading CVC task:\n\n${reason}`);
+            this.closeTask(false);
         }
     }
 
@@ -75,7 +81,8 @@ class CVCTask {
         const fs = window.require('fs').promises;
         
         // Load from the task directory
-        const stimulusPath = path.join(__dirname, '..', 'tasks', 'cvc', 'vmtcvc.txt');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const stimulusPath = path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'cvc', 'vmtcvc.txt');
         const stimulusData = await fs.readFile(stimulusPath, 'utf8');
         
         // Parse the stimulus file - each line is: LETTER1,FLAG1,LETTER2,FLAG2
@@ -128,7 +135,9 @@ class CVCTask {
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
             width: 90%;
             max-width: 800px;
-            min-height: 500px;
+            min-height: min(500px, 95vh);
+            max-height: 95vh;
+            overflow: hidden;
             position: relative;
             display: flex;
             flex-direction: column;
@@ -173,11 +182,13 @@ class CVCTask {
             </div>
             <div class="cvc-task-content" style="
                 flex: 1;
+                min-height: 0;
+                overflow-y: auto;
                 padding: 40px 24px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                justify-content: center;
+                justify-content: safe center;
                 text-align: center;
             " id="cvc-task-content">
                 <!-- Content will be dynamically updated -->
@@ -251,15 +262,15 @@ class CVCTask {
     bindEvents() {
         // Close button
         const closeBtn = this.modalContent.querySelector('.cvc-close-btn');
-        closeBtn.addEventListener('click', () => this.closeTask());
+        closeBtn.addEventListener('click', () => this.requestClose());
 
         // Exit button
         const exitBtn = this.modalContent.querySelector('.cvc-exit-btn');
-        exitBtn.addEventListener('click', () => this.closeTask());
+        exitBtn.addEventListener('click', () => this.requestClose());
 
-        // Close on overlay click
+        // Clicking outside the window must not end a run by accident
         this.modalOverlay.addEventListener('click', (e) => {
-            if (e.target === this.modalOverlay) {
+            if (e.target === this.modalOverlay && !this.isRunning()) {
                 this.closeTask();
             }
         });
@@ -285,62 +296,31 @@ class CVCTask {
     showWelcomeScreen() {
         this.updateStatus('Ready to start');
         
+        const p = this.config.parameters;
+        const settings = [
+            ['Practice trials', p.trials.practice],
+            ['Real words (practice)', p.trials.practice_real_words],
+            ['Letter display', `${p.timing.letter_display_duration} ms`],
+            ['Main trials', p.trials.main],
+            ['Real words (main)', p.trials.main_real_words],
+            ['Stimulus list', `List ${p.stimulus.list_selection}`]
+        ];
         const content = `
-            <h2 style="
-                font-size: 24px;
-                font-weight: 600;
-                color: #212529;
-                margin-bottom: 24px;
-            ">Welcome to the CVC Task</h2>
-            
-            <div style="
-                font-size: 16px;
-                line-height: 1.6;
-                color: #495057;
-                margin-bottom: 32px;
-                max-width: 600px;
-            ">
-                Letters will appear one at a time in a continuous stream. Press <strong>SPACE</strong> (or click) 
-                <strong>when the last three letters form a real 3-letter word (C–V–C)</strong>, e.g., P–E–N. 
-                You will do a short practice, then the main phase. The configuration shown below determines 
-                trial counts, letter pacing, and how many real words will be presented in each phase.
+            <h2 style="font-size: 22px; font-weight: 600; color: #212529; margin-bottom: 10px;">Welcome to the CVC Task</h2>
+
+            <div style="font-size: 15px; line-height: 1.5; color: #495057; margin-bottom: 14px; max-width: 640px;">
+                Letters will appear one at a time in a continuous stream. Press <strong>SPACE</strong> (or click)
+                <strong>when the last three letters form a real 3-letter word (C–V–C)</strong>, e.g., P–E–N.
+                You will do a short practice, then the main phase, using the settings below.
             </div>
-            
-            <div style="
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 24px 0;
-                width: 100%;
-                max-width: 400px;
-            ">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Practice Trials:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.practice}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Real Words (Practice):</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.practice_real_words}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Main Trials:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.main}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Real Words (Main):</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.main_real_words}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Letter Display Duration:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.timing.letter_display_duration}ms</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #495057;">Stimulus List:</span>
-                    <span style="font-weight: 600; color: #212529;">List ${this.config.parameters.stimulus.list_selection}</span>
-                </div>
+
+            <div style="display: grid; grid-template-columns: repeat(3, auto); gap: 6px 28px; background: #f8f9fa; border: 1px solid #dee2e6;
+                border-radius: 10px; padding: 10px 18px; margin: 0 0 14px; font-size: 13.5px; text-align: left;">
+                ${settings.map(([label, value]) => `<div style="display: flex; justify-content: space-between; gap: 12px;">
+                    <span style="color: #495057;">${label}</span><span style="font-weight: 600; color: #212529;">${value}</span>
+                </div>`).join('')}
             </div>
-            
+
             <button onclick="window.cvcTaskInstance.startPractice()" style="
                 background-color: #007bff;
                 color: white;
@@ -417,7 +397,8 @@ class CVCTask {
         this.currentLetter = stimulus.letter;
         this.currentFlag = stimulus.flag;
         this.responseGiven = false;
-        
+        this.responseTime = null;
+
         console.log('Practice Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag);
         
         // Display only the single letter
@@ -447,7 +428,8 @@ class CVCTask {
         this.currentLetter = useList2 ? stimulus.letter2 : stimulus.letter1;
         this.currentFlag = useList2 ? stimulus.flag2 : stimulus.flag1;
         this.responseGiven = false;
-        
+        this.responseTime = null;
+
         console.log('Trial', this.currentTrialIndex, '- Displaying letter:', this.currentLetter, 'with flag:', this.currentFlag, '(List', this.config.parameters.stimulus.list_selection + ')');
         
         // Display only the single letter
@@ -488,8 +470,10 @@ class CVCTask {
     }
 
     processTrial() {
-        const responseTime = this.responseGiven ? performance.now() : null;
-        const reactionTime = this.responseGiven ? responseTime - this.letterOnsetTime : null;
+        // RT = key press / click time (event timestamp) - letter onset
+        const reactionTime = this.responseGiven && this.responseTime != null
+            ? this.responseTime - this.letterOnsetTime
+            : null;
         
         // Determine trial outcome
         let outcome;
@@ -537,6 +521,7 @@ class CVCTask {
     }
 
     endPractice() {
+        this.currentPhase = 'practice_complete';
         this.showResponseHint(false);
         this.updateStatus('Practice complete');
         
@@ -581,6 +566,7 @@ class CVCTask {
     }
 
     endMain() {
+        this.currentPhase = 'complete';
         this.showResponseHint(false);
         this.updateStatus('Task complete');
         this.showSummary();
@@ -637,8 +623,8 @@ class CVCTask {
             { label: 'Misses', value: this.stats.misses },
             { label: 'False Alarms', value: this.stats.falseAlarms },
             { label: 'Correct Rejections', value: this.stats.correctRejections },
-            { label: 'Avg RT (ms)', value: avgRT.toFixed(0) },
-            { label: 'Median RT (ms)', value: medianRT.toFixed(0) }
+            { label: 'Avg RT (ms)', value: this.stats.reactionTimes.length ? avgRT.toFixed(0) : 'N/A' },
+            { label: 'Median RT (ms)', value: this.stats.reactionTimes.length ? medianRT.toFixed(0) : 'N/A' }
         ];
 
         return stats.map(stat => `
@@ -664,16 +650,29 @@ class CVCTask {
         `).join('');
     }
 
+    isRunning() {
+        return this.currentPhase === 'practice' || this.currentPhase === 'main';
+    }
+
+    recordResponse(e) {
+        if (this.responseGiven) return; // first response per letter counts
+        this.responseGiven = true;
+        const now = performance.now();
+        this.responseTime = (e && e.timeStamp > 0 && Math.abs(now - e.timeStamp) < 1000) ? e.timeStamp : now;
+    }
+
     handleKeyPress(e) {
-        if (e.code === 'Space' && (this.currentPhase === 'practice' || this.currentPhase === 'main')) {
+        if (e.code === 'Space' && this.isRunning()) {
             e.preventDefault();
-            this.responseGiven = true;
+            if (!e.repeat) this.recordResponse(e);
         }
     }
 
     handleClick(e) {
-        if (this.currentPhase === 'practice' || this.currentPhase === 'main') {
-            this.responseGiven = true;
+        // Only clicks on the letter area are responses (not Exit / Close)
+        const area = document.getElementById('cvc-task-content');
+        if (this.isRunning() && area && area.contains(e.target)) {
+            this.recordResponse(e);
         }
     }
 
@@ -713,23 +712,17 @@ class CVCTask {
     }
 
     async saveResults() {
+        if (this.resultsSaved) return;
+        this.resultsSaved = true;
         try {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
-            
-            // Create session directory
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const sessionDir = path.join(
-                os.homedir(), 
-                'Documents', 
-                'Oats', 
-                'sessions', 
-                this.participantId, 
-                `cvc_${timestamp}`
-            );
-            
-            await fs.mkdir(sessionDir, { recursive: true });
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+
+            // <participant>/cvctask_<run start>/
+            const sessionDir = getTaskRunDir(this.participantId, 'cvc', this.sessionData.startTime);
             
             // Generate results content
             const resultsContent = this.generateResultsContent();
@@ -742,7 +735,7 @@ class CVCTask {
             
         } catch (error) {
             console.error('Error saving CVC results:', error);
-            alert('Error saving results. Please contact the researcher.');
+            oatsDialog.alert('Error saving results. Please contact the researcher.');
         }
     }
 
@@ -791,8 +784,10 @@ class CVCTask {
         content += `False Alarms: ${this.stats.falseAlarms}\n`;
         content += `Correct Rejections: ${this.stats.correctRejections}\n`;
         content += `Total Responses: ${this.stats.reactionTimes.length}\n`;
-        content += `Average Reaction Time: ${avgRT.toFixed(1)}ms\n`;
-        content += `Median Reaction Time: ${medianRT.toFixed(1)}ms\n\n`;
+        content += `Average Reaction Time: ${this.stats.reactionTimes.length ? `${avgRT.toFixed(1)}ms` : 'N/A'}\n`;
+        content += `Median Reaction Time: ${this.stats.reactionTimes.length ? `${medianRT.toFixed(1)}ms` : 'N/A'}\n`;
+        if (this.currentPhase !== 'complete') content += `NOTE: task closed before the end (incomplete run)\n`;
+        content += `\n`;
         
         // Trial-by-trial data
         content += 'DETAILED TRIAL DATA\n';
@@ -820,11 +815,25 @@ class CVCTask {
         return content;
     }
 
-    closeTask() {
+    // Close / Exit: confirm before abandoning a run in progress
+    async requestClose() {
+        if (this.isRunning()) {
+            const exit = await oatsDialog.confirm('The run will stop. Main-phase responses so far are saved.', { title: 'Exit the CVC task?', okText: 'Exit', danger: true });
+            if (!exit || this.currentPhase === 'closed') return;
+        }
+        this.closeTask(true);
+    }
+
+    closeTask(savePartial = true) {
         // Clear any running timers
         if (this.trialTimer) {
             clearTimeout(this.trialTimer);
         }
+        // Keep main-phase data from a run that was stopped early
+        if (savePartial && this.currentPhase === 'main' && this.results.length) {
+            this.saveResults();
+        }
+        this.currentPhase = 'closed';
         
         // Remove event listeners
         document.removeEventListener('keydown', this.handleKeyPress);
@@ -843,7 +852,7 @@ class CVCTask {
     cleanup() {
         console.log('CVC task cleanup completed');
         // Clean up instance
-        window.cvcTaskInstance = null;
+        if (window.cvcTaskInstance === this) window.cvcTaskInstance = null;
     }
 }
 
@@ -858,7 +867,7 @@ async function loadCVCTask(participantId) {
         
     } catch (error) {
         console.error('Error loading CVC task:', error);
-        alert('Error loading CVC task. Please check the configuration and try again.');
+        oatsDialog.alert(`Error loading CVC task:\n\n${error.message || error}`);
     }
 }
 

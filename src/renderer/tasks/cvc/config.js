@@ -398,7 +398,7 @@ class CVCConfig {
 
         } catch (error) {
             console.error('Error saving CVC configuration:', error);
-            alert('Error saving configuration. Please try again.');
+            oatsDialog.alert('Error saving configuration. Please try again.');
         }
     }
 

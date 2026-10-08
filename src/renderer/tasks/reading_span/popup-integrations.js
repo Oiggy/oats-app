@@ -47,6 +47,21 @@ class ReadingSpanTask {
         // Modal elements
         this.modalOverlay = null;
         this.modalContent = null;
+
+        // Pending sentence timers, so closing the task stops it
+        this.timers = new Set();
+        this.closed = false;
+        this.resultsSaved = false;
+    }
+
+    // setTimeout that is cancelled when the task closes
+    later(fn, ms) {
+        const id = setTimeout(() => {
+            this.timers.delete(id);
+            if (!this.closed) fn();
+        }, ms);
+        this.timers.add(id);
+        return id;
     }
 
     async init() {
@@ -66,7 +81,11 @@ class ReadingSpanTask {
             this.showWelcomeScreen();
         } catch (error) {
             console.error('Error initializing Reading Span task:', error);
-            alert('Error loading Reading Span task. Please check configuration and microphone permissions.');
+            const reason = error && error.code === 'ENOENT' && /cfg_reading_span_task/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            oatsDialog.alert(`Error loading Reading Span task:\n\n${reason}`);
+            this.closeTask(false);
         }
     }
 
@@ -95,7 +114,8 @@ class ReadingSpanTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         
-        const stimulusPath = path.join(__dirname, '..', 'tasks', 'reading_span', 'Sentence Dictionary.csv');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const stimulusPath = path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'reading_span', 'Sentence Dictionary.csv');
         const stimulusContent = await fs.readFile(stimulusPath, 'utf8');
         
         const lines = stimulusContent.split('\n').filter(line => line.trim());
@@ -157,6 +177,16 @@ class ReadingSpanTask {
     async setupAudioPermissions() {
         try {
             console.log('Setting up audio with NativeAudioRecorder...');
+
+            // With ASIO the interface is already running and recording works;
+            // a silent second at load (no one speaking yet, or the microphone
+            // not plugged in yet) must not stop the task from opening. The
+            // Test Microphone button checks for sound.
+            if (this.audioRecorder.usesAsio()) {
+                this.isAudioSetup = true;
+                console.log('Recording through ASIO:', this.audioRecorder.describeBackend());
+                return;
+            }
             
             // Test audio using NativeAudioRecorder
             const testResult = await this.audioRecorder.testAudio();
@@ -201,7 +231,7 @@ class ReadingSpanTask {
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
             width: 90%;
             max-width: 900px;
-            min-height: 600px;
+            min-height: min(600px, 90vh);
             max-height: 90vh;
             position: relative;
             display: flex;
@@ -228,7 +258,7 @@ class ReadingSpanTask {
                     color: #212529;
                     margin: 0;
                 ">Reading Span Task</h1>
-                <button onclick="window.readingSpanTaskInstance.closeTask()" style="
+                <button onclick="window.readingSpanTaskInstance.requestClose()" style="
                     background: none;
                     border: none;
                     font-size: 24px;
@@ -261,7 +291,7 @@ class ReadingSpanTask {
                     display: flex;
                     flex-direction: column;
                     align-items: center;
-                    justify-content: center;
+                    justify-content: safe center;
                 "></div>
             </div>
         `;
@@ -305,7 +335,7 @@ class ReadingSpanTask {
                 </ul>
             </div>
             
-            <button onclick="window.readingSpanTaskInstance.testMicrophone()" style="
+            <button onclick="window.readingSpanTaskInstance.testMicrophone(this)" style="
                 background-color: #17a2b8;
                 color: white;
                 border: none;
@@ -339,8 +369,7 @@ class ReadingSpanTask {
         this.updateContent(content);
     }
 
-    async testMicrophone() {
-        const testBtn = event.target;
+    async testMicrophone(testBtn) {
         const originalText = testBtn.textContent;
         
         testBtn.textContent = '🎤 Testing...';
@@ -434,7 +463,7 @@ class ReadingSpanTask {
             ? this.config.parameters.timing.practice_sentence_duration 
             : this.config.parameters.timing.main_sentence_duration;
         
-        setTimeout(() => {
+        this.later(() => {
             this.currentSentenceIndex++;
             this.showNextSentence();
         }, duration);
@@ -513,12 +542,16 @@ class ReadingSpanTask {
         `;
         
         this.updateContent(content);
-        
+
         // *** ONLY preload microphone for MAIN phase ***
-        if (this.currentPhase === 'main') {
+        // (sox only: the ASIO interface is already running, so there is
+        // nothing to warm up and the buttons work straight away)
+        if (this.currentPhase === 'main' && !this.audioRecorder.usesAsio()) {
+            // Buttons can't be used until the microphone is ready
+            document.querySelectorAll('.recall-button').forEach((btn) => { btn.style.pointerEvents = 'none'; btn.style.opacity = '0.5'; });
             console.log('Preloading microphone for recall phase...');
             await this.audioRecorder.preloadMicrophone();
-            
+
             // *** NEW: Do a dummy recording to fully initialize the audio pipeline ***
             console.log('Performing dummy recording to warm up audio system...');
             const os = window.require('os');
@@ -537,13 +570,17 @@ class ReadingSpanTask {
                 console.warn('Dummy recording failed, but continuing:', error);
             }
             
+            document.querySelectorAll('.recall-button').forEach((btn) => { btn.style.pointerEvents = ''; btn.style.opacity = ''; });
+        }
+        if (this.closed) return;
+        if (this.currentPhase === 'main') {
             // Update timer display to show ready state
             const timerDisplay = document.getElementById('recall-timer-display');
             if (timerDisplay) {
                 timerDisplay.innerHTML = 'Click a recall button to start recording';
             }
         }
-        
+                
         // Set up recall button handlers
         document.querySelectorAll('.recall-button').forEach(button => {
             button.addEventListener('click', () => {
@@ -616,9 +653,10 @@ class ReadingSpanTask {
         updateTimer();
         
         const interval = setInterval(() => {
+            if (this.closed) { clearInterval(interval); return; }
             remaining--;
             updateTimer();
-            
+
             if (remaining <= 0) {
                 clearInterval(interval);
                 this.finishIndividualRecording(button, targetWord, isMainPhase, index);
@@ -675,10 +713,11 @@ class ReadingSpanTask {
             }
         }
         
-        this.totalRecallsAttempted++;
+        // Only main-phase recalls are recorded and scored
+        if (isMainPhase) this.totalRecallsAttempted++;
         
         // Check if this phase is complete
-        setTimeout(() => {
+        this.later(() => {
             this.checkRecallCompletion();
         }, 1000);
     }
@@ -688,7 +727,7 @@ class ReadingSpanTask {
         
         if (activeButtons.length === 0) {
             // All buttons completed, end recall phase
-            setTimeout(() => {
+            this.later(() => {
                 this.endRecallPhase();
             }, 2000); // Brief pause to show completion message
         }
@@ -751,22 +790,10 @@ class ReadingSpanTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-        }
-
-        const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
-        
-        await fs.mkdir(sessionDir, { recursive: true });
+        // <participant>/readingspantask_<run start>/ (recordings and results)
+        const sessionDir = getTaskRunDir(this.participantId, 'reading-span', this.sessionStartTime);
 
         return path.join(sessionDir, filename);
     }
@@ -774,7 +801,7 @@ class ReadingSpanTask {
     endRecallPhase() {
         // Count any remaining unattempted recalls
         const recallButtons = document.querySelectorAll('.recall-button:not([disabled])');
-        this.totalRecallsUnattempted += recallButtons.length;
+        if (this.currentPhase === 'main') this.totalRecallsUnattempted += recallButtons.length;
         
         // Clear any remaining intervals
         document.querySelectorAll('.recall-button').forEach(button => {
@@ -789,24 +816,20 @@ class ReadingSpanTask {
 
     advanceToNextBlock() {
         if (this.currentPhase === 'practice') {
-            if (this.currentSeries < this.config.parameters.trials.practice_series) {
-                if (this.practiceSentences[this.currentSeries]?.[this.currentBlock + 1]) {
-                    this.currentBlock++;
-                } else {
-                    this.currentSeries++;
-                    this.currentBlock = 1;
-                }
-                
-                if (this.currentSeries <= this.config.parameters.trials.practice_series) {
-                    this.currentSentenceIndex = 0;
-                    this.loadCurrentBlock();
-                    this.showNextSentence();
-                } else {
-                    this.showPracticeComplete();
-                }
+            // Next block of this practice series, else the next series
+            if (this.practiceSentences[this.currentSeries]?.[this.currentBlock + 1]) {
+                this.currentBlock++;
+            } else if (this.currentSeries < this.config.parameters.trials.practice_series &&
+                       this.practiceSentences[this.currentSeries + 1]) {
+                this.currentSeries++;
+                this.currentBlock = 1;
             } else {
                 this.showPracticeComplete();
+                return;
             }
+            this.currentSentenceIndex = 0;
+            this.loadCurrentBlock();
+            this.showNextSentence();
         } else {
             const maxSeries = this.config.parameters.trials.main_series;
             const maxBlock = Math.max(...this.stimulusData
@@ -901,7 +924,7 @@ class ReadingSpanTask {
         `;
         
         this.updateContent(content);
-        this.saveResults();
+        this.saveResults(true);
     }
 
     generateStatCards(totalSeriesCompleted) {
@@ -937,28 +960,19 @@ class ReadingSpanTask {
         `).join('');
     }
 
-    async saveResults() {
+    async saveResults(complete) {
+        if (this.resultsSaved) return;
+        this.resultsSaved = true;
+        this.completedRun = !!complete;
         try {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-            const sessionsFolder = getParticipantFolderName(this.participantId);
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
-            } else if (process.platform === 'darwin') {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            }
-
-            const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
-            
-            await fs.mkdir(sessionDir, { recursive: true });
+            // <participant>/readingspantask_<run start>/ (recordings and results)
+            const sessionDir = getTaskRunDir(this.participantId, 'reading-span', this.sessionStartTime);
 
             const resultsPath = path.join(sessionDir, 'results.txt');
             const resultsContent = this.generateResultsContent();
@@ -984,7 +998,9 @@ class ReadingSpanTask {
         content += `Task: Reading Span Task\n`;
         content += `Start Time: ${this.sessionStartTime.toLocaleString()}\n`;
         content += `End Time: ${new Date().toLocaleString()}\n`;
-        content += `Audio Recording: Native (sox-based WAV files)\n\n`;
+        content += `Audio Recording: one WAV file per recall\n`;
+        if (!this.completedRun) content += `NOTE: task closed before the end (incomplete run)\n`;
+        content += `\n`;
 
         content += 'TASK CONFIGURATION\n';
         content += '-'.repeat(30) + '\n';
@@ -1038,7 +1054,26 @@ class ReadingSpanTask {
         }
     }
 
-    closeTask() {
+    // The ✕ button: confirm before abandoning a run in progress
+    async requestClose() {
+        const running = this.currentPhase === 'practice' || this.currentPhase === 'main';
+        if (running && !this.resultsSaved) {
+            const close = await oatsDialog.confirm('The run will stop. Recordings made so far are kept.', { title: 'Close the Reading Span task?', okText: 'Close task', danger: true });
+            if (!close || this.closed) return;
+        }
+        this.closeTask(true);
+    }
+
+    closeTask(savePartial = true) {
+        this.closed = true;
+        this.timers.forEach((id) => clearTimeout(id));
+        this.timers.clear();
+
+        // Keep what was recorded in the main phase
+        if (savePartial && this.currentPhase === 'main' && this.results.length && !this.resultsSaved) {
+            this.saveResults(false);
+        }
+
         // Stop any ongoing recording
         if (this.audioRecorder && this.audioRecorder.isRecording) {
             this.audioRecorder.stopRecording();
@@ -1061,7 +1096,7 @@ class ReadingSpanTask {
 
     cleanup() {
         console.log('Reading Span task cleanup completed');
-        window.readingSpanTaskInstance = null;
+        if (window.readingSpanTaskInstance === this) window.readingSpanTaskInstance = null;
     }
 }
 
@@ -1075,7 +1110,7 @@ async function loadReadingSpanTask(participantId) {
         
     } catch (error) {
         console.error('Error loading Reading Span task:', error);
-        alert('Error loading Reading Span task. Please check the configuration and try again.');
+        oatsDialog.alert(`Error loading Reading Span task:\n\n${error.message || error}`);
     }
 }
 

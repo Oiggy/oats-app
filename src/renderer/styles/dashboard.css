@@ -309,36 +309,6 @@ body {
     transform: translateY(-50%) rotate(180deg);
 }
 
-/* Task Visibility Toggle (e.g. show/hide optional tasks like Practice Sentence) */
-.task-visibility-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.task-visibility-toggle .toggle-switch {
-    width: 36px;
-    height: 20px;
-    flex-shrink: 0;
-}
-
-.task-visibility-toggle .toggle-slider:before {
-    height: 14px;
-    width: 14px;
-    left: 3px;
-    bottom: 3px;
-}
-
-.task-visibility-toggle input:checked + .toggle-slider:before {
-    transform: translateX(16px);
-}
-
-.task-visibility-toggle-label {
-    font-size: 13px;
-    color: #6e6e73;
-}
-
 /* Task Configuration Button */
 .task-config-button {
     background-color: #ffffff;
@@ -512,6 +482,21 @@ body {
 .config-modal .modal-content {
     max-width: 800px;
     width: 95%;
+    /* Title and Save/Cancel stay in view; only the settings scroll */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.config-modal .modal-content > .modal-header,
+.config-modal .modal-content > .modal-footer {
+    flex-shrink: 0;
+}
+
+.config-modal .modal-content > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .config-modal .modal-header {
@@ -794,12 +779,19 @@ input:checked + .toggle-slider:before {
 }
 
 /* Toast */
+/* Bottom-left, above every window, narrow: clear of window close and
+   task buttons (Exit, Save, Back...) and of the AUDIO / DEV badges */
 .toast-container {
     position: fixed;
-    top: 32px;
-    right: 32px;
-    z-index: 1100;
+    bottom: 24px;
+    left: 24px;
+    z-index: 20000;
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: min(300px, calc(100vw - 48px));
 }
 
 .toast {
@@ -810,16 +802,21 @@ input:checked + .toggle-slider:before {
     font-size: 14px;
     font-weight: 500;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-    transform: translateX(100px);
+    transform: translateX(-100px);
     opacity: 0;
     transition: all 0.3s ease;
     margin-bottom: 8px;
-    pointer-events: auto;
+    /* Click-through: a toast must never block the button underneath */
+    pointer-events: none;
 }
 
 .toast.show {
     transform: translateX(0);
     opacity: 1;
+}
+
+.toast.toast-info {
+    background-color: #007aff;
 }
 
 .toast.toast-error {
@@ -880,6 +877,41 @@ select:focus {
     font-size: 20px;
     font-weight: 600;
     color: #1d1d1f;
+}
+
+/* Audio Setup / guide: title and buttons stay in view, settings scroll */
+.modal-content:has(> .audio-setup-modal) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-content > .audio-setup-modal {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 90vh;
+}
+
+#audio-setup-root {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.audio-setup-modal > .modal-header,
+.audio-setup-modal > .modal-footer,
+#audio-setup-root > .modal-header,
+#audio-setup-root > .modal-footer {
+    flex-shrink: 0;
+}
+
+.audio-setup-modal > .modal-body,
+#audio-setup-root > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .audio-setup-modal .modal-body {

@@ -80,16 +80,31 @@ The Routing tab above sends **Loopback ← Playback 1–2**, which gives the 4i4
 
 Expected timing difference: loopback is digital and skips the analogue converters. The stimulus therefore appears in the WAV a few milliseconds earlier than `stimulus_onset_in_recording_ms` in `_timing.json`, which includes the full interface round-trip latency. This is normal. To check timing exactly, use a physical loopback cable instead: a ¼" cable from rear **Output 3** into front **Input 1**, with **Out 3** ticked in Audio Setup and Input 1 selected.
 
-### Per-task output channels
+### Channels used by tasks
 
-A task can send its stimuli to different outputs than the global setting by
-adding `output_channels` (1-based) to the `audio` section of its config file,
-e.g. `"audio": { "volume": 1.0, "output_channels": [3, 4] }`. Supported by
-Auditory Stroop, Speeded Classification and all Speech-in-Noise tasks. There
-is no UI for this yet: Speech-in-Noise tasks keep the setting when their
-configuration is re-saved, but Auditory Stroop and Speeded Classification
-rebuild their config from the form and drop it, falling back to the global
-channels.
+Every task plays and records on the channels chosen with the **AUDIO**
+button (Audio Setup); there is no per-task channel setting. A channel the
+interface doesn't have is an error, not silently dropped, and the **Audio
+Backend** line in each results file names the channels used.
+
+### Test Audio check (every listening task)
+
+Auditory Stroop, Speeded Classification and all Speech-in-Noise tasks have a
+**Test Audio** button on their welcome/instruction page. It plays through the
+same code and channels as the trials:
+
+1. With ASIO, a beep on each output chosen in Audio Setup, one at a time.
+   Listen that each comes out where expected (e.g. Out 1 left, Out 2 right).
+2. A sample on all chosen outputs: the warning beep and a word for Auditory
+   Stroop / Speeded Classification; a beep for Speech-in-Noise (so the
+   participant doesn't hear a test item early).
+3. A verdict: **ASIO is working** (device and outputs), **Not using ASIO**
+   (with the reason; sound goes to the Windows default output), or **ASIO
+   check failed** (e.g. the sample fell back to Web Audio, or an audio
+   dropout). It also warns if Windows sounds share the stimulus outputs.
+
+The result is written to the task's results file as an **Audio Check** line
+(`not run` if the button wasn't used).
 
 ### Live status and built-in help
 
@@ -154,7 +169,7 @@ Each listening task that saves results (Words, Nonwords, HINT, CST, Auditory Str
 2. Play a stimulus or calibration tone at 100% volume and measure the level at the earphone (sound level meter with an insert-earphone coupler).
 3. Enter that number in **Audio Setup → SPL calibration**.
 
-From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knobs, earphones or interface change. The practice tasks (Practice, Practice Sentence) don't save results, so they aren't logged.
+From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knobs, earphones or interface change. Practice items (built into Words, Nonwords, HINT and CST) play at the task's volume.
 
 ## What each task uses ASIO for
 
@@ -162,10 +177,10 @@ From then on, `estimated_db_spl = calibration + gain_db`. Re-measure if the knob
 |---|---|---|---|
 | Stroop Colour Word | — (visual) | ASIO input | Recording start from the stream clock; `stimulus_offset` in results |
 | Reading Span | — | ASIO input | — (recall recordings, no RT measured) |
-| Auditory Stroop | ASIO | — | RT from the stimulus's actual end time to the click's event timestamp |
+| Auditory Stroop | ASIO | — | RT from **word onset** to the key/click event timestamp; per-trial `audio_backend`, `timing_reliable` |
 | Speeded Classification | ASIO | — | Same as Auditory Stroop |
 | SIN: Words, Nonwords, HINT, CST | ASIO | ASIO input | `<take>_timing.json` next to each WAV: stimulus onset inside the recording |
-| SIN: Practice, Practice Sentence | ASIO | — | — |
+| SIN practice (inside Words/Nonwords: word practice; HINT/CST: sentence practice) | ASIO | — | Results record `Practice: done / skipped` |
 | CVC | no audio | — | — |
 
 Every results file has an **Audio Backend** line naming the backend, device,
@@ -180,16 +195,25 @@ minus the recording's start sample, plus the interface's round-trip latency,
 is where that stimulus appears in the recording. The `_timing.json` files
 store exactly this number.
 
-Wall-clock times (`performance.now()`), used for visual stimuli and mouse
-responses, are derived from the stream clock. RtAudio only reports the total
+Auditory Stroop and Speeded Classification play each trial's warning tone,
+silent gap and word as one continuous sound, so the tone-to-word gap is exact
+to the sample. The engine reports the word's start time from the interface's
+clock before the word is heard, so responses are timed from true word onset
+and responses before it are ignored.
+
+Wall-clock times (`performance.now()`), used for visual stimuli and
+key/mouse responses, are derived from the stream clock. RtAudio only reports the total
 input+output latency for ASIO, so it's split in half by default. If you
 measure the real split (e.g. with a loopback cable), set `outputLatencyMs` /
 `inputLatencyMs` in `cfg_audio_asio.json`. Sample-domain alignment between a
 stimulus and a recording does not depend on this split.
 
-If the app's event loop stalls longer than the pre-buffer, the driver plays
-silence and the timeline shifts. The engine detects this, logs it, and marks
-affected trials/takes `timing_reliable: false`.
+If the app is busy for longer than the pre-buffer (e.g. while a task loads
+its sound files), the driver plays silence in the meantime. The engine never
+queues more than the pre-buffer, so later sounds are not delayed: it counts
+the silent periods and skips its timeline past them, keeping every later
+timestamp exact. Sounds/recordings that were in progress during the busy
+spell are logged and marked `timing_reliable: false`.
 
 ## Fallback
 

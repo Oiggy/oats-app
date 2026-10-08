@@ -31,7 +31,7 @@ class CaSTNonwordTask {
         this.recordingChunks = [];
         this.isRecording = false;
         this.currentTake = 0;
-        this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        this.runStart = new Date(); // names the run folder (results and recordings)
     }
 
     async init() {
@@ -45,7 +45,10 @@ class CaSTNonwordTask {
             this.showInstructionPage();
         } catch (error) {
             console.error('Error initializing CaST Non-word task:', error);
-            alert('Failed to initialize task. Please check configuration.');
+            const reason = error && error.code === 'ENOENT' && /cfg_.*_task\.json/.test(error.message)
+                ? 'No saved configuration. Open Task Configuration and save it first.'
+                : (error && error.message) || String(error);
+            oatsDialog.alert(`Failed to open the task:\n\n${reason}`);
         }
     }
 
@@ -84,8 +87,40 @@ class CaSTNonwordTask {
         }
     }
 
-    // Output channels chosen in this task's configuration (1-based in the
-    // UI, 0-based for the engine). Empty = use the global ASIO setup.
+    // Shared Test Audio check (beep on each Audio Setup output, then a
+    // sample, and a verdict on whether ASIO is really in use).
+    getAudioCheck() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'audio-check.js'));
+    }
+
+    audioCheckHTML() {
+        try {
+            return this.getAudioCheck().html({
+                buttonClass: 'task-btn task-btn-secondary',
+                caption: 'For the tester: checks each audio output with a beep before you start'
+            });
+        } catch (error) {
+            console.error('Audio check unavailable:', error);
+            return '';
+        }
+    }
+
+    async testAudio() {
+        try {
+            this.audioCheck = await this.getAudioCheck().run({
+                engine: this.asioEngine,
+                volume: this.config.parameters.audio.volume,
+                button: document.getElementById('audio-check-btn'),
+                resultEl: document.getElementById('audio-check-result'),
+                revealAfter: this.modalContent ? this.modalContent.querySelector('.instruction-buttons') : null
+            });
+        } catch (error) {
+            console.error('Audio test failed:', error);
+        }
+    }
+
     // Logs the stimulus volume this participant heard (dB re. the stimulus
     // files, plus estimated dB SPL if calibrated in Audio Setup) to the shared
     // stimulus-levels.csv, and returns the line for the results file.
@@ -104,13 +139,6 @@ class CaSTNonwordTask {
             console.error('Could not log stimulus level:', error);
             return 'unavailable';
         }
-    }
-
-    getOutputChannels() {
-        const channels = this.config && this.config.parameters && this.config.parameters.audio
-            ? this.config.parameters.audio.output_channels
-            : null;
-        return Array.isArray(channels) && channels.length ? channels.map((c) => c - 1) : undefined;
     }
 
     async initializeAudioContext() {
@@ -267,37 +295,70 @@ class CaSTNonwordTask {
                 <div class="instruction-content">
                     <h1 class="task-title">Nonwords</h1>
                     
-                    <div class="instruction-text">
-                        ${instructionText.replace(/\n/g, '<br>')}
-                    </div>
+                    <div class="instruction-text">${instructionText.split('\n').map((line) => line.trim().replace(/ {2,}/g, ' ')).join('\n').trim()}</div>
                     
+                    ${this.audioCheckHTML()}
+
+                    ${this.practiceResult ? `<div class="practice-done-note" style="margin: 4px 0 12px; color: #28a745; font-weight: 600;">✓ Practice done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)</div>` : ''}
+
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
                         </button>
-                        <button class="task-btn task-btn-primary" id="start-cast-nonword-btn">
-                            Start
+                        <button class="task-btn ${this.practiceResult ? 'task-btn-secondary' : 'task-btn-primary'}" id="practice-btn">
+                            ${this.practiceResult ? 'Practice Again' : 'Start Practice'}
+                        </button>
+                        <button class="task-btn ${this.practiceResult ? 'task-btn-primary' : 'task-btn-secondary'}" id="start-cast-nonword-btn">
+                            ${this.practiceResult ? 'Start Task' : 'Skip Practice'}
                         </button>
                     </div>
                 </div>
             </div>
         `;
+
+        const audioCheckBtn = document.getElementById('audio-check-btn');
+        if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
         
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
-            this.saveResults();
+            // Nothing to save unless the task was started
+            if (this.taskStarted) this.saveResults();
             this.closeTask();
         });
+
+        document.getElementById('practice-btn').addEventListener('click', () => this.startPractice());
         
         document.getElementById('start-cast-nonword-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
-                alert('No audio/CSV items found.');
+                oatsDialog.alert('No audio/CSV items found.');
                 return;
             }
             this.showPlayerPage();
         });
     }
 
+    // Built-in word practice: hides this task, runs the practice items at this
+    // task's volume, then comes back to the instruction page.
+    async startPractice() {
+        this.stopAudio();
+        this.modalOverlay.style.display = 'none';
+        const practice = new PracticeCastTask(this.participantId, {
+            volume: this.config.parameters.audio.volume,
+            onFinish: (result) => {
+                if (result.result === 'complete' || result.itemsPlayed > 0) this.practiceResult = result;
+                this.modalOverlay.style.display = '';
+                this.showInstructionPage();
+            }
+        });
+        window.practiceCastTaskInstance = practice;
+        await practice.init();
+        if (!practice.modalOverlay || !practice.modalOverlay.parentNode) {
+            // Practice couldn't open (its error was shown): come back
+            this.modalOverlay.style.display = '';
+        }
+    }
+
     showPlayerPage() {
+        this.taskStarted = true;
         this.currentPage = 'player';
         
         this.modalContent.innerHTML = `
@@ -457,7 +518,7 @@ class CaSTNonwordTask {
             return `SNR ${snr}: ${correct}/${total} (${percent}%)`;
         });
         
-        summaryDiv.innerHTML = lines.join('<br>');
+        summaryDiv.innerHTML = lines.map((line) => `<span>${line}</span>`).join('');
     }
 
     updateSkipHint() {
@@ -518,18 +579,18 @@ class CaSTNonwordTask {
             }
             this.startRecording();
 
-            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume, {
-                outputChannels: this.getOutputChannels()
-            })
+            const playId = (this.playId = (this.playId || 0) + 1);
+            this.asioEngine.playFile(audioPath, this.config.parameters.audio.volume)
                 .then((timing) => {
+                    if (playId !== this.playId || timing.cancelled) return; // stopped or replaced
                     this.takeStimulusTiming = timing;
                     this.updateStatus('Audio finished ✓');
                     this.startResponseTimer();
                 })
                 .catch((error) => {
                     console.error('ASIO playback error:', error);
-                    this.updateStatus('Audio finished ✓');
-                    this.startResponseTimer();
+                    if (playId !== this.playId) return;
+                    this.updateStatus(`⚠ Playback failed: ${error.message}`);
                 });
             return;
         }
@@ -539,7 +600,7 @@ class CaSTNonwordTask {
         if (!audioBuffer) {
             console.error('Audio buffer not found for:', audioPath);
             this.updateStatus('Error: Audio not loaded');
-            alert(`Audio file not found: ${audioPath}`);
+            oatsDialog.alert(`Audio file not found: ${audioPath}`);
             return;
         }
 
@@ -566,7 +627,9 @@ class CaSTNonwordTask {
         this.currentSource.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
         
-        this.currentSource.onended = () => {
+        const source = this.currentSource;
+        source.onended = () => {
+            if (this.currentSource !== source) return; // stopped or replaced
             this.updateStatus('Audio finished ✓');
             this.startResponseTimer();
         };
@@ -592,7 +655,7 @@ class CaSTNonwordTask {
             setTimeout(() => this.handlePlay(), 100);
         } else {
             this.saveResults();
-            alert('Task finished.');
+            oatsDialog.alert('Task finished.');
         }
     }
 
@@ -617,13 +680,15 @@ class CaSTNonwordTask {
 
     // Response timer methods
     startResponseTimer() {
+        this.stopResponseTimer();
+        this.responseStartedAt = performance.now();
         this.responseMs = 0;
         this.responseRunning = true;
         this.updateResponseDisplay();
-        
+
         this.responseTimer = setInterval(() => {
             if (this.responseRunning) {
-                this.responseMs += 100;
+                this.responseMs = Math.round(performance.now() - this.responseStartedAt);
                 this.updateResponseDisplay();
             }
         }, 100);
@@ -662,31 +727,19 @@ class CaSTNonwordTask {
     }
 
     async saveResults() {
-        if (this.resultsSaved) {
-            console.log('Results already saved, skipping...');
-            return;
-        }
+        // Saved every time the tester leaves or finishes, overwriting this
+        // run's files, so later scoring changes are never lost.
         
         try {
             const os = window.require('os');
             const path = window.require('path');
             const fs = window.require('fs').promises;
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-            const sessionsFolder = getParticipantFolderName(this.participantId);
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-            }
-
-            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword');
-            await fs.mkdir(outputDir, { recursive: true });
-
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const outputPath = path.join(outputDir, `Nonwords_${this.participantId}_${timestamp}.txt`);
+            // <participant>/speechinnoisenonwordstask_<run start>/ holds results.txt, trials.csv and recordings/
+            const outputDir = getTaskRunDir(this.participantId, 'cast-nonword', this.runStart);
+            const outputPath = path.join(outputDir, 'results.txt');
 
             let output = [];
 
@@ -697,6 +750,8 @@ class CaSTNonwordTask {
             output.push(`Participant ID: ${this.participantId}`);
             output.push(`Audio Backend: ${this.asioEngine && this.asioEngine.isEnabled() ? this.asioEngine.describeBackend() : 'Web Audio / MediaRecorder (ASIO unavailable)'}`);
             output.push(`Stimulus Level: ${this.logStimulusLevel('Speech in Noise: Nonwords')}`);
+            output.push(`Audio Check: ${this.getAudioCheck().summarize(this.audioCheck)}`);
+            output.push(`Practice: ${this.practiceResult ? `done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)` : 'skipped'}`);
             output.push(`Date: ${new Date().toLocaleString()}`);
             output.push(`Task: Nonwords`);
             output.push('');
@@ -739,7 +794,7 @@ class CaSTNonwordTask {
             console.log('Nonwords results saved to:', outputPath);
 
             // Save CSV results file
-            const csvOutputPath = path.join(outputDir, `Nonwords_${this.participantId}_${timestamp}.csv`);
+            const csvOutputPath = path.join(outputDir, 'trials.csv');
             const csvLines = ['SNR,Number,Nonword,Pronunciation,Correct1/Wrong0'];
             for (const row of this.csvData) {
                 csvLines.push(`${row['SNR'] || ''},${row['Number'] || ''},${row['Nonword'] || ''},${row['Pronunciation'] || ''},${row['Correct1/Wrong0'] || ''}`);
@@ -754,7 +809,7 @@ class CaSTNonwordTask {
             
         } catch (error) {
             console.error('Error saving results:', error);
-            alert('Error saving results. Please check console for details.');
+            oatsDialog.alert('Error saving results. Please check console for details.');
         }
     }
 
@@ -763,20 +818,12 @@ class CaSTNonwordTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-        }
-
-        const outputDir = path.join(baseDir, 'Speech_in_Noise');
-        await fs.mkdir(outputDir, { recursive: true });
-
-        const summaryPath = path.join(outputDir, `SIN_Summary_${this.participantId}.csv`);
+        // One summary across the four Speech-in-Noise tasks, in the participant folder
+        const participantDir = getParticipantDir(this.participantId);
+        await fs.mkdir(participantDir, { recursive: true });
+        const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
         const snrLevels = [25, 20, 15, 10, 5, 0];
 
         let data = {};
@@ -892,7 +939,7 @@ class CaSTNonwordTask {
             if (indicator) indicator.style.display = 'block';
         } catch (error) {
             console.error('Error starting recording:', error);
-            alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
+            oatsDialog.alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
         }
     }
 
@@ -1003,17 +1050,9 @@ class CaSTNonwordTask {
                     const path = window.require('path');
                     const fs = window.require('fs').promises;
                     const { app } = window.require('@electron/remote') || window.require('electron').remote;
-                    const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-                    const sessionsFolder = getParticipantFolderName(this.participantId);
+                    const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-                    let baseDir;
-                    if (process.platform === 'win32') {
-                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-                    } else {
-                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-                    }
-
-                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CaST_nonword', 'recordings', this.sessionTimestamp);
+                    const recordingsDir = path.join(getTaskRunDir(this.participantId, 'cast-nonword', this.runStart), 'recordings');
                     await fs.mkdir(recordingsDir, { recursive: true });
 
                     const row = this.csvData[rowIndex];
@@ -1074,7 +1113,7 @@ async function loadCaSTNonwordTask(participantId) {
         
     } catch (error) {
         console.error('Error loading CaST Non-word task:', error);
-        alert('Error loading CaST Non-word task. Please check the configuration and try again.');
+        oatsDialog.alert('Error loading CaST Non-word task. Please check the configuration and try again.');
     }
 }
 

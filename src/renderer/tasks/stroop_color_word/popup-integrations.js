@@ -21,7 +21,7 @@ class StroopColorWordPopup {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.breakTrials = [];
-        this.sessionTimestamp = null; // Add this line
+        this.runStart = null; // names the run folder (set by the first file saved)
         // NativeAudioRecorder/SpeechOnsetDetector are only available after
         // window.require(...) in loadTask(); instantiating them here would
         // throw a ReferenceError before the object is ever constructed.
@@ -193,6 +193,11 @@ class StroopColorWordPopup {
         this.isOpen = true;
         
         this.bindTaskEvents();
+
+        // Every new screen starts at the top (the window keeps its scroll
+        // position otherwise, hiding the start of the next instructions)
+        const stage = document.getElementById('task-stage');
+        if (stage) new MutationObserver(() => { stage.scrollTop = 0; }).observe(stage, { childList: true });
         this.showWelcomeScreen();
     }
 
@@ -291,7 +296,9 @@ class StroopColorWordPopup {
                     width: 100%;
                     height: 100%;
                     display: flex;
-                    align-items: center;
+                    /* scroll rather than cut off content that doesn't fit */
+                    overflow-y: auto;
+                    align-items: safe center;
                     justify-content: center;
                     position: relative;
                     font-size: 16px;
@@ -486,8 +493,6 @@ class StroopColorWordPopup {
                 
                 <p>${breakInfo}</p>
                 
-                <p>The number of main trials is divided by three, and breaks occur at those points (the experimenter can calculate the exact trial counts for breaks in advance).</p>
-                
                 <div class="audio-test-section">
                     <button id="test-audio-btn" class="task-button task-button-secondary">
                         🎤 Test Microphone
@@ -568,8 +573,8 @@ class StroopColorWordPopup {
                 await this.wait(100);
             }
             
-            // Check for breaks in main phase
-            if (phase === 'main' && this.breakTrials.includes(this.currentTrial + 1)) {
+            // Break after trial N of the main phase (N trials completed)
+            if (phase === 'main' && this.breakTrials.includes(this.currentTrial)) {
                 await this.showBreakScreen();
             }
             
@@ -589,12 +594,12 @@ class StroopColorWordPopup {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         
-        progressDisplay.textContent = `Break after trial ${this.currentTrial + 1}`;
+        progressDisplay.textContent = `Break after trial ${this.currentTrial}`;
         
         taskStage.innerHTML = `
             <div class="break-screen">
                 <h3>Break Time</h3>
-                <p>You have completed ${this.currentTrial + 1} trials out of ${this.mainStimuli.length}.</p>
+                <p>You have completed ${this.currentTrial} of ${this.mainStimuli.length} trials.</p>
                 <p>Take a moment to rest. Press continue when you're ready to proceed.</p>
                 
                 <button id="continue-btn" class="task-button task-button-primary">
@@ -605,6 +610,7 @@ class StroopColorWordPopup {
         
         return new Promise(resolve => {
             document.getElementById('continue-btn').addEventListener('click', resolve);
+            this.cancelBreak = resolve;
         });
     }
 
@@ -677,7 +683,14 @@ class StroopColorWordPopup {
         // Wait for recording to complete
         let recordingResult = null;
         if (recordingPromise) {
-            recordingResult = await recordingPromise;
+            try {
+                recordingResult = await recordingPromise;
+            } catch (error) {
+                console.error('Recording failed for this trial:', error);
+                recordingResult = null;
+            }
+        }
+        if (recordingResult) {
 
             // The recorder knows when its first sample was actually captured
             // (from the ASIO stream clock); prefer that over the estimate
@@ -687,12 +700,7 @@ class StroopColorWordPopup {
                 this.currentTrialTiming.stimulusOffset =
                     this.currentTrialTiming.stimulusOnsetTime - recordingResult.audioStartTime;
             }
-
-            // Queue speech analysis for later processing
-            this.recordingPromises.push(
-                this.analyzeRecordingAsync(recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
-            );
-        } else {
+        } else if (!recordingPromise) {
             // For practice trials, just wait the recording duration
             await this.wait(this.config.parameters.timing.recording_duration);
         }
@@ -720,7 +728,14 @@ class StroopColorWordPopup {
         };
         
         this.results.push(trialResult);
-        
+
+        // Speech analysis runs in the background and fills in this trial
+        if (recordingResult) {
+            this.recordingPromises.push(
+                this.analyzeRecordingAsync(trialResult, recordingResult.outputPath, this.currentTrialTiming.stimulusOffset)
+            );
+        }
+
         // Brief pause before next trial
         taskStage.innerHTML = '';
         await this.wait(500);
@@ -769,28 +784,12 @@ class StroopColorWordPopup {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        // Get the same directory structure as results
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        }
-        
-        // Initialize timestamp if not already set
-        if (!this.sessionTimestamp) {
-            this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-        }
-        
-        const taskDir = path.join(baseDir, this.participantId, `scw_${this.sessionTimestamp}`);
-        
-        // Ensure directory exists
-        await fs.mkdir(taskDir, { recursive: true });
+        // Recordings and results share one folder per run:
+        // <participant>/stroopcolorwordtask_<run start>/
+        if (!this.runStart) this.runStart = new Date();
+        const taskDir = getTaskRunDir(this.participantId, 'stroop-color-word', this.runStart);
         
         return path.join(taskDir, filename);
     }
@@ -809,23 +808,18 @@ class StroopColorWordPopup {
     }
 
     // Add async speech analysis
-    async analyzeRecordingAsync(audioPath, stimulusOffset) {
+    async analyzeRecordingAsync(trialResult, audioPath, stimulusOffset) {
         try {
             const analysisResult = await this.speechDetector.analyzeWavFile(audioPath, stimulusOffset);
-            
-            // Find the corresponding trial result and update it
-            const trialIndex = this.results.length - 1;
-            if (trialIndex >= 0) {
-                this.results[trialIndex].speech_onset_time = analysisResult.speechOnsetTime;
-                this.results[trialIndex].rt_seconds = analysisResult.rtSeconds;
-                this.results[trialIndex].rt_confidence = analysisResult.rtConfidence;
-                
-                console.log(`Speech analysis completed for trial ${trialIndex + 1}:`, {
-                    rt_ms: analysisResult.rtSeconds ? (analysisResult.rtSeconds * 1000).toFixed(1) : 'N/A',
-                    confidence: analysisResult.rtConfidence ? analysisResult.rtConfidence.toFixed(3) : 'N/A'
-                });
-            }
-            
+
+            trialResult.speech_onset_time = analysisResult.speechOnsetTime;
+            trialResult.rt_seconds = analysisResult.rtSeconds;
+            trialResult.rt_confidence = analysisResult.rtConfidence;
+
+            console.log(`Speech analysis completed for trial ${trialResult.global_trial}:`, {
+                rt_ms: analysisResult.rtSeconds ? (analysisResult.rtSeconds * 1000).toFixed(1) : 'N/A',
+                confidence: analysisResult.rtConfidence ? analysisResult.rtConfidence.toFixed(3) : 'N/A'
+            });
         } catch (error) {
             console.error('Speech analysis failed:', error);
         }
@@ -861,8 +855,8 @@ class StroopColorWordPopup {
                 <div class="summary">
                     <h4>End of Block Summary</h4>
                     <p><strong>Number of trials completed:</strong> ${summary.totalTrials}</p>
-                    <p><strong>Average reaction time:</strong> ${summary.meanRT.toFixed(0)}ms</p>
-                    <p><strong>Mean RT confidence:</strong> ${summary.meanConfidence.toFixed(3)}</p>
+                    <p><strong>Average reaction time:</strong> ${summary.validDetections ? `${summary.meanRT.toFixed(0)}ms` : 'N/A (no speech detected)'}</p>
+                    <p><strong>Mean RT confidence:</strong> ${summary.validDetections ? summary.meanConfidence.toFixed(3) : 'N/A'}</p>
                 </div>
                 <button id="save-results-btn" class="task-button task-button-primary">
                     Save Results & Exit
@@ -892,12 +886,18 @@ class StroopColorWordPopup {
         return {
             totalTrials: totalTrials,
             meanRT: meanRT,
-            meanConfidence: meanConfidence
+            meanConfidence: meanConfidence,
+            validDetections: validRTs.length
         };
     }
 
 
     async saveResults() {
+        // One save per run, even if the button is clicked twice
+        if (this.savingResults) return;
+        this.savingResults = true;
+        const saveBtn = document.getElementById('save-results-btn');
+        if (saveBtn) saveBtn.disabled = true;
         try {
             await this.saveResultsToFile();
             window.dashboard?.showToast('Task results saved successfully', 'success');
@@ -909,38 +909,24 @@ class StroopColorWordPopup {
         } catch (error) {
             console.error('Error saving results:', error);
             window.dashboard?.showToast('Failed to save results', 'error');
+            this.savingResults = false;
+            if (saveBtn) saveBtn.disabled = false;
         }
     }
 
     async saveResultsToFile() {
+        // Speech-onset analyses still running fill in RTs first
+        if (this.recordingPromises.length) await Promise.all(this.recordingPromises);
+
         const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        // Get platform-specific sessions directory
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        }
-        
-        // Create participant folder
-        const participantDir = path.join(baseDir, this.participantId);
-        await fs.mkdir(participantDir, { recursive: true });
-        
-        // Use the same timestamp that was used for audio files
-        if (!this.sessionTimestamp) {
-            this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-        }
-        
-        const taskDir = path.join(participantDir, `scw_${this.sessionTimestamp}`);
-        await fs.mkdir(taskDir, { recursive: true });
+        // Same run folder as the recordings
+        if (!this.runStart) this.runStart = new Date();
+        const taskDir = getTaskRunDir(this.participantId, 'stroop-color-word', this.runStart);
         
         // Generate text file content
         const textContent = this.generateResultsTextContent();
@@ -995,8 +981,8 @@ class StroopColorWordPopup {
         content += 'PERFORMANCE SUMMARY\n';
         content += '-'.repeat(30) + '\n';
         content += `Total Trials Completed: ${summary.totalTrials}\n`;
-        content += `Average Reaction Time: ${summary.meanRT.toFixed(0)}ms\n`;
-        content += `Mean RT Confidence: ${summary.meanConfidence.toFixed(3)}\n`;
+        content += `Average Reaction Time: ${summary.validDetections ? `${summary.meanRT.toFixed(0)}ms` : 'N/A'}\n`;
+        content += `Mean RT Confidence: ${summary.validDetections ? summary.meanConfidence.toFixed(3) : 'N/A'}\n`;
         content += `Valid Speech Detections: ${summary.validDetections}/${summary.totalTrials}\n`;
         content += `Note: RT computed from speech onset detection in audio recordings\n\n`;
         
@@ -1024,8 +1010,8 @@ class StroopColorWordPopup {
             content += `Main Phase:\n`;
             content += `  Trials: ${mainResults.length}\n`;
             content += `  Valid Speech Detections: ${mainValidRTs.length}\n`;
-            content += `  Mean RT: ${mainMeanRT.toFixed(0)}ms\n`;
-            content += `  Mean Confidence: ${mainMeanConfidence.toFixed(3)}\n\n`;
+            content += `  Mean RT: ${mainValidRTs.length ? `${mainMeanRT.toFixed(0)}ms` : 'N/A'}\n`;
+            content += `  Mean Confidence: ${mainValidRTs.length ? mainMeanConfidence.toFixed(3) : 'N/A'}\n\n`;
         }
         
         // Detailed Trial Data
@@ -1091,9 +1077,19 @@ class StroopColorWordPopup {
         return `${minutes}m ${seconds}s`;
     }
 
-    exitTask() {
+    async exitTask() {
+        // A finished run whose results haven't been saved yet is saved on
+        // the way out (Save Results & Exit) rather than thrown away.
+        if (this.taskState === 'completed') {
+            if (!this.savingResults) this.saveResults();
+            return;
+        }
         if (this.taskState === 'running') {
-            if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
+            const exit = await oatsDialog.confirm('The run will stop and its progress will be lost.', { title: 'Exit the task?', okText: 'Exit', danger: true });
+            if (!exit) return;
+            // The task kept running behind the dialog: it may have finished
+            if (this.taskState === 'completed') {
+                if (!this.savingResults) this.saveResults();
                 return;
             }
         }
@@ -1102,6 +1098,7 @@ class StroopColorWordPopup {
     }
 
     closeTaskPopup() {
+        if (this.cancelBreak) { this.cancelBreak(); this.cancelBreak = null; }
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.classList.remove('open', 'task-modal');
@@ -1110,6 +1107,8 @@ class StroopColorWordPopup {
             this.taskState = 'stopped';
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);
@@ -1124,5 +1123,9 @@ class StroopColorWordPopup {
 // Create global instance and expose the function
 window.stroopColorWordPopup = new StroopColorWordPopup();
 window.loadStroopColorWordTask = async (participantId) => {
+    // A fresh object per run, so nothing (trials, results folder, audio
+    // check, flags) carries over from a previous run or participant.
+    if (window.stroopColorWordPopup && window.stroopColorWordPopup.isOpen) return;
+    window.stroopColorWordPopup = new StroopColorWordPopup();
     await window.stroopColorWordPopup.loadTask(participantId);
 };

@@ -81,6 +81,11 @@ class NativeAudioRecorder {
         }
     }
 
+    // True when recordings go through the ASIO interface.
+    usesAsio() {
+        return asioEngine.isEnabled();
+    }
+
     describeBackend() {
         return asioEngine.isEnabled() ? asioEngine.describeBackend() : `sox (${asioEngine.getStatus().reason || 'ASIO disabled'})`;
     }

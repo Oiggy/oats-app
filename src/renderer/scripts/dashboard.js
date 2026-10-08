@@ -56,7 +56,6 @@ class Dashboard {
         this.initializeDashboard();
         this.setupDeveloperMode();
         this.setupAudioSetup();
-        await this.loadTaskVisibilitySettings();
         console.log('OATS Dashboard initialized');
     }
 
@@ -105,6 +104,12 @@ class Dashboard {
         const engine = this.getAsioEngine();
         if (engine && typeof engine.on === 'function') {
             engine.on('statuschange', (status) => this.onAudioStatusChange(status));
+            if (typeof engine.suspendForSleep === 'function') {
+                window.require('electron').ipcRenderer.on('power-state', (event, state) => {
+                    if (state === 'suspend') engine.suspendForSleep();
+                    else if (state === 'resume') engine.resumeAfterSleep();
+                });
+            }
         }
         if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
             // Fires when audio devices are plugged/unplugged and when the
@@ -132,7 +137,10 @@ class Dashboard {
         this.audioWasRunning = running;
         this.updateAudioBadge();
 
-        if (wasRunning && !running && status.disconnected) {
+        const engine = this.getAsioEngine();
+        if (wasRunning && !running && engine && engine.sleeping) {
+            // Released for sleep; it reconnects (with a toast) after wake
+        } else if (wasRunning && !running && status.disconnected) {
             this.showToast('Audio interface disconnected - tasks will use fallback audio until it is reconnected.', 'error');
         } else if (wasRunning === false && running) {
             this.showToast('ASIO audio interface connected.', 'success');
@@ -429,7 +437,22 @@ class Dashboard {
         document.getElementById('audio-guide-close').addEventListener('click', () => this.closeModal());
     }
 
+    // True while a task window is open (the dashboard's own windows would
+    // replace or disturb it while the task keeps running).
+    isTaskOpen() {
+        const overlay = document.getElementById('modal-overlay');
+        return !!((overlay && overlay.classList.contains('open') && overlay.classList.contains('task-modal')) ||
+            document.querySelector('.task-modal-overlay, .reading-span-task-overlay, .cvc-task-overlay'));
+    }
+
+    blockedByOpenTask(what) {
+        if (!this.isTaskOpen()) return false;
+        this.showToast(`${what} can't be opened while a task is running. Exit the task first.`, 'warning');
+        return true;
+    }
+
     showAudioSetup() {
+        if (this.blockedByOpenTask('Audio Setup')) return;
         this.audioRendering = true;
         try {
             this.renderAudioSetup();
@@ -490,6 +513,8 @@ class Dashboard {
                         <p class="audio-hint">No ASIO device with inputs and outputs was found. Connect the interface and install its
                         ASIO driver (for Focusrite: Focusrite Control 2).</p>` : ''}
                     ${showForm ? `
+                    <div class="audio-cols">
+                    <div class="audio-col">
                     <div class="audio-field">
                         <label for="audio-device">ASIO device</label>
                         <select id="audio-device">
@@ -516,6 +541,12 @@ class Dashboard {
                         <small class="audio-hint">Stimuli play on every ticked output (mono stimuli are copied to each).</small>
                     </div>
                     <div class="audio-field">
+                        <label for="audio-in-channel">Recording input channel</label>
+                        <select id="audio-in-channel"></select>
+                    </div>
+                    </div>
+                    <div class="audio-col">
+                    <div class="audio-field">
                         <label>Windows sound output <span class="audio-live">live</span></label>
                         <div class="audio-windows-output" id="audio-windows-output">Checking&hellip;</div>
                         <div class="audio-clash-status unknown" id="audio-clash-status" aria-live="polite">Checking Windows sound output&hellip;</div>
@@ -523,10 +554,6 @@ class Dashboard {
                             <span class="audio-tip-dot" aria-hidden="true"></span>
                             Windows sounds will mix with your stimuli &mdash; hover to fix
                         </button>
-                    </div>
-                    <div class="audio-field">
-                        <label for="audio-in-channel">Recording input channel</label>
-                        <select id="audio-in-channel"></select>
                     </div>
                     <div class="audio-field">
                         <label for="audio-calibration">SPL calibration (optional)
@@ -542,7 +569,9 @@ class Dashboard {
                         <button type="button" class="button-secondary" id="audio-test-output">Test output</button>
                         <button type="button" class="button-secondary" id="audio-test-input">Test input (2 s)</button>
                     </div>
-                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>` : ''}
+                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>
+                    </div>
+                    </div>` : ''}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="button-secondary" id="audio-setup-cancel">Close</button>
@@ -836,6 +865,7 @@ class Dashboard {
         // Click handler for the badge
         const badge = document.getElementById('dev-mode-badge');
         badge.addEventListener('click', () => {
+            if (this.blockedByOpenTask('Developer Mode')) return;
             if (this.developerMode) {
                 this.exitDeveloperMode();
             } else {
@@ -1087,7 +1117,7 @@ class Dashboard {
     async exitDeveloperMode() {
         if (!this.developerMode) return;
 
-        const confirmExit = confirm(`Exit Developer Mode?\n\nLogged in as: ${this.developerName}`);
+        const confirmExit = await oatsDialog.confirm(`Logged in as: ${this.developerName}`, { title: 'Exit Developer Mode?', okText: 'Exit Developer Mode' });
         
         if (confirmExit) {
             // Log exit
@@ -1103,6 +1133,12 @@ class Dashboard {
             // Update UI
             this.updateDeveloperModeBadge(false);
             this.showToast(`Developer Mode disabled (Session: ${duration})`, 'info');
+
+            // The auto-filled test participant must not carry over into
+            // normal use: start again from the pre-task survey.
+            if (this.currentSubject && this.currentSubject.startsWith('DEV_')) {
+                this.resetParticipant();
+            }
             
             console.log(`🔧 Developer Mode session ended for ${devName} (Duration: ${duration})`);
         }
@@ -1287,7 +1323,10 @@ class Dashboard {
         const modalOverlay = document.getElementById('modal-overlay');
         if (modalOverlay) {
             modalOverlay.addEventListener('click', (e) => {
-                if (e.target === modalOverlay) {
+                // A task window is closed with its own Exit button (which
+                // confirms and stops the task); a stray click must not hide
+                // it while the task keeps running.
+                if (e.target === modalOverlay && !modalOverlay.classList.contains('task-modal')) {
                     this.closeModal();
                 }
             });
@@ -1295,93 +1334,12 @@ class Dashboard {
 
         // Escape key to close modal
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
+            const overlay = document.getElementById('modal-overlay');
+            if (e.key === 'Escape' && overlay && overlay.classList.contains('open') && !overlay.classList.contains('task-modal')) {
                 this.closeModal();
             }
         });
-
-        // Practice Sentence show/hide toggle
-        const showPracticeSentenceToggle = document.getElementById('show-practice-sentence-toggle');
-        if (showPracticeSentenceToggle) {
-            showPracticeSentenceToggle.addEventListener('change', (e) => {
-                this.applyPracticeSentenceVisibility(e.target.checked);
-                this.saveTaskVisibilitySettings(e.target.checked);
-            });
-        }
     }
-
-    // Shows/hides the "Practice Sentence" option in the task dropdown.
-    applyPracticeSentenceVisibility(show) {
-        const option = document.querySelector('#task-dropdown option[value="hint-practice"]');
-        if (!option) return;
-        option.hidden = !show;
-
-        // If the option was selected while being hidden (e.g. toggled off
-        // mid-selection), reset the dropdown to the placeholder.
-        const taskDropdown = document.getElementById('task-dropdown');
-        if (!show && taskDropdown && taskDropdown.value === 'hint-practice') {
-            taskDropdown.value = '';
-            this.handleTaskSelection('');
-        }
-    }
-
-    getTaskConfigDir() {
-        const os = window.require('os');
-        const path = window.require('path');
-
-        if (process.platform === 'win32') {
-            return path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations');
-        }
-        return path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
-    }
-
-    async loadTaskVisibilitySettings() {
-        const toggle = document.getElementById('show-practice-sentence-toggle');
-        let showPracticeSentence = true; // default: visible
-
-        try {
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
-            const configPath = path.join(this.getTaskConfigDir(), 'cfg_dashboard_settings.json');
-            const configData = await fs.readFile(configPath, 'utf8');
-            const config = JSON.parse(configData);
-            if (typeof config.showPracticeSentenceTask === 'boolean') {
-                showPracticeSentence = config.showPracticeSentenceTask;
-            }
-        } catch (error) {
-            console.log('No dashboard settings found, using defaults');
-        }
-
-        if (toggle) {
-            toggle.checked = showPracticeSentence;
-        }
-        this.applyPracticeSentenceVisibility(showPracticeSentence);
-    }
-
-    async saveTaskVisibilitySettings(showPracticeSentence) {
-        try {
-            const path = window.require('path');
-            const fs = window.require('fs').promises;
-            const configDir = this.getTaskConfigDir();
-
-            await fs.mkdir(configDir, { recursive: true });
-
-            const configPath = path.join(configDir, 'cfg_dashboard_settings.json');
-
-            let config = {};
-            try {
-                config = JSON.parse(await fs.readFile(configPath, 'utf8'));
-            } catch (error) {
-                // No existing file yet, start fresh
-            }
-
-            config.showPracticeSentenceTask = showPracticeSentence;
-            await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving dashboard settings:', error);
-        }
-    }
-
 
     handleTaskSelection(taskValue) {
         console.log('handleTaskSelection called with:', taskValue);
@@ -1507,18 +1465,6 @@ class Dashboard {
                 window.readingSpanConfig = new ReadingSpanConfig();
             }
             return window.readingSpanConfig.generateConfigHTML();
-        } else if (this.selectedTaskValue === 'hint-practice') {
-            // Initialize Practice Sentence config
-            if (!window.practiceSentenceConfig) {
-                window.practiceSentenceConfig = new PracticeSentenceConfig();
-            }
-            return window.practiceSentenceConfig.generateConfigHTML();
-        } else if (this.selectedTaskValue === 'cast-practice') {
-            // Initialize Practice CaST config
-            if (!window.practiceCastConfig) {
-                window.practiceCastConfig = new PracticeCastConfig();
-            }
-            return window.practiceCastConfig.generateConfigHTML();
         } else if (this.selectedTaskValue === 'cst') {
             // Initialize CST config
             if (!window.cstConfig) {
@@ -1589,46 +1535,41 @@ class Dashboard {
                 <div class="config-tab-content active" id="trials-tab">
                     <div class="config-card">
                         <h3>Trial Parameters</h3>
-                        
+                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Block order and counterbalancing are chosen on the task's welcome screen.</div>
+
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="practice-phoneme">Number of Practice Trials (Phoneme)</label>
+                                <label for="sc-practice">Practice Trials per Block</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="practice-phoneme">−</button>
-                                    <input type="number" id="practice-phoneme" name="practice_phoneme" min="0" max="20" value="1" readonly>
-                                    <button type="button" data-action="increase" data-target="practice-phoneme">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-practice">−</button>
+                                    <input type="number" id="sc-practice" name="practice_per_condition" min="0" max="20" value="12" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-practice">+</button>
                                 </div>
+                                <div class="help-text">With feedback, before each of the 4 blocks (paper: 12)</div>
                             </div>
-                            
                             <div class="config-group">
-                                <label for="practice-voice">Number of Practice Trials (Voice)</label>
+                                <label for="sc-control-reps">Control Block Repetitions</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="practice-voice">−</button>
-                                    <input type="number" id="practice-voice" name="practice_voice" min="0" max="20" value="1" readonly>
-                                    <button type="button" data-action="increase" data-target="practice-voice">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-control-reps">−</button>
+                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="8" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-control-reps">+</button>
                                 </div>
+                                <div class="help-text">8 stimuli &times; this (paper: 8 = 64 trials)</div>
                             </div>
                         </div>
 
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="main-phoneme">Number of Main Trials (Phoneme)</label>
+                                <label for="sc-orthogonal-reps">Orthogonal Block Repetitions</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="main-phoneme">−</button>
-                                    <input type="number" id="main-phoneme" name="main_phoneme" min="0" max="20" value="2" readonly>
-                                    <button type="button" data-action="increase" data-target="main-phoneme">+</button>
+                                    <button type="button" data-action="decrease" data-target="sc-orthogonal-reps">−</button>
+                                    <input type="number" id="sc-orthogonal-reps" name="orthogonal_repetitions" min="1" max="4" value="1" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-orthogonal-reps">+</button>
                                 </div>
-                            </div>
-                            
-                            <div class="config-group">
-                                <label for="main-voice">Number of Main Trials (Voice)</label>
-                                <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="main-voice">−</button>
-                                    <input type="number" id="main-voice" name="main_voice" min="0" max="20" value="2" readonly>
-                                    <button type="button" data-action="increase" data-target="main-voice">+</button>
-                                </div>
+                                <div class="help-text">64 stimuli &times; this (paper: 1 = 64 trials)</div>
                             </div>
                         </div>
+                        <div class="help-text" id="sc-total-trials"></div>
                     </div>
                 </div>
 
@@ -1636,50 +1577,50 @@ class Dashboard {
                 <div class="config-tab-content" id="timing-tab">
                     <div class="config-card">
                         <h3>Timing Parameters</h3>
-                        
+                        <div class="help-text" style="margin-bottom: 12px;">Each trial: 500 Hz warning tone (100 ms) &rarr; delay &rarr; word. RT is measured from word onset.</div>
                         <div class="config-group">
-                            <label for="iti-slider">Inter-trial Interval (ITI)</label>
+                            <label for="sc-warning-delay">Warning Tone to Word Delay</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>ITI Duration</span>
-                                    <span class="slider-value-display" id="iti-value">1000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="sc-warning-delay-value">500 ms</span>
                                 </div>
-                                <input type="range" id="iti-slider" name="iti" min="500" max="3000" step="100" value="1000" class="config-slider">
+                                <input type="range" id="sc-warning-delay" name="warning_to_stimulus_delay" min="200" max="1500" step="50" value="500" class="config-slider">
                             </div>
+                            <div class="help-text">Paper: 500 ms</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="pre-stimulus-slider">Pre-stimulus Delay</label>
+                            <label for="iti-slider">Interval Before the Next Warning Tone</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Delay Duration</span>
-                                    <span class="slider-value-display" id="pre-stimulus-value">1500 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="iti-value">2000 ms</span>
                                 </div>
-                                <input type="range" id="pre-stimulus-slider" name="pre_stimulus_delay" min="500" max="3000" step="100" value="1500" class="config-slider">
+                                <input type="range" id="iti-slider" name="iti" min="500" max="5000" step="100" value="2000" class="config-slider">
                             </div>
+                            <div class="help-text">Paper: 2000 ms</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="response-timeout-slider">Response Timeout</label>
+                            <label for="response-timeout-slider">Response Deadline (from word onset)</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Timeout Duration</span>
-                                    <span class="slider-value-display" id="timeout-value">10000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="timeout-value">3000 ms</span>
                                 </div>
-                                <input type="range" id="response-timeout-slider" name="response_timeout" min="2000" max="15000" step="500" value="10000" class="config-slider">
+                                <input type="range" id="response-timeout-slider" name="response_timeout" min="1000" max="6000" step="250" value="3000" class="config-slider">
                             </div>
+                            <div class="help-text">Slower responses count as incorrect (paper: 3000 ms)</div>
                         </div>
-
                         <div class="config-group">
-                            <label for="error-display-slider">Trial Result Display Duration (Error/No-response)</label>
+                            <label for="error-display-slider">Practice Feedback Duration</label>
                             <div class="slider-control">
                                 <div class="slider-value">
-                                    <span>Display Duration</span>
-                                    <span class="slider-value-display" id="error-display-value">2000 ms</span>
+                                    <span>Duration</span>
+                                    <span class="slider-value-display" id="error-display-value">1500 ms</span>
                                 </div>
-                                <input type="range" id="error-display-slider" name="error_display_duration" min="500" max="5000" step="500" value="2000" class="config-slider">
+                                <input type="range" id="error-display-slider" name="error_display_duration" min="500" max="3000" step="100" value="1500" class="config-slider">
                             </div>
-                            <div class="help-text">Correct responses tie to ITI duration</div>
+                            <div class="help-text">Feedback is shown on practice trials only</div>
                         </div>
                     </div>
                 </div>
@@ -1778,8 +1719,10 @@ class Dashboard {
                 stepperButtons.forEach(button => {
                     button.addEventListener('click', () => {
                         this.handleStepperClick(button);
+                        this.updateSpeededClassificationTotal();
                     });
                 });
+                this.updateSpeededClassificationTotal();
 
                 // Sliders
                 const sliders = modalContent.querySelectorAll('.config-slider');
@@ -1825,16 +1768,6 @@ class Dashboard {
             'reading-span': () => {
                 if (window.readingSpanConfig) {
                     window.readingSpanConfig.bindConfigEvents();
-                }
-            },
-            'hint-practice': () => {
-                if (window.practiceSentenceConfig) {
-                    window.practiceSentenceConfig.bindConfigEvents();
-                }
-            },
-            'cast-practice': () => {
-                if (window.practiceCastConfig) {
-                    window.practiceCastConfig.bindConfigEvents();
                 }
             },
             'cst': () => {
@@ -1947,8 +1880,8 @@ class Dashboard {
             case 'iti':
                 document.getElementById('iti-value').textContent = `${value} ms`;
                 break;
-            case 'pre_stimulus_delay':
-                document.getElementById('pre-stimulus-value').textContent = `${value} ms`;
+            case 'warning_to_stimulus_delay':
+                document.getElementById('sc-warning-delay-value').textContent = `${value} ms`;
                 break;
             case 'response_timeout':
                 document.getElementById('timeout-value').textContent = `${value} ms`;
@@ -2013,33 +1946,52 @@ class Dashboard {
         }
     }
 
+    // Speeded Classification configuration, in the format the task reads
+    // (version 2 = Sommers & Danielson 1999 design).
     collectConfigurationData() {
+        const intValue = (id, fallback) => {
+            const v = parseInt(document.getElementById(id)?.value, 10);
+            return isNaN(v) ? fallback : v;
+        };
+        const crashRecovery = document.getElementById('crash-recovery');
         const config = {
             task: 'speeded-classification',
+            version: 2,
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice_phoneme: parseInt(document.getElementById('practice-phoneme')?.value) || 1,
-                    practice_voice: parseInt(document.getElementById('practice-voice')?.value) || 1,
-                    main_phoneme: parseInt(document.getElementById('main-phoneme')?.value) || 2,
-                    main_voice: parseInt(document.getElementById('main-voice')?.value) || 2
+                    practice_per_condition: intValue('sc-practice', 12),
+                    control_repetitions: intValue('sc-control-reps', 8),
+                    orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
                 timing: {
-                    iti: parseInt(document.getElementById('iti-slider')?.value) || 1000,
-                    pre_stimulus_delay: parseInt(document.getElementById('pre-stimulus-slider')?.value) || 1500,
-                    response_timeout: parseInt(document.getElementById('response-timeout-slider')?.value) || 10000,
-                    error_display_duration: parseInt(document.getElementById('error-display-slider')?.value) || 2000
+                    warning_tone_frequency: 500,
+                    warning_tone_duration: 100,
+                    warning_to_stimulus_delay: intValue('sc-warning-delay', 500),
+                    iti: intValue('iti-slider', 2000),
+                    response_timeout: intValue('response-timeout-slider', 3000),
+                    error_display_duration: intValue('error-display-slider', 1500)
                 },
                 audio: {
                     volume: parseFloat(document.getElementById('volume-slider')?.value) || 0.7
                 },
                 data: {
-                    crash_recovery: document.getElementById('crash-recovery')?.checked || true
+                    crash_recovery: crashRecovery ? crashRecovery.checked : true
                 }
             }
         };
-        
+
         return config;
+    }
+
+    // Live total under the trial settings
+    updateSpeededClassificationTotal() {
+        const el = document.getElementById('sc-total-trials');
+        if (!el) return;
+        const v = (id) => parseInt(document.getElementById(id)?.value, 10) || 0;
+        const practice = v('sc-practice') * 4;
+        const main = 2 * 8 * v('sc-control-reps') + 2 * 64 * v('sc-orthogonal-reps');
+        el.textContent = `Total: ${main} test trials + ${practice} practice = ${main + practice} trials`;
     }
 
     async saveConfigurationToFile(config) {
@@ -2113,18 +2065,6 @@ class Dashboard {
                     await window.readingSpanConfig.loadExistingConfiguration();
                 }
             },
-            'hint-practice': async () => {
-                if (window.practiceSentenceConfig) {
-                    await window.practiceSentenceConfig.loadExistingConfiguration();
-                    window.practiceSentenceConfig.updateUIFromConfig();
-                }
-            },
-            'cast-practice': async () => {
-                if (window.practiceCastConfig) {
-                    await window.practiceCastConfig.loadExistingConfiguration();
-                    window.practiceCastConfig.updateUIFromConfig();
-                }
-            },
             'cst': async () => {
                 if (window.cstConfig) {
                     await window.cstConfig.loadExistingConfiguration();
@@ -2158,20 +2098,18 @@ class Dashboard {
     }
 
     applyConfigurationToForm(config) {
-        const params = config.parameters;
-        
-        // Apply trial parameters
-        if (params.trials) {
-            this.setInputValue('practice-phoneme', params.trials.practice_phoneme);
-            this.setInputValue('practice-voice', params.trials.practice_voice);
-            this.setInputValue('main-phoneme', params.trials.main_phoneme);
-            this.setInputValue('main-voice', params.trials.main_voice);
+        const params = config.parameters || {};
+
+        // Trial/timing fields from the current format only (older files
+        // held placeholder fields the task never used)
+        if (config.version === 2 && params.trials) {
+            this.setInputValue('sc-practice', params.trials.practice_per_condition);
+            this.setInputValue('sc-control-reps', params.trials.control_repetitions);
+            this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
-        
-        // Apply timing parameters
-        if (params.timing) {
+        if (config.version === 2 && params.timing) {
+            this.setInputValue('sc-warning-delay', params.timing.warning_to_stimulus_delay);
             this.setInputValue('iti-slider', params.timing.iti);
-            this.setInputValue('pre-stimulus-slider', params.timing.pre_stimulus_delay);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);
             this.setInputValue('error-display-slider', params.timing.error_display_duration);
         }
@@ -2189,6 +2127,7 @@ class Dashboard {
         // Update all slider displays
         const sliders = document.querySelectorAll('.config-slider');
         sliders.forEach(slider => this.updateSliderValue(slider));
+        this.updateSpeededClassificationTotal();
     }
 
     setInputValue(id, value) {
@@ -2205,10 +2144,37 @@ class Dashboard {
             modalOverlay.setAttribute('aria-hidden', 'true');
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);
         }
+    }
+
+    // Back to step 1 with no participant (task choice and configuration
+    // must be repeated for the next participant).
+    resetParticipant() {
+        this.currentSubject = null;
+        this.currentFormData = null;
+        this.selectedTask = null;
+        this.selectedTaskValue = null;
+        this.currentState = 'idle';
+        const subjectDisplay = document.getElementById('subject-display');
+        if (subjectDisplay) {
+            subjectDisplay.textContent = 'No participant yet';
+            subjectDisplay.classList.add('empty');
+        }
+        const taskDropdown = document.getElementById('task-dropdown');
+        if (taskDropdown) {
+            taskDropdown.value = '';
+            taskDropdown.disabled = true;
+        }
+        ['task-config-btn', 'run-task-btn'].forEach((id) => {
+            const btn = document.getElementById(id);
+            if (btn) btn.disabled = true;
+        });
+        this.initializeDashboard();
     }
 
     initializeDashboard() {
@@ -3219,6 +3185,73 @@ class Dashboard {
         `;
     }
 
+    // Shows the survey one section at a time, with tabs across the top and
+    // Back/Next in the footer. Submit still checks every section and opens
+    // the first one with a problem.
+    setupSurveyPages(form) {
+        const sections = [...form.querySelectorAll('.modal-body > .form-section')];
+        if (sections.length < 2) return;
+        const shortNames = ['Session', 'About you', 'Language', 'Vision', 'Hearing', 'Health', 'Music & motor', "Today's setup", 'Consent'];
+        const body = form.querySelector('.modal-body');
+
+        const tabs = document.createElement('div');
+        tabs.className = 'survey-tabs';
+        tabs.setAttribute('role', 'tablist');
+        const tabButtons = sections.map((section, i) => {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'survey-tab';
+            tab.setAttribute('role', 'tab');
+            tab.textContent = shortNames[i] || section.querySelector('h3').textContent;
+            tab.title = section.querySelector('h3').textContent;
+            tab.addEventListener('click', () => show(i));
+            tabs.appendChild(tab);
+            return tab;
+        });
+        form.querySelector('.modal-header').after(tabs);
+
+        const steps = document.createElement('div');
+        steps.className = 'survey-steps';
+        steps.innerHTML = `
+            <button type="button" class="button-secondary" id="survey-back">Back</button>
+            <button type="button" class="button-secondary" id="survey-next">Next</button>
+            <span class="survey-page-count" id="survey-page-count"></span>`;
+        form.querySelector('.modal-footer').prepend(steps);
+        const back = steps.querySelector('#survey-back');
+        const next = steps.querySelector('#survey-next');
+        const count = steps.querySelector('#survey-page-count');
+
+        let page = 0;
+        const show = (i) => {
+            page = Math.max(0, Math.min(sections.length - 1, i));
+            sections.forEach((section, n) => { section.hidden = n !== page; });
+            tabButtons.forEach((tab, n) => {
+                tab.classList.toggle('active', n === page);
+                tab.setAttribute('aria-selected', n === page ? 'true' : 'false');
+            });
+            back.disabled = page === 0;
+            next.disabled = page === sections.length - 1;
+            count.textContent = `${page + 1} of ${sections.length}`;
+            body.scrollTop = 0;
+        };
+        back.addEventListener('click', () => show(page - 1));
+        next.addEventListener('click', () => show(page + 1));
+
+        this.surveyPages = {
+            // Marks the sections with problems and opens the first one
+            showErrors: () => {
+                let first = -1;
+                sections.forEach((section, n) => {
+                    const bad = !!section.querySelector('.error-text:not(:empty)');
+                    tabButtons[n].classList.toggle('has-error', bad);
+                    if (bad && first < 0) first = n;
+                });
+                if (first >= 0) show(first);
+            }
+        };
+        show(0);
+    }
+
     bindFormEvents() {
         const form = document.getElementById('biodata-form');
         const closeBtn = document.querySelector('.modal-close');
@@ -3240,6 +3273,9 @@ class Dashboard {
                 this.handleFormSubmit(form, submitBtn);
             });
         }
+
+        // One section per page, so no section needs scrolling
+        if (form) this.setupSurveyPages(form);
 
         // Set up conditional field logic
         this.setupConditionalFields();
@@ -3621,7 +3657,8 @@ class Dashboard {
         }
 
         if (hasErrors) {
-            // Scroll to first error
+            // Open the first section with a problem, then bring it into view
+            if (this.surveyPages) this.surveyPages.showErrors();
             const firstError = document.querySelector('.error-text:not(:empty)');
             if (firstError) {
                 firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3682,8 +3719,17 @@ class Dashboard {
             // Generate biodata content
             const biodataContent = this.generateBiodataFileContent(participantId);
             
-            // Save biodata.txt
+            // Save biodata.txt. A survey already saved under this ID (repeat
+            // session or a reused ID) is kept as biodata_<its date>.txt.
             const biodataPath = path.join(participantDir, 'biodata.txt');
+            try {
+                const previous = await fs.stat(biodataPath);
+                const stamp = previous.mtime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                await fs.rename(biodataPath, path.join(participantDir, `biodata_${stamp}.txt`));
+                this.showToast(`${participantId} already had a pre-task survey; the earlier one was kept as biodata_${stamp}.txt`, 'warning');
+            } catch (error) {
+                // No earlier survey for this participant
+            }
             await fs.writeFile(biodataPath, biodataContent, 'utf8');
             
             console.log(`Biodata saved to: ${biodataPath}`);
@@ -3898,34 +3944,48 @@ class Dashboard {
         this.currentFormData = formData; // Store form data for potential later use
     }
 
+    // Opens the selected task for the participant from the pre-task survey.
     async handleRunTaskClick() {
-        if (!this.selectedTask) return;
+        if (!this.selectedTaskValue || this.taskLaunching) return;
 
+        const participantId = this.currentSubject;
+        if (!participantId) {
+            this.showToast('Please complete the pre-task survey first', 'error');
+            return;
+        }
+
+        const loaders = {
+            'stroop-color-word': 'loadStroopColorWordTask',
+            'cvc': 'loadCVCTask',
+            'reading-span': 'loadReadingSpanTask',
+            'speeded-classification': 'loadSpeededClassificationTask',
+            'auditory-stroop': 'loadAuditoryStroopTask',
+            'cast-nonword': 'loadCaSTNonwordTask',
+            'cast-word': 'loadCaSTWordTask',
+            'hint': 'loadHINTTask',
+            'cst': 'loadCSTTask'
+        };
+        const loader = window[loaders[this.selectedTaskValue]];
+        if (typeof loader !== 'function') {
+            this.showToast(`${this.selectedTask} could not be loaded`, 'error');
+            return;
+        }
+
+        // One launch at a time (a double click must not open the task twice)
         const runTaskBtn = document.getElementById('run-task-btn');
-        
-        // Show loading state
+        this.taskLaunching = true;
         runTaskBtn.classList.add('loading');
         runTaskBtn.disabled = true;
-
         try {
-            // Simulate task execution
-            console.log(`Running task: ${this.selectedTask} for subject: ${this.currentSubject}`);
-            
-            await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second simulation
-            
-            // Task completed
-            runTaskBtn.classList.remove('loading');
-            runTaskBtn.disabled = false;
-            
-            this.showToast(`Task "${this.selectedTask}" completed successfully`, 'success');
-            
+            console.log(`Running task: ${this.selectedTask} for subject: ${participantId}`);
+            await loader(participantId);
         } catch (error) {
-            console.error('Task execution error:', error);
-            
+            console.error('Task failed to open:', error);
+            this.showToast(`${this.selectedTask} failed to open: ${error.message}`, 'error');
+        } finally {
+            this.taskLaunching = false;
             runTaskBtn.classList.remove('loading');
             runTaskBtn.disabled = false;
-            
-            this.showToast(`Task failed: ${error.message}`, 'error');
         }
     }
 
@@ -3960,6 +4020,8 @@ class Dashboard {
             modalOverlay.setAttribute('aria-hidden', 'true');
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);
@@ -4002,210 +4064,9 @@ class Dashboard {
     }
 }
 
-// Add this function to your existing dashboard.js
-function connectTaskIntegration() {
-    const runTaskBtn = document.getElementById('run-task-btn');
-    
-    if (runTaskBtn) {
-        // Override the existing click handler
-        runTaskBtn.addEventListener('click', async function() {
-            const taskDropdown = document.getElementById('task-dropdown');
-            const selectedTask = taskDropdown ? taskDropdown.value : null;
-            
-            if (!selectedTask) {
-                alert('Please select a task first');
-                return;
-            }
-            
-            if (selectedTask === 'speeded-classification') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the integration function
-                if (window.loadSpeededClassificationTask) {
-                    await window.loadSpeededClassificationTask(participantId);
-                } else {
-                    alert('Task integration not loaded');
-                }
-            } else if (selectedTask === 'auditory-stroop') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the auditory stroop integration function
-                if (window.loadAuditoryStroopTask) {
-                    await window.loadAuditoryStroopTask(participantId);
-                } else {
-                    alert('Auditory Stroop task integration not loaded');
-                }
-            } else if (selectedTask === 'stroop-color-word') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the stroop color-word integration function
-                if (window.loadStroopColorWordTask) {
-                    await window.loadStroopColorWordTask(participantId);
-                } else {
-                    alert('Stroop Color-Word task integration not loaded');
-                }
-            } else if (selectedTask === 'cvc') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CVC integration function
-                if (window.loadCVCTask) {
-                    await window.loadCVCTask(participantId);
-                } else {
-                    alert('CVC task integration not loaded');
-                }
-            } else if (selectedTask === 'reading-span') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Reading Span integration function
-                if (window.loadReadingSpanTask) {
-                    await window.loadReadingSpanTask(participantId);
-                } else {
-                    alert('Reading Span task integration not loaded');
-                }
-            } else if (selectedTask === 'hint-practice') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Practice Sentence integration function
-                if (window.loadPracticeSentenceTask) {
-                    await window.loadPracticeSentenceTask(participantId);
-                } else {
-                    alert('Practice Sentence task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-practice') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the Practice CaST integration function
-                if (window.loadPracticeCastTask) {
-                    await window.loadPracticeCastTask(participantId);
-                } else {
-                    alert('Practice CaST task integration not loaded');
-                }
-            } else if (selectedTask === 'cst') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CST integration function
-                if (window.loadCSTTask) {
-                    await window.loadCSTTask(participantId);
-                } else {
-                    alert('CST task integration not loaded');
-                }
-            } else if (selectedTask === 'hint') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the HINT integration function
-                if (window.loadHINTTask) {
-                    await window.loadHINTTask(participantId);
-                } else {
-                    alert('HINT task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-word') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CaST Word integration function
-                if (window.loadCaSTWordTask) {
-                    await window.loadCaSTWordTask(participantId);
-                } else {
-                    alert('CaST Word task integration not loaded');
-                }
-            } else if (selectedTask === 'cast-nonword') {
-                // Get participant ID
-                const participantId = getParticipantId();
-                
-                if (!participantId) {
-                    alert('Please complete the pre-task survey first');
-                    return;
-                }
-                
-                // Call the CaST Non-word integration function
-                if (window.loadCaSTNonwordTask) {
-                    await window.loadCaSTNonwordTask(participantId);
-                } else {
-                    alert('CaST Non-word task integration not loaded');
-                }
-            }
-        });
-    }
-}
-
-
-function getParticipantId() {
-    // Get from subject display
-    const subjectDisplay = document.getElementById('subject-display');
-    if (subjectDisplay && subjectDisplay.textContent !== '**Subject ID**') {
-        return subjectDisplay.textContent;
-    }
-    return 'test_participant'; // fallback
-}
-
 // COMBINE INTO ONE DOMContentLoaded LISTENER
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Initializing dashboard...');
     
-    // Initialize the dashboard first
     window.dashboard = new Dashboard();
-    
-    // Then connect task integration after a short delay
-    setTimeout(connectTaskIntegration, 500);
-    
-    console.log('Dashboard.js loaded, task integration will be connected in 500ms');
 });

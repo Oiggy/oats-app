@@ -3,17 +3,20 @@ class AuditoryStroopConfig {
     constructor() {
         this.defaultConfig = {
             task: 'auditory-stroop',
+            version: 2,
             timestamp: null,
             parameters: {
                 trials: {
-                    practice: 8,
-                    main: 20  // Changed from 64 to 20
+                    practice: 12,     // not specified in the paper
+                    repetitions: 6    // 12 word-voice pairings x 6 = 72 trials (paper)
                 },
                 timing: {
-                    iti: 1200,
-                    pre_stimulus_delay: 750,
-                    response_timeout: 2500,
-                    error_display_duration: 1000
+                    warning_tone_frequency: 500,
+                    warning_tone_duration: 100,
+                    warning_to_stimulus_delay: 500,
+                    iti: 2000,
+                    response_timeout: 3000,
+                    error_display_duration: 1500
                 },
                 audio: {
                     volume: 0.8
@@ -49,26 +52,31 @@ class AuditoryStroopConfig {
                 <div class="config-tab-content active" id="trials-tab">
                     <div class="config-card">
                         <h3>Trial Parameters</h3>
+                        <small class="help-text">
+                            The words <em>mother</em>, <em>father</em> and <em>person</em> by 2 male and 2 female talkers
+                            give 12 word–voice pairings (congruent, neutral, incongruent). Paper: each pairing presented
+                            6 times = 72 trials (24 per condition) in one block.
+                        </small>
                         
                         <div class="config-row">
                             <div class="config-group">
                                 <label for="practice-trials">Number of Practice Trials</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="practice-trials">−</button>
-                                    <input type="number" id="practice-trials" name="practice_trials" min="0" max="20" value="8" readonly>
+                                    <input type="number" id="practice-trials" name="practice_trials" min="0" max="24" value="12" readonly>
                                     <button type="button" data-action="increase" data-target="practice-trials">+</button>
                                 </div>
-                                <small class="help-text">Range: 0-20 trials</small>
+                                <small class="help-text">With feedback; not specified in the paper (0-24)</small>
                             </div>
                             
                             <div class="config-group">
-                                <label for="main-trials">Number of Main Trials</label>
+                                <label for="repetitions">Presentations per Word–Voice Pairing</label>
                                 <div class="number-stepper">
-                                    <button type="button" data-action="decrease" data-target="main-trials">−</button>
-                                    <input type="number" id="main-trials" name="main_trials" min="0" max="300" value="20" readonly>
-                                    <button type="button" data-action="increase" data-target="main-trials">+</button>
+                                    <button type="button" data-action="decrease" data-target="repetitions">−</button>
+                                    <input type="number" id="repetitions" name="repetitions" min="1" max="12" value="6" readonly>
+                                    <button type="button" data-action="increase" data-target="repetitions">+</button>
                                 </div>
-                                <small class="help-text">Range: 0-300 trials</small>
+                                <small class="help-text">12 pairings &times; this value = main trials (paper: 6 → 72)</small>
                             </div>
                         </div>
                     </div>
@@ -78,56 +86,57 @@ class AuditoryStroopConfig {
                 <div class="config-tab-content" id="timing-tab">
                     <div class="config-card">
                         <h3>Timing Parameters</h3>
+                        <small class="help-text">Each trial: 500-Hz warning tone, then the word. RTs are measured from word onset.</small>
                         
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="iti-slider">Inter-trial Interval (ITI Duration)</label>
+                                <label for="warning-delay-slider">Warning Tone → Word Delay</label>
                                 <div class="slider-container">
-                                    <input type="range" id="iti-slider" class="config-slider" 
-                                           min="500" max="5000" step="50" value="1200">
+                                    <input type="range" id="warning-delay-slider" class="config-slider" 
+                                           min="100" max="2000" step="50" value="500">
                                     <div class="slider-value">
-                                        <span id="iti-value">1200</span> ms
+                                        <span id="warning-delay-value">500</span> ms
                                     </div>
                                 </div>
-                                <small class="help-text">Time between trials (500-5000 ms)</small>
+                                <small class="help-text">Paper: 500 ms</small>
                             </div>
                             
                             <div class="config-group">
-                                <label for="pre-stimulus-slider">Pre-stimulus Delay (Fixation Duration)</label>
+                                <label for="response-timeout-slider">Response Deadline</label>
                                 <div class="slider-container">
-                                    <input type="range" id="pre-stimulus-slider" class="config-slider" 
-                                           min="250" max="2000" step="25" value="750">
+                                    <input type="range" id="response-timeout-slider" class="config-slider" 
+                                           min="1000" max="10000" step="100" value="3000">
                                     <div class="slider-value">
-                                        <span id="pre-stimulus-value">750</span> ms
+                                        <span id="response-timeout-value">3000</span> ms
                                     </div>
                                 </div>
-                                <small class="help-text">Fixation cross duration (250-2000 ms)</small>
+                                <small class="help-text">From word onset; slower responses count as incorrect (paper: 3 s)</small>
                             </div>
                         </div>
 
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="response-timeout-slider">Response Timeout (Max Response Window)</label>
+                                <label for="iti-slider">Delay after Response</label>
                                 <div class="slider-container">
-                                    <input type="range" id="response-timeout-slider" class="config-slider" 
-                                           min="500" max="5000" step="50" value="2500">
+                                    <input type="range" id="iti-slider" class="config-slider" 
+                                           min="500" max="5000" step="50" value="2000">
                                     <div class="slider-value">
-                                        <span id="response-timeout-value">2500</span> ms
+                                        <span id="iti-value">2000</span> ms
                                     </div>
                                 </div>
-                                <small class="help-text">Maximum time to respond (500-5000 ms)</small>
+                                <small class="help-text">Response → next warning tone (paper: 2 s)</small>
                             </div>
                             
                             <div class="config-group">
-                                <label for="error-display-slider">Error/No-response Display Duration</label>
+                                <label for="error-display-slider">Practice Feedback Duration</label>
                                 <div class="slider-container">
                                     <input type="range" id="error-display-slider" class="config-slider" 
-                                           min="500" max="3000" step="50" value="1000">
+                                           min="500" max="3000" step="50" value="1500">
                                     <div class="slider-value">
-                                        <span id="error-display-value">1000</span> ms
+                                        <span id="error-display-value">1500</span> ms
                                     </div>
                                 </div>
-                                <small class="help-text">Error message duration (500-3000 ms)</small>
+                                <small class="help-text">Feedback is shown on practice trials only</small>
                             </div>
                         </div>
                     </div>
@@ -307,18 +316,21 @@ class AuditoryStroopConfig {
     }
 
     applyConfigurationToForm(config) {
+        // Configurations from the old placeholder version don't follow the
+        // paper's design; fall back to the paper defaults.
+        if (!config || config.version !== 2) config = this.defaultConfig;
         const params = config.parameters;
         
         // Apply trial parameters
         if (params.trials) {
             this.setInputValue('practice-trials', params.trials.practice);
-            this.setInputValue('main-trials', params.trials.main);
+            this.setInputValue('repetitions', params.trials.repetitions);
         }
         
         // Apply timing parameters
         if (params.timing) {
             this.setInputValue('iti-slider', params.timing.iti);
-            this.setInputValue('pre-stimulus-slider', params.timing.pre_stimulus_delay);
+            this.setInputValue('warning-delay-slider', params.timing.warning_to_stimulus_delay);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);
             this.setInputValue('error-display-slider', params.timing.error_display_duration);
         }
@@ -410,25 +422,33 @@ class AuditoryStroopConfig {
     }
 
     collectConfigurationData() {
+        const intValue = (id, fallback) => {
+            const v = parseInt(document.getElementById(id)?.value);
+            return isNaN(v) ? fallback : v;
+        };
+        const crashRecovery = document.getElementById('crash-recovery');
         return {
             task: 'auditory-stroop',
+            version: 2,
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice: parseInt(document.getElementById('practice-trials')?.value) || 8,
-                    main: parseInt(document.getElementById('main-trials')?.value) || 64
+                    practice: intValue('practice-trials', 12),
+                    repetitions: intValue('repetitions', 6)
                 },
                 timing: {
-                    iti: parseInt(document.getElementById('iti-slider')?.value) || 1200,
-                    pre_stimulus_delay: parseInt(document.getElementById('pre-stimulus-slider')?.value) || 750,
-                    response_timeout: parseInt(document.getElementById('response-timeout-slider')?.value) || 2500,
-                    error_display_duration: parseInt(document.getElementById('error-display-slider')?.value) || 1000
+                    warning_tone_frequency: 500,
+                    warning_tone_duration: 100,
+                    warning_to_stimulus_delay: intValue('warning-delay-slider', 500),
+                    iti: intValue('iti-slider', 2000),
+                    response_timeout: intValue('response-timeout-slider', 3000),
+                    error_display_duration: intValue('error-display-slider', 1500)
                 },
                 audio: {
                     volume: parseFloat(document.getElementById('volume-slider')?.value) || 0.8
                 },
                 data: {
-                    crash_recovery: document.getElementById('crash-recovery')?.checked || true
+                    crash_recovery: crashRecovery ? crashRecovery.checked : true
                 }
             }
         };
@@ -467,6 +487,8 @@ class AuditoryStroopConfig {
             modalOverlay.setAttribute('aria-hidden', 'true');
             
             setTimeout(() => {
+                // Unless something was opened again in the meantime
+                if (modalOverlay.classList.contains('open')) return;
                 const modalContent = modalOverlay.querySelector('.modal-content');
                 modalContent.innerHTML = '';
             }, 300);
