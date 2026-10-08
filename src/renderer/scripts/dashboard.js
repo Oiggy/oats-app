@@ -56,7 +56,21 @@ class Dashboard {
         this.initializeDashboard();
         this.setupDeveloperMode();
         this.setupAudioSetup();
+        this.showAppVersion();
         console.log('OATS Dashboard initialized');
+    }
+
+    // Bottom-right: the version (the same number Windows shows under
+    // Installed apps) and the publisher. Runs from source say "dev".
+    showAppVersion() {
+        const el = document.getElementById('app-version');
+        if (!el) return;
+        try {
+            const { app } = window.require('@electron/remote');
+            el.textContent = `OATS v${app.getVersion()}${app.isPackaged ? '' : ' (dev)'} · Brodbeck Lab`;
+        } catch (error) {
+            el.textContent = 'OATS · Brodbeck Lab';
+        }
     }
 
     getAsioEngine() {

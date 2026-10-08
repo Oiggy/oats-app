@@ -18,7 +18,9 @@
     "desktop",
     "electron"
   ],
-  "author": "Your Name",
+  "author": {
+    "name": "Brodbeck Lab"
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^38.0.0",

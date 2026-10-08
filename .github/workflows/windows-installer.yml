@@ -1,7 +1,27 @@
 name: Build Windows Installer (Any Branch)
 
+# Versions
+# - Every build of `development` is a new release: the version goes up by one
+#   (1.0.0, 1.0.1, 1.0.2, ...), is tagged vX.Y.Z on the commit it was built
+#   from, and is published as a GitHub Release with the installer attached.
+# - To move to a new minor/major version, raise "version" in package.json
+#   (e.g. to 1.1.0) on development; the next development build uses it.
+# - Builds of any other branch are test builds, versioned after the next
+#   release with the branch and run number, e.g. 1.0.3-feature-x.12. They are
+#   not tagged or released.
+# The version is shown in the app (bottom-right of the dashboard) and by
+# Windows under Installed apps / Programs and Features, with the publisher.
+
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two development builds at once would both claim the same version
+concurrency:
+  group: windows-installer-${{ github.ref_name == 'development' && 'development' || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   build-windows-installer:
@@ -10,6 +30,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, to work out the next version
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -19,6 +41,40 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Work out the version
+        shell: bash
+        run: |
+          base=$(node -p "require('./package.json').version")
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          latest=${latest#v}
+          if [ -z "$latest" ]; then
+            next=$base
+          else
+            IFS=. read -r major minor patch <<< "$latest"
+            bumped="$major.$minor.$((patch + 1))"
+            # package.json wins when it was raised past the last release
+            next=$(node -e "
+              const [a, b] = process.argv.slice(1).map((v) => v.split('.').map(Number));
+              const d = a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+              console.log((d > 0 ? a : b).join('.'));
+            " "$base" "$bumped")
+          fi
+
+          if [ "$GITHUB_REF_NAME" = "development" ]; then
+            version=$next
+            release=true
+          else
+            branch=$(echo "$GITHUB_REF_NAME" | sed 's/[^A-Za-z0-9-]/-/g')
+            version="$next-$branch.$GITHUB_RUN_NUMBER"
+            release=false
+          fi
+
+          npm version "$version" --no-git-tag-version --allow-same-version
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE=$release" >> "$GITHUB_ENV"
+          echo "PREVIOUS_TAG=${latest:+v$latest}" >> "$GITHUB_ENV"
+          echo "Building OATS $version"
 
       - name: Build Windows installer
         run: npm run build-win -- --publish never
@@ -32,8 +88,29 @@ jobs:
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: oats-windows-installer-${{ env.SAFE_BRANCH }}
+          name: oats-windows-installer-${{ env.SAFE_BRANCH }}-${{ env.VERSION }}
           path: |
             dist/*.exe
             dist/*.msi
           if-no-files-found: error
+
+      - name: Tag and publish the release (development only)
+        if: env.RELEASE == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+
+          {
+            echo "OATS $VERSION, built from development at ${GITHUB_SHA::7}."
+            echo
+            if [ -n "$PREVIOUS_TAG" ]; then
+              echo "Changes since $PREVIOUS_TAG:"
+              git log --first-parent --format='- %s' "$PREVIOUS_TAG..$GITHUB_SHA"
+            fi
+          } > release-notes.md
+
+          gh release create "$tag" dist/*.exe --title "OATS $VERSION" --target "$GITHUB_SHA" --notes-file release-notes.md
