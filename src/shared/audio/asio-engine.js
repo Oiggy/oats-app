@@ -365,7 +365,7 @@ class AsioEngine extends EventEmitter {
     // Returns true if ASIO is running afterwards.
     tryReconnect() {
         if (this.started) return true;
-        if (!this.config.enabled || !this.isPlatformSupported()) return false;
+        if (this.sleeping || !this.config.enabled || !this.isPlatformSupported()) return false;
         const previousReason = this.statusReason;
         this.startAttempted = false;
         const ok = this.isEnabled();
@@ -373,6 +373,34 @@ class AsioEngine extends EventEmitter {
         // the generic "no device found".
         if (!ok && this.disconnected) this.statusReason = previousReason;
         return ok;
+    }
+
+    // ---- laptop sleep ----------------------------------------------------------------
+
+    // While the computer sleeps the driver stops calling back, and the
+    // interface may not survive it. Release the stream before sleep (so
+    // nothing waits on a driver that has gone quiet) and open it again after
+    // wake, retrying while the USB interface and its driver come back.
+    suspendForSleep() {
+        this.sleeping = true;
+        clearTimeout(this._wakeTimer);
+        this._resumeAfterSleep = this.started || this.disconnected;
+        if (this.started) this._handleDisconnect('the computer went to sleep');
+    }
+
+    resumeAfterSleep() {
+        if (!this.sleeping) return;
+        this.sleeping = false;
+        clearTimeout(this._wakeTimer);
+        if (!this._resumeAfterSleep) return;
+        const delays = [1500, 2500, 4000, 6000, 10000, 15000];
+        const attempt = (i) => {
+            if (this.started || this.sleeping || i >= delays.length) return;
+            this._wakeTimer = setTimeout(() => {
+                if (!this.tryReconnect()) attempt(i + 1);
+            }, delays[i]);
+        };
+        attempt(0);
     }
 
     // Closes the stream so the next isEnabled() call reopens it with the
@@ -895,11 +923,20 @@ class AsioEngine extends EventEmitter {
 
     // ---- teardown ------------------------------------------------------------------
 
+    // RtAudio's ASIO stop waits, with no time limit, for the driver's next
+    // callback. If callbacks have stopped (computer slept, interface
+    // unplugged) that wait never ends and freezes the app, so a stream that
+    // has gone quiet is left for closeStream(), which stops it without waiting.
+    _callbacksAlive() {
+        return !!(this.started && !this.disconnected && !this.sleeping && this.lastBlockAt && nowMs() - this.lastBlockAt < 250);
+    }
+
     stop() {
+        const alive = this._callbacksAlive();
         this._stopWatchdog();
         this.clearOutputQueue();
         this.capture = null;
-        if (this.rt) {
+        if (this.rt && alive) {
             try { if (this.rt.isStreamRunning()) this.rt.stop(); } catch (e) {
                 console.warn('[asio-engine] Error stopping stream:', e.message);
             }

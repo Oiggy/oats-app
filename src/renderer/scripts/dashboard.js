@@ -104,6 +104,12 @@ class Dashboard {
         const engine = this.getAsioEngine();
         if (engine && typeof engine.on === 'function') {
             engine.on('statuschange', (status) => this.onAudioStatusChange(status));
+            if (typeof engine.suspendForSleep === 'function') {
+                window.require('electron').ipcRenderer.on('power-state', (event, state) => {
+                    if (state === 'suspend') engine.suspendForSleep();
+                    else if (state === 'resume') engine.resumeAfterSleep();
+                });
+            }
         }
         if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
             // Fires when audio devices are plugged/unplugged and when the
@@ -131,7 +137,10 @@ class Dashboard {
         this.audioWasRunning = running;
         this.updateAudioBadge();
 
-        if (wasRunning && !running && status.disconnected) {
+        const engine = this.getAsioEngine();
+        if (wasRunning && !running && engine && engine.sleeping) {
+            // Released for sleep; it reconnects (with a toast) after wake
+        } else if (wasRunning && !running && status.disconnected) {
             this.showToast('Audio interface disconnected - tasks will use fallback audio until it is reconnected.', 'error');
         } else if (wasRunning === false && running) {
             this.showToast('ASIO audio interface connected.', 'success');

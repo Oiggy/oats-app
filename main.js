@@ -109,6 +109,19 @@ class OATSApp {
     }
   }
 
+  // Laptop sleep/wake: the dashboard releases the ASIO stream before sleep
+  // and reopens it after wake (see asio-engine.js suspendForSleep).
+  watchPowerState() {
+    const { powerMonitor } = require('electron');
+    const send = (state) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('power-state', state);
+      }
+    };
+    powerMonitor.on('suspend', () => send('suspend'));
+    powerMonitor.on('resume', () => send('resume'));
+  }
+
   async initialize() {
     app.whenReady().then(async () => {
       // Request microphone permissions first
@@ -116,6 +129,7 @@ class OATSApp {
       
       this.createLoadingWindow();
       this.createMainWindow();
+      this.watchPowerState();
       
       setTimeout(() => {
         this.showMainWindow();
