@@ -387,12 +387,16 @@ class Dashboard {
                     <p class="audio-hint">Set-up for stimulus playback through JDS Labs Atom Amp 2 to insert earphones, with
                     recording on the Scarlett.</p>
 
+                    <div class="audio-guide-steps">
+                    <section>
                     <h3>1. Connect the Scarlett</h3>
                     <ol>
                         <li>Install <strong>Focusrite Control 2</strong> (includes the ASIO driver) if it isn't installed.</li>
                         <li>Connect the Scarlett 4i4 to the laptop with its USB-C cable. The USB light turns green.</li>
                     </ol>
+                    </section>
 
+                    <section>
                     <h3>2. Wire the headphone amp</h3>
                     <ol>
                         <li>Plug the cable from the Scarlett's <strong>front headphone jack</strong> into the back of the
@@ -403,33 +407,52 @@ class Dashboard {
                         <li>On the Atom Amp 2, press <strong>GAIN</strong> and <strong>INPUT</strong> in. INPUT pressed
                         = RCA input. Start with the volume low.</li>
                     </ol>
+                    </section>
 
-                    <h3>3. Focusrite Control 2</h3>
+                    <section>
+                    <h3>3. Microphone (speaking tasks)</h3>
+                    <ol>
+                        <li>For <strong>Stroop Colour Word</strong> (voice-onset RT), <strong>Reading Span</strong> and
+                        <strong>Speech in Noise</strong>. Only the Scarlett shares the stimulus clock: no laptop or USB mic.</li>
+                        <li><strong>Headset mic</strong>, or a <strong>dynamic mic</strong> 5&ndash;10 cm from the mouth.</li>
+                        <li>XLR into <strong>front Input 1</strong>. INST off; 48V only for a condenser mic.</li>
+                        <li>Gain (or <strong>Auto Gain</strong>) with the participant speaking loudly: green/amber, never red.</li>
+                    </ol>
+                    </section>
+
+                    <section>
+                    <h3>4. Focusrite Control 2</h3>
                     <ol>
                         <li><strong>Routing</strong> tab: Analogue outputs &rarr; <strong>Headphones: Playback 1&ndash;2</strong>.
-                        Digital outputs &rarr; <strong>Loopback: Playback 1&ndash;2</strong>.</li>
+                        Digital outputs &rarr; <strong>Loopback: Playback 1&ndash;2</strong>. (This also keeps the mic out of the earphones.)</li>
                         <li><strong>Inputs</strong> and <strong>Mixer</strong> tabs: no changes. If the Mixer says
                         "No outputs assigned", fix the Routing tab as above.</li>
                         <li>Turn the Scarlett's headphone knob to about halfway.</li>
                     </ol>
+                    </section>
 
-                    <h3>4. OATS Audio Setup</h3>
+                    <section>
+                    <h3>5. OATS Audio Setup</h3>
                     <ol>
                         <li>Click <strong>AUDIO</strong>. Device: <strong>Focusrite USB ASIO</strong>,
-                        <strong>48000 Hz</strong>, <strong>128 samples</strong>.</li>
+                        <strong>48000 Hz</strong>, <strong>128 samples</strong> (256 if Test Audio reports dropouts).</li>
                         <li>Stimulus outputs: <strong>Out 1 + Out 2</strong> (= Playback 1&ndash;2).
-                        Recording input: <strong>Input 1</strong> (microphone in the Scarlett's front input 1).</li>
+                        Recording input: <strong>Input 1</strong>.</li>
                         <li>Click <strong>Save &amp; Apply</strong>. The badge turns green: <strong>AUDIO: ASIO</strong>.</li>
                     </ol>
+                    </section>
 
-                    <h3>5. Check</h3>
+                    <section>
+                    <h3>6. Check</h3>
                     <ol>
-                        <li>Click <strong>Test output</strong>. The tone should play in the earphones. If it's silent,
-                        check the Routing tab, the IN/OUT sockets, the INPUT button and the volume knobs.</li>
-                        <li>Keep Windows sounds off the stimulus channels: the Audio Setup window warns you if they're
-                        shared and shows how to move them.</li>
-                        <li>Mark or tape the knob positions so every participant hears the same level.</li>
+                        <li>Click <strong>Test output</strong>: a tone in the earphones. If silent, check Routing, the
+                        IN/OUT sockets, the INPUT button and the knobs.</li>
+                        <li>Click <strong>Test input (2 s)</strong> while someone speaks: the level should move.</li>
+                        <li>Keep Windows sounds off the stimulus channels (Audio Setup warns you).</li>
+                        <li>Tape the Scarlett headphone knob and the Atom volume knob so every participant hears the same level.</li>
                     </ol>
+                    </section>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="button-secondary" id="audio-guide-back">Back</button>
@@ -437,10 +460,11 @@ class Dashboard {
                 </div>
             </div>
             <style>
-                .audio-guide h3 { font-size: 15px; margin: 18px 0 6px; }
-                .audio-guide h3:first-of-type { margin-top: 8px; }
-                .audio-guide ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
-                .audio-guide li { font-size: 13.5px; line-height: 1.5; }
+                .audio-guide-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 22px; margin-top: 8px; }
+                .audio-guide h3 { font-size: 14px; margin: 0 0 4px; }
+                .audio-guide ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+                .audio-guide li { font-size: 12.5px; line-height: 1.4; }
+                @media (max-width: 900px) { .audio-guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
             </style>
         `;
         document.getElementById('audio-guide-back').addEventListener('click', () => this.showAudioSetup());
@@ -508,13 +532,14 @@ class Dashboard {
         modalContent.innerHTML = `
             <form id="audio-setup-form" class="audio-setup-modal">
             <div id="audio-setup-root" data-backend="${running ? 'ASIO' : 'fallback'}">
-                <div class="modal-header"><h2 class="modal-title">Audio Setup (ASIO)</h2></div>
+                <div class="modal-header audio-setup-header"><h2 class="modal-title">Audio Setup (ASIO)</h2>
+                    ${running ? '<button type="button" class="audio-guide-link" id="audio-guide-open">JDS + Focusrite set-up guide &rsaquo;</button>' : ''}</div>
                 <div class="modal-body audio-setup-body">
                     ${running ? '' : `
                     <button type="button" class="audio-guide-button" id="audio-guide-open">
                         <span class="audio-guide-icon" aria-hidden="true">&#9776;</span>
                         <span><strong>JDS + Focusrite Scarlett 4i4 4th Gen</strong>
-                        <small>Step-by-step: wiring, Focusrite Control and OATS audio setup</small></span>
+                        <small>Step-by-step: wiring, microphone, Focusrite Control and OATS audio setup</small></span>
                         <span aria-hidden="true">&rsaquo;</span>
                     </button>`}
                     <div class="audio-status ${running ? 'ok' : 'warn'}" id="audio-status">${esc(running ? engine.describeBackend() : fallbackText)}</div>

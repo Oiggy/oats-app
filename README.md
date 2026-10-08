@@ -83,9 +83,12 @@ that varies from trial to trial.
 ### Connecting it
 
 ```
-Mic ──XLR──► Scarlett INPUT 1 (front)
-Scarlett OUTPUTS (Out 1/2) ──► JDS Atom Amp 2 ──► participant's headphones
+Mic ──XLR──► Scarlett front INPUT 1
+Scarlett front HEADPHONE jack (Playback 1–2) ──RCA──► JDS Atom Amp 2 (IN) ──► insert earphones
 ```
+
+The full step-by-step rig setup (Scarlett, Atom, mic, Focusrite Control 2,
+OATS) is also in the app: **AUDIO** > the **JDS + Focusrite** set-up guide.
 
 1. **Mic**: a close-talking mic works best for voice-onset detection.
    - **Headset mic**: keeps the same distance from the mouth on every trial,
@@ -98,10 +101,9 @@ Scarlett OUTPUTS (Out 1/2) ──► JDS Atom Amp 2 ──► participant's head
 3. **Gain**: have the participant speak at a normal loud voice and turn up
    Input 1's gain until the ring around the knob shows green, sometimes
    amber, never red. If your model has Auto Gain, use it.
-4. **Focusrite Control 2**:
-   - Turn **Direct Monitor off**. Otherwise the participant's own voice is
-     fed into Out 1/2, which also carry the stimuli to the headphones.
-   - Check Input 1 isn't routed to the outputs.
+4. **Focusrite Control 2**: in the **Routing** tab, Headphones must play
+   **Playback 1–2** (what OATS sends), not a mix that includes the inputs.
+   That keeps the participant's own voice out of the earphones.
 5. **In OATS**:
    - AUDIO > **Recording input channel** = **Input 1** (the default).
    - Click **Test input (2 s)** and confirm the level moves.
@@ -109,9 +111,10 @@ Scarlett OUTPUTS (Out 1/2) ──► JDS Atom Amp 2 ──► participant's head
 
 ### Tips
 
-- **Headphones**: closed-back headphones (fed from the Atom) stop the
-  stimulus leaking into the mic, so the stimulus can't be mistaken for a
-  voice onset.
+- **Earphones**: insert earphones (fed from the Atom) keep the stimulus
+  from leaking into the mic, so it can't be mistaken for a voice onset.
+- **Levels**: tape the Scarlett headphone knob and the Atom volume knob, so
+  every participant hears the same level.
 - **Quiet room, same mic position for everyone**: voice onset is detected
   with a level threshold, so background noise or a mic that's too far away
   delays or blurs onsets. In Stroop's results this shows up as low

@@ -446,3 +446,13 @@ html body .app-version {
     pointer-events: none;
     user-select: none;
 }
+
+/* Setup guide (JDS + Focusrite): steps in columns so it fits without scrolling */
+html body .modal-content:has(> #audio-guide-root) { max-width: 1180px; }
+@media (max-height: 640px) {
+    html body .audio-guide li { font-size: 12px; line-height: 1.35; }
+    html body .audio-guide ol { gap: 2px; }
+}
+html body .audio-setup-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+html body .audio-guide-link { background: none; border: none; color: #007aff; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+html body .audio-guide-link:hover { background: #f0f6ff; }
