@@ -43,7 +43,7 @@ class PracticeSentenceTask {
             const reason = error && error.code === 'ENOENT' && /cfg_.*_task\.json/.test(error.message)
                 ? 'No saved configuration. Open Task Configuration and save it first.'
                 : (error && error.message) || String(error);
-            alert(`Failed to open the task:\n\n${reason}`);
+            oatsDialog.alert(`Failed to open the task:\n\n${reason}`);
         }
     }
 
@@ -202,7 +202,7 @@ We'll start with a few practice items now.`;
         
         document.getElementById('start-practice-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
-                alert('No audio/text items found.');
+                oatsDialog.alert('No audio/text items found.');
                 return;
             }
             this.showPlayerPage();

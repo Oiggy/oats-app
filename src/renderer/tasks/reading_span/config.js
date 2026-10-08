@@ -310,7 +310,7 @@ class ReadingSpanConfig {
 
         } catch (error) {
             console.error('Error saving Reading Span configuration:', error);
-            alert('Error saving configuration. Please try again.');
+            oatsDialog.alert('Error saving configuration. Please try again.');
         }
     }
 

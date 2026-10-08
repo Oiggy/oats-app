@@ -38,7 +38,7 @@ class CSTTask {
         this.recordingChunks = [];
         this.isRecording = false;
         this.currentTake = 0;
-        this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        this.runStart = new Date(); // names the run folder (results and recordings)
     }
 
     async init() {
@@ -55,7 +55,7 @@ class CSTTask {
             const reason = error && error.code === 'ENOENT' && /cfg_.*_task\.json/.test(error.message)
                 ? 'No saved configuration. Open Task Configuration and save it first.'
                 : (error && error.message) || String(error);
-            alert(`Failed to open the task:\n\n${reason}`);
+            oatsDialog.alert(`Failed to open the task:\n\n${reason}`);
         }
     }
 
@@ -407,7 +407,7 @@ class CSTTask {
         
         document.getElementById('start-cst-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
-                alert('No audio/CSV items found.');
+                oatsDialog.alert('No audio/CSV items found.');
                 return;
             }
             this.showPlayerPage();
@@ -849,7 +849,7 @@ class CSTTask {
             setTimeout(() => this.handlePlay(), 100);
         } else {
             this.saveResults();
-            alert('Task finished.');
+            oatsDialog.alert('Task finished.');
         }
     }
 
@@ -929,22 +929,11 @@ class CSTTask {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-            const sessionsFolder = getParticipantFolderName(this.participantId);
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-            }
-
-            const outputDir = path.join(baseDir, 'Speech_in_Noise', 'CST');
-            await fs.mkdir(outputDir, { recursive: true });
-            
-            if (!this.resultsTimestamp) this.resultsTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const timestamp = this.resultsTimestamp;
-            const outputPath = path.join(outputDir, `CST_${this.participantId}_${timestamp}.txt`);
+            // <participant>/speechinnoisecsttask_<run start>/ holds results.txt, trials.csv and recordings/
+            const outputDir = getTaskRunDir(this.participantId, 'cst', this.runStart);
+            const outputPath = path.join(outputDir, 'results.txt');
             
             let output = [];
             
@@ -999,7 +988,7 @@ class CSTTask {
             console.log('CST results saved to:', outputPath);
 
             // Save CSV results file
-            const csvOutputPath = path.join(outputDir, `CST_${this.participantId}_${timestamp}.csv`);
+            const csvOutputPath = path.join(outputDir, 'trials.csv');
             const csvLines = [];
             csvLines.push('SNR,Topic,Passage Pair,Sentence Number,Sentence,Key Words,Correct Key Words');
             for (const row of this.csvData) {
@@ -1022,7 +1011,7 @@ class CSTTask {
             
         } catch (error) {
             console.error('Error saving results:', error);
-            alert('Error saving results. Please check console for details.');
+            oatsDialog.alert('Error saving results. Please check console for details.');
         }
     }
 
@@ -1031,20 +1020,12 @@ class CSTTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-        }
-
-        const outputDir = path.join(baseDir, 'Speech_in_Noise');
-        await fs.mkdir(outputDir, { recursive: true });
-
-        const summaryPath = path.join(outputDir, `SIN_Summary_${this.participantId}.csv`);
+        // One summary across the four Speech-in-Noise tasks, in the participant folder
+        const participantDir = getParticipantDir(this.participantId);
+        await fs.mkdir(participantDir, { recursive: true });
+        const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
         const snrLevels = [25, 20, 15, 10, 5, 0];
 
         let data = {};
@@ -1160,7 +1141,7 @@ class CSTTask {
             if (indicator) indicator.style.display = 'block';
         } catch (error) {
             console.error('Error starting recording:', error);
-            alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
+            oatsDialog.alert('Microphone not available. Recordings will not be saved.\nPlease check microphone permissions and try again.');
         }
     }
 
@@ -1265,17 +1246,9 @@ class CSTTask {
                     const path = window.require('path');
                     const fs = window.require('fs').promises;
                     const { app } = window.require('@electron/remote') || window.require('electron').remote;
-                    const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-                    const sessionsFolder = getParticipantFolderName(this.participantId);
+                    const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-                    let baseDir;
-                    if (process.platform === 'win32') {
-                        baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder, this.participantId);
-                    } else {
-                        baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder, this.participantId);
-                    }
-
-                    const recordingsDir = path.join(baseDir, 'Speech_in_Noise', 'CST', 'recordings', this.sessionTimestamp);
+                    const recordingsDir = path.join(getTaskRunDir(this.participantId, 'cst', this.runStart), 'recordings');
                     await fs.mkdir(recordingsDir, { recursive: true });
 
                     const row = this.csvData[rowIndex];
@@ -1338,7 +1311,7 @@ async function loadCSTTask(participantId) {
         
     } catch (error) {
         console.error('Error loading CST task:', error);
-        alert('Error loading CST task. Please check the configuration and try again.');
+        oatsDialog.alert('Error loading CST task. Please check the configuration and try again.');
     }
 }
 

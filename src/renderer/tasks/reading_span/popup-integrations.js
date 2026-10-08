@@ -84,7 +84,7 @@ class ReadingSpanTask {
             const reason = error && error.code === 'ENOENT' && /cfg_reading_span_task/.test(error.message)
                 ? 'No saved configuration. Open Task Configuration and save it first.'
                 : (error && error.message) || String(error);
-            alert(`Error loading Reading Span task:\n\n${reason}`);
+            oatsDialog.alert(`Error loading Reading Span task:\n\n${reason}`);
             this.closeTask(false);
         }
     }
@@ -790,22 +790,10 @@ class ReadingSpanTask {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-        }
-
-        const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
-        
-        await fs.mkdir(sessionDir, { recursive: true });
+        // <participant>/readingspantask_<run start>/ (recordings and results)
+        const sessionDir = getTaskRunDir(this.participantId, 'reading-span', this.sessionStartTime);
 
         return path.join(sessionDir, filename);
     }
@@ -981,22 +969,10 @@ class ReadingSpanTask {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-            const sessionsFolder = getParticipantFolderName(this.participantId);
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            let baseDir;
-            if (process.platform === 'win32') {
-                baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats');
-            } else if (process.platform === 'darwin') {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            } else {
-                baseDir = path.join(os.homedir(), 'Documents', 'Oats');
-            }
-
-            const timestamp = this.sessionStartTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const sessionDir = path.join(baseDir, sessionsFolder, this.participantId, `rst_${timestamp}`);
-            
-            await fs.mkdir(sessionDir, { recursive: true });
+            // <participant>/readingspantask_<run start>/ (recordings and results)
+            const sessionDir = getTaskRunDir(this.participantId, 'reading-span', this.sessionStartTime);
 
             const resultsPath = path.join(sessionDir, 'results.txt');
             const resultsContent = this.generateResultsContent();
@@ -1079,9 +1055,12 @@ class ReadingSpanTask {
     }
 
     // The ✕ button: confirm before abandoning a run in progress
-    requestClose() {
+    async requestClose() {
         const running = this.currentPhase === 'practice' || this.currentPhase === 'main';
-        if (running && !this.resultsSaved && !confirm('Close the Reading Span task? The run will stop (recordings made so far are kept).')) return;
+        if (running && !this.resultsSaved) {
+            const close = await oatsDialog.confirm('The run will stop. Recordings made so far are kept.', { title: 'Close the Reading Span task?', okText: 'Close task', danger: true });
+            if (!close || this.closed) return;
+        }
         this.closeTask(true);
     }
 
@@ -1131,7 +1110,7 @@ async function loadReadingSpanTask(participantId) {
         
     } catch (error) {
         console.error('Error loading Reading Span task:', error);
-        alert(`Error loading Reading Span task:\n\n${error.message || error}`);
+        oatsDialog.alert(`Error loading Reading Span task:\n\n${error.message || error}`);
     }
 }
 

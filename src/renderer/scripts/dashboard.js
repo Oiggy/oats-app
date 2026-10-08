@@ -1102,7 +1102,7 @@ class Dashboard {
     async exitDeveloperMode() {
         if (!this.developerMode) return;
 
-        const confirmExit = confirm(`Exit Developer Mode?\n\nLogged in as: ${this.developerName}`);
+        const confirmExit = await oatsDialog.confirm(`Logged in as: ${this.developerName}`, { title: 'Exit Developer Mode?', okText: 'Exit Developer Mode' });
         
         if (confirmExit) {
             // Log exit

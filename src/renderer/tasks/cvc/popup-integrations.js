@@ -50,7 +50,7 @@ class CVCTask {
             const reason = error && error.code === 'ENOENT' && /cfg_cvc_task/.test(error.message)
                 ? 'No saved configuration. Open Task Configuration and save it first.'
                 : (error && error.message) || String(error);
-            alert(`Error loading CVC task:\n\n${reason}`);
+            oatsDialog.alert(`Error loading CVC task:\n\n${reason}`);
             this.closeTask(false);
         }
     }
@@ -750,22 +750,10 @@ class CVCTask {
             const path = window.require('path');
             const fs = window.require('fs').promises;
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
-            const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            // Same location as every other task: participants/ for real
-            // participants, sessions/ for Developer Mode runs
-            const baseDir = process.platform === 'win32'
-                ? path.join(os.homedir(), 'AppData', 'Roaming', 'Oats')
-                : path.join(os.homedir(), 'Documents', 'Oats');
-            const timestamp = this.sessionData.startTime.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const sessionDir = path.join(
-                baseDir,
-                getParticipantFolderName(this.participantId),
-                this.participantId,
-                `cvc_${timestamp}`
-            );
-            
-            await fs.mkdir(sessionDir, { recursive: true });
+            // <participant>/cvctask_<run start>/
+            const sessionDir = getTaskRunDir(this.participantId, 'cvc', this.sessionData.startTime);
             
             // Generate results content
             const resultsContent = this.generateResultsContent();
@@ -778,7 +766,7 @@ class CVCTask {
             
         } catch (error) {
             console.error('Error saving CVC results:', error);
-            alert('Error saving results. Please contact the researcher.');
+            oatsDialog.alert('Error saving results. Please contact the researcher.');
         }
     }
 
@@ -859,8 +847,11 @@ class CVCTask {
     }
 
     // Close / Exit: confirm before abandoning a run in progress
-    requestClose() {
-        if (this.isRunning() && !confirm('Exit the CVC task? The run will stop (main-phase responses so far are saved).')) return;
+    async requestClose() {
+        if (this.isRunning()) {
+            const exit = await oatsDialog.confirm('The run will stop. Main-phase responses so far are saved.', { title: 'Exit the CVC task?', okText: 'Exit', danger: true });
+            if (!exit || this.currentPhase === 'closed') return;
+        }
         this.closeTask(true);
     }
 
@@ -907,7 +898,7 @@ async function loadCVCTask(participantId) {
         
     } catch (error) {
         console.error('Error loading CVC task:', error);
-        alert(`Error loading CVC task:\n\n${error.message || error}`);
+        oatsDialog.alert(`Error loading CVC task:\n\n${error.message || error}`);
     }
 }
 

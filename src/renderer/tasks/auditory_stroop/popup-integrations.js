@@ -172,9 +172,10 @@ class AuditoryStroopPopup {
     // Developer Mode only: ends the task now and goes to the results, so a
     // technician can check the output without running every trial. The
     // results say the run was cut short.
-    finishEarly() {
+    async finishEarly() {
         if (this.taskState !== 'running' || this.finishedEarly) return;
-        if (!confirm('Finish the task now and go to the results?\n\nDeveloper Mode test: the results will be marked as an incomplete run.')) return;
+        const finish = await oatsDialog.confirm('Go to the results now? Developer Mode test: the results will be marked as an incomplete run.', { title: 'Finish the task now?', okText: 'Finish now' });
+        if (!finish || this.taskState !== 'running' || this.finishedEarly) return;
         this.finishedEarly = true;
         this.isPaused = false;
         if (this.cancelResponse) this.cancelResponse();
@@ -1453,31 +1454,13 @@ class AuditoryStroopPopup {
     }
 
     async saveResultsToFile() {
-        const os = window.require('os');
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        // Get platform-specific sessions directory
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        }
-        
-        // Create participant folder
-        const participantDir = path.join(baseDir, this.participantId);
-        await fs.mkdir(participantDir, { recursive: true });
-        
-        // Create ast_timestamp folder
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-        const taskDir = path.join(participantDir, `ast_${timestamp}`);
-        await fs.mkdir(taskDir, { recursive: true });
+        // <participant>/auditorystrooptask_<run start>/
+        const taskDir = getTaskRunDir(this.participantId, 'auditory-stroop', this.startTime || new Date());
         
         // Human-readable report (also computes the outlier flags)
         const textContent = this.generateResultsTextContent();
@@ -1636,7 +1619,7 @@ class AuditoryStroopPopup {
         return `${minutes}m ${seconds}s`;
     }
 
-    exitTask() {
+    async exitTask() {
         // A finished run whose results haven't been saved yet is saved on
         // the way out (Save Results & Exit) rather than thrown away.
         if (this.taskState === 'completed') {
@@ -1644,7 +1627,11 @@ class AuditoryStroopPopup {
             return;
         }
         if (this.taskState === 'running') {
-            if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
+            const exit = await oatsDialog.confirm('The run will stop and its progress will be lost.', { title: 'Exit the task?', okText: 'Exit', danger: true });
+            if (!exit) return;
+            // The task kept running behind the dialog: it may have finished
+            if (this.taskState === 'completed') {
+                if (!this.savingResults) this.saveResults();
                 return;
             }
         }

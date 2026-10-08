@@ -21,7 +21,7 @@ class StroopColorWordPopup {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.breakTrials = [];
-        this.sessionTimestamp = null; // Add this line
+        this.runStart = null; // names the run folder (set by the first file saved)
         // NativeAudioRecorder/SpeechOnsetDetector are only available after
         // window.require(...) in loadTask(); instantiating them here would
         // throw a ReferenceError before the object is ever constructed.
@@ -784,28 +784,12 @@ class StroopColorWordPopup {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        // Get the same directory structure as results
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        }
-        
-        // Initialize timestamp if not already set
-        if (!this.sessionTimestamp) {
-            this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-        }
-        
-        const taskDir = path.join(baseDir, this.participantId, `scw_${this.sessionTimestamp}`);
-        
-        // Ensure directory exists
-        await fs.mkdir(taskDir, { recursive: true });
+        // Recordings and results share one folder per run:
+        // <participant>/stroopcolorwordtask_<run start>/
+        if (!this.runStart) this.runStart = new Date();
+        const taskDir = getTaskRunDir(this.participantId, 'stroop-color-word', this.runStart);
         
         return path.join(taskDir, filename);
     }
@@ -938,30 +922,11 @@ class StroopColorWordPopup {
         const path = window.require('path');
         const fs = window.require('fs').promises;
         const { app } = window.require('@electron/remote') || window.require('electron').remote;
-        const { getParticipantFolderName } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
-        const sessionsFolder = getParticipantFolderName(this.participantId);
+        const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-        // Get platform-specific sessions directory
-        let baseDir;
-        if (process.platform === 'win32') {
-            baseDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', sessionsFolder);
-        } else if (process.platform === 'darwin') {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        } else {
-            baseDir = path.join(os.homedir(), 'Documents', 'Oats', sessionsFolder);
-        }
-        
-        // Create participant folder
-        const participantDir = path.join(baseDir, this.participantId);
-        await fs.mkdir(participantDir, { recursive: true });
-        
-        // Use the same timestamp that was used for audio files
-        if (!this.sessionTimestamp) {
-            this.sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-        }
-        
-        const taskDir = path.join(participantDir, `scw_${this.sessionTimestamp}`);
-        await fs.mkdir(taskDir, { recursive: true });
+        // Same run folder as the recordings
+        if (!this.runStart) this.runStart = new Date();
+        const taskDir = getTaskRunDir(this.participantId, 'stroop-color-word', this.runStart);
         
         // Generate text file content
         const textContent = this.generateResultsTextContent();
@@ -1112,7 +1077,7 @@ class StroopColorWordPopup {
         return `${minutes}m ${seconds}s`;
     }
 
-    exitTask() {
+    async exitTask() {
         // A finished run whose results haven't been saved yet is saved on
         // the way out (Save Results & Exit) rather than thrown away.
         if (this.taskState === 'completed') {
@@ -1120,7 +1085,11 @@ class StroopColorWordPopup {
             return;
         }
         if (this.taskState === 'running') {
-            if (!confirm('Are you sure you want to exit? All progress will be lost.')) {
+            const exit = await oatsDialog.confirm('The run will stop and its progress will be lost.', { title: 'Exit the task?', okText: 'Exit', danger: true });
+            if (!exit) return;
+            // The task kept running behind the dialog: it may have finished
+            if (this.taskState === 'completed') {
+                if (!this.savingResults) this.saveResults();
                 return;
             }
         }
