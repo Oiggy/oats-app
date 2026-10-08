@@ -518,7 +518,7 @@ class CaSTNonwordTask {
             return `SNR ${snr}: ${correct}/${total} (${percent}%)`;
         });
         
-        summaryDiv.innerHTML = lines.join('<br>');
+        summaryDiv.innerHTML = lines.map((line) => `<span>${line}</span>`).join('');
     }
 
     updateSkipHint() {

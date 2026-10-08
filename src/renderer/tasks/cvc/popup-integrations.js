@@ -296,62 +296,31 @@ class CVCTask {
     showWelcomeScreen() {
         this.updateStatus('Ready to start');
         
+        const p = this.config.parameters;
+        const settings = [
+            ['Practice trials', p.trials.practice],
+            ['Real words (practice)', p.trials.practice_real_words],
+            ['Letter display', `${p.timing.letter_display_duration} ms`],
+            ['Main trials', p.trials.main],
+            ['Real words (main)', p.trials.main_real_words],
+            ['Stimulus list', `List ${p.stimulus.list_selection}`]
+        ];
         const content = `
-            <h2 style="
-                font-size: 24px;
-                font-weight: 600;
-                color: #212529;
-                margin-bottom: 24px;
-            ">Welcome to the CVC Task</h2>
-            
-            <div style="
-                font-size: 16px;
-                line-height: 1.6;
-                color: #495057;
-                margin-bottom: 32px;
-                max-width: 600px;
-            ">
-                Letters will appear one at a time in a continuous stream. Press <strong>SPACE</strong> (or click) 
-                <strong>when the last three letters form a real 3-letter word (C–V–C)</strong>, e.g., P–E–N. 
-                You will do a short practice, then the main phase. The configuration shown below determines 
-                trial counts, letter pacing, and how many real words will be presented in each phase.
+            <h2 style="font-size: 22px; font-weight: 600; color: #212529; margin-bottom: 10px;">Welcome to the CVC Task</h2>
+
+            <div style="font-size: 15px; line-height: 1.5; color: #495057; margin-bottom: 14px; max-width: 640px;">
+                Letters will appear one at a time in a continuous stream. Press <strong>SPACE</strong> (or click)
+                <strong>when the last three letters form a real 3-letter word (C–V–C)</strong>, e.g., P–E–N.
+                You will do a short practice, then the main phase, using the settings below.
             </div>
-            
-            <div style="
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 24px 0;
-                width: 100%;
-                max-width: 400px;
-            ">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Practice Trials:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.practice}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Real Words (Practice):</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.practice_real_words}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Main Trials:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.main}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Real Words (Main):</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.trials.main_real_words}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
-                    <span style="color: #495057;">Letter Display Duration:</span>
-                    <span style="font-weight: 600; color: #212529;">${this.config.parameters.timing.letter_display_duration}ms</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 14px;">
-                    <span style="color: #495057;">Stimulus List:</span>
-                    <span style="font-weight: 600; color: #212529;">List ${this.config.parameters.stimulus.list_selection}</span>
-                </div>
+
+            <div style="display: grid; grid-template-columns: repeat(3, auto); gap: 6px 28px; background: #f8f9fa; border: 1px solid #dee2e6;
+                border-radius: 10px; padding: 10px 18px; margin: 0 0 14px; font-size: 13.5px; text-align: left;">
+                ${settings.map(([label, value]) => `<div style="display: flex; justify-content: space-between; gap: 12px;">
+                    <span style="color: #495057;">${label}</span><span style="font-weight: 600; color: #212529;">${value}</span>
+                </div>`).join('')}
             </div>
-            
+
             <button onclick="window.cvcTaskInstance.startPractice()" style="
                 background-color: #007bff;
                 color: white;

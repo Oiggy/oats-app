@@ -513,6 +513,8 @@ class Dashboard {
                         <p class="audio-hint">No ASIO device with inputs and outputs was found. Connect the interface and install its
                         ASIO driver (for Focusrite: Focusrite Control 2).</p>` : ''}
                     ${showForm ? `
+                    <div class="audio-cols">
+                    <div class="audio-col">
                     <div class="audio-field">
                         <label for="audio-device">ASIO device</label>
                         <select id="audio-device">
@@ -539,6 +541,12 @@ class Dashboard {
                         <small class="audio-hint">Stimuli play on every ticked output (mono stimuli are copied to each).</small>
                     </div>
                     <div class="audio-field">
+                        <label for="audio-in-channel">Recording input channel</label>
+                        <select id="audio-in-channel"></select>
+                    </div>
+                    </div>
+                    <div class="audio-col">
+                    <div class="audio-field">
                         <label>Windows sound output <span class="audio-live">live</span></label>
                         <div class="audio-windows-output" id="audio-windows-output">Checking&hellip;</div>
                         <div class="audio-clash-status unknown" id="audio-clash-status" aria-live="polite">Checking Windows sound output&hellip;</div>
@@ -546,10 +554,6 @@ class Dashboard {
                             <span class="audio-tip-dot" aria-hidden="true"></span>
                             Windows sounds will mix with your stimuli &mdash; hover to fix
                         </button>
-                    </div>
-                    <div class="audio-field">
-                        <label for="audio-in-channel">Recording input channel</label>
-                        <select id="audio-in-channel"></select>
                     </div>
                     <div class="audio-field">
                         <label for="audio-calibration">SPL calibration (optional)
@@ -565,7 +569,9 @@ class Dashboard {
                         <button type="button" class="button-secondary" id="audio-test-output">Test output</button>
                         <button type="button" class="button-secondary" id="audio-test-input">Test input (2 s)</button>
                     </div>
-                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>` : ''}
+                    <div class="audio-test-result" id="audio-test-result" aria-live="polite"></div>
+                    </div>
+                    </div>` : ''}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="button-secondary" id="audio-setup-cancel">Close</button>
@@ -3179,6 +3185,73 @@ class Dashboard {
         `;
     }
 
+    // Shows the survey one section at a time, with tabs across the top and
+    // Back/Next in the footer. Submit still checks every section and opens
+    // the first one with a problem.
+    setupSurveyPages(form) {
+        const sections = [...form.querySelectorAll('.modal-body > .form-section')];
+        if (sections.length < 2) return;
+        const shortNames = ['Session', 'About you', 'Language', 'Vision', 'Hearing', 'Health', 'Music & motor', "Today's setup", 'Consent'];
+        const body = form.querySelector('.modal-body');
+
+        const tabs = document.createElement('div');
+        tabs.className = 'survey-tabs';
+        tabs.setAttribute('role', 'tablist');
+        const tabButtons = sections.map((section, i) => {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'survey-tab';
+            tab.setAttribute('role', 'tab');
+            tab.textContent = shortNames[i] || section.querySelector('h3').textContent;
+            tab.title = section.querySelector('h3').textContent;
+            tab.addEventListener('click', () => show(i));
+            tabs.appendChild(tab);
+            return tab;
+        });
+        form.querySelector('.modal-header').after(tabs);
+
+        const steps = document.createElement('div');
+        steps.className = 'survey-steps';
+        steps.innerHTML = `
+            <button type="button" class="button-secondary" id="survey-back">Back</button>
+            <button type="button" class="button-secondary" id="survey-next">Next</button>
+            <span class="survey-page-count" id="survey-page-count"></span>`;
+        form.querySelector('.modal-footer').prepend(steps);
+        const back = steps.querySelector('#survey-back');
+        const next = steps.querySelector('#survey-next');
+        const count = steps.querySelector('#survey-page-count');
+
+        let page = 0;
+        const show = (i) => {
+            page = Math.max(0, Math.min(sections.length - 1, i));
+            sections.forEach((section, n) => { section.hidden = n !== page; });
+            tabButtons.forEach((tab, n) => {
+                tab.classList.toggle('active', n === page);
+                tab.setAttribute('aria-selected', n === page ? 'true' : 'false');
+            });
+            back.disabled = page === 0;
+            next.disabled = page === sections.length - 1;
+            count.textContent = `${page + 1} of ${sections.length}`;
+            body.scrollTop = 0;
+        };
+        back.addEventListener('click', () => show(page - 1));
+        next.addEventListener('click', () => show(page + 1));
+
+        this.surveyPages = {
+            // Marks the sections with problems and opens the first one
+            showErrors: () => {
+                let first = -1;
+                sections.forEach((section, n) => {
+                    const bad = !!section.querySelector('.error-text:not(:empty)');
+                    tabButtons[n].classList.toggle('has-error', bad);
+                    if (bad && first < 0) first = n;
+                });
+                if (first >= 0) show(first);
+            }
+        };
+        show(0);
+    }
+
     bindFormEvents() {
         const form = document.getElementById('biodata-form');
         const closeBtn = document.querySelector('.modal-close');
@@ -3200,6 +3273,9 @@ class Dashboard {
                 this.handleFormSubmit(form, submitBtn);
             });
         }
+
+        // One section per page, so no section needs scrolling
+        if (form) this.setupSurveyPages(form);
 
         // Set up conditional field logic
         this.setupConditionalFields();
@@ -3581,7 +3657,8 @@ class Dashboard {
         }
 
         if (hasErrors) {
-            // Scroll to first error
+            // Open the first section with a problem, then bring it into view
+            if (this.surveyPages) this.surveyPages.showErrors();
             const firstError = document.querySelector('.error-text:not(:empty)');
             if (firstError) {
                 firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });

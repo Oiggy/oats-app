@@ -1,0 +1,437 @@
+/* COMPACT LAYOUT
+ *
+ * Loaded after every other stylesheet. Tightens spacing and type across the
+ * dashboard, its pop-up windows and every task window so each screen fits a
+ * laptop window (down to about 1200 x 630) with nothing to scroll.
+ *
+ * Selectors start with "html body" so they win over the styles the task
+ * windows inject at run time; "!important" is used only where a task sets
+ * the value as an inline style.
+ */
+
+:root {
+    --oats-gap: 12px;
+    --oats-pad: 16px;
+    --oats-radius: 12px;
+    --oats-window-margin: 12px;
+}
+
+/* ---- Dashboard ------------------------------------------------------------ */
+
+html body {
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+html body .main-content {
+    padding: 14px 24px 18px;
+    gap: 14px;
+    justify-content: flex-start;
+}
+
+html body .subject-label { font-size: 12px; }
+html body .subject-value { font-size: 15px; }
+
+html body .main-panel {
+    max-width: 760px;
+    min-height: 0;
+    padding: 28px 32px;
+    gap: 24px;
+    margin: auto 0;
+    border-radius: 14px;
+}
+
+html body .stepper { gap: 20px; }
+html body .step-connector { top: 26px; height: 22px; }
+
+html body .biodata-button,
+html body .task-config-button,
+html body .task-dropdown {
+    padding-top: 9px;
+    padding-bottom: 9px;
+    font-size: 15px;
+    border-radius: 10px;
+}
+
+html body .task-config-button { margin-top: 0; }
+
+html body .run-task-button {
+    padding: 12px 28px;
+    font-size: 16px;
+    border-radius: 10px;
+}
+
+/* ---- Pop-up windows (survey, configuration, Audio Setup, Developer Mode) -- */
+
+html body .modal-content {
+    max-height: calc(100vh - 2 * var(--oats-window-margin));
+    border-radius: 14px;
+}
+
+html body .modal-header {
+    padding: 14px 20px 10px;
+    margin-bottom: 0;
+}
+
+html body .modal-title { font-size: 18px; }
+
+html body .modal-body {
+    padding: 12px 20px;
+    font-size: 13.5px;
+}
+
+html body .modal-footer {
+    padding: 10px 20px 14px;
+    gap: 10px;
+}
+
+html body .modal-footer .button-primary,
+html body .modal-footer .button-secondary,
+html body .audio-setup-modal .button-primary,
+html body .audio-setup-modal .button-secondary {
+    padding: 8px 18px;
+    min-width: 96px;
+    font-size: 13.5px;
+}
+
+/* Configuration windows */
+html body .config-modal .modal-content { max-width: 880px; }
+html body .config-modal .modal-header { padding: 14px 20px 6px; }
+html body .config-modal .modal-body { padding: 8px 20px 12px; }
+html body .config-modal .modal-footer { padding: 10px 20px 14px; }
+html body .config-tabs { margin-bottom: 10px; }
+html body .config-tab { padding: 7px 14px; font-size: 13.5px; }
+html body .config-card {
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+}
+html body .config-card h3 { font-size: 15px; margin-bottom: 4px; }
+html body .config-card > p,
+html body .config-card .card-description {
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    color: #515154;
+}
+html body .config-row {
+    gap: 10px 20px;
+    margin-bottom: 8px;
+}
+html body .config-group { margin-bottom: 4px; }
+html body .config-group label { font-size: 13px; margin-bottom: 4px; }
+html body .config-group .help-text { font-size: 11.5px; margin-top: 2px; }
+html body .number-stepper { height: 32px; }
+html body .number-stepper input { font-size: 13.5px; height: 30px; }
+html body .number-stepper button { width: 32px; height: 30px; }
+html body .config-group select,
+html body .config-group input[type="text"],
+html body .config-group input[type="number"] {
+    padding: 5px 8px;
+    font-size: 13.5px;
+}
+
+/* Audio Setup */
+html body .audio-setup-modal .modal-header { padding: 14px 24px 8px; }
+html body .audio-setup-modal .modal-body { padding: 0 24px 8px; font-size: 13px; }
+html body .audio-setup-modal .modal-footer { padding: 10px 24px 14px; }
+html body .modal-content > .audio-setup-modal { max-height: calc(100vh - 2 * var(--oats-window-margin)); }
+
+/* Toasts sit clear of window edges */
+html body .toast-container { bottom: 12px; left: 12px; }
+html body .toast { padding: 10px 14px; font-size: 13px; }
+
+/* ---- Task windows ---------------------------------------------------------- */
+
+/* Every task window fills the app window, less a small margin */
+html body .task-modal .modal-content,
+html body .cvc-task-modal,
+html body .reading-span-task-modal,
+html body .cast-word-modal,
+html body .cast-nonword-modal,
+html body .hint-modal,
+html body .cst-modal,
+html body .practice-cast-modal,
+html body .practice-sentence-modal {
+    width: calc(100vw - 2 * var(--oats-window-margin)) !important;
+    height: calc(100vh - 2 * var(--oats-window-margin)) !important;
+    max-width: 1240px !important;
+    max-height: 900px !important;
+    min-height: 0 !important;
+    border-radius: 14px !important;
+}
+
+/* Auditory Stroop, Speeded Classification, Stroop */
+html body .task-header { padding: 8px 16px; }
+html body .task-title { font-size: 17px; }
+html body .participant-info { font-size: 12.5px; padding: 2px 10px; }
+html body .task-close { padding: 4px; }
+html body .task-footer { padding: 8px 16px; }
+html body .task-progress { font-size: 13px; }
+html body .task-controls { gap: 8px; }
+html body .task-button { padding: 7px 16px; font-size: 13.5px; }
+html body .task-stage { font-size: 15px; }
+
+html body .welcome-screen,
+html body .instructions-screen,
+html body .task-complete,
+html body .phase-instructions,
+html body .break-screen {
+    padding: 14px 24px;
+    max-width: 760px;
+}
+
+html body .welcome-screen h3,
+html body .instructions-screen h3,
+html body .task-complete h3,
+html body .phase-instructions h3 {
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+html body .welcome-screen p,
+html body .instructions-screen p,
+html body .phase-instructions p {
+    margin-bottom: 8px;
+    line-height: 1.45;
+}
+
+html body .audio-test-section { margin: 10px 0; }
+html body .response-buttons-preview { margin: 10px 0; }
+html body .welcome-screen details,
+html body .instructions-screen details { margin: 8px 0; }
+
+/* Test Audio and its result */
+html body .oats-audio-check { margin: 8px auto; }
+html body .oats-audio-check-result {
+    margin-top: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+html body .oats-audio-check-result h4 { font-size: 14px; margin-bottom: 4px; }
+html body .oats-audio-check-result .hint { margin-top: 4px; }
+
+/* CVC */
+html body .cvc-task-header { padding: 8px 16px !important; }
+html body .cvc-task-content { padding: 14px 24px !important; }
+html body .cvc-task-footer { padding: 8px 16px !important; }
+html body .cvc-instructions { margin-bottom: 12px; line-height: 1.45; }
+html body .cvc-config-display { padding: 10px 16px; margin: 10px auto; }
+html body .cvc-config-row { padding: 2px 0; }
+
+/* Reading Span */
+html body .reading-span-task-header { padding: 8px 16px !important; }
+html body .reading-span-task-body { padding: 12px 24px !important; }
+html body #reading-span-status-text { margin-bottom: 8px !important; }
+html body .reading-span-instructions { margin-bottom: 12px; }
+html body .reading-span-instructions p { margin-bottom: 8px; }
+html body .reading-span-config-display { padding: 10px 16px; margin: 10px auto; }
+
+/* Speech in Noise */
+html body .cast-word-instruction-page,
+html body .cast-nonword-instruction-page,
+html body .hint-instruction-page,
+html body .cst-instruction-page,
+html body .practice-cast-instruction-page,
+html body .practice-sentence-instruction-page {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+    padding: 14px 24px;
+}
+
+html body .cast-word-player-page,
+html body .cast-nonword-player-page,
+html body .hint-player-page,
+html body .cst-player-page,
+html body .practice-cast-player-page,
+html body .practice-sentence-player-page {
+    max-height: none;
+    height: 100%;
+    padding: 10px 24px;
+}
+
+html body [class$="-instruction-page"] .task-title { font-size: 22px; margin-bottom: 10px; }
+html body [class$="-player-page"] .task-title { font-size: 20px; }
+html body .instruction-text { margin: 10px 0; padding: 14px 18px; font-size: 15px; line-height: 1.45; border-radius: 14px; }
+html body .instruction-buttons { margin-top: 10px; gap: 12px; }
+html body .player-content { gap: 8px; }
+
+/* Per-SNR running scores on one line instead of a column */
+html body .snr-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 14px;
+}
+html body .top-row { justify-content: center; }
+
+html body .word-display,
+html body .sentence-display {
+    padding: 14px 18px;
+    min-height: 0;
+}
+html body .correct-checkbox-container { padding: 2px 0; }
+html body .player-controls { margin: 4px 0; gap: 10px; }
+html body .control-btn { height: 40px; }
+html body .task-btn { height: 40px; padding: 8px 18px; font-size: 15px; }
+html body .bottom-controls { margin-top: 4px; }
+
+/* Speeded Classification welcome */
+html body .task-welcome { padding: 14px 24px; max-width: 760px; }
+html body .task-welcome h3 { font-size: 20px; margin-bottom: 8px; }
+html body .task-welcome p { margin-bottom: 8px; line-height: 1.45; }
+html body .task-welcome details { margin: 8px 0; }
+html body .audio-test { margin: 10px 0; }
+html body .audio-test > p,
+html body .audio-caption { font-size: 12.5px !important; margin-top: 4px !important; }
+
+/* Player screens sit in the middle of the window */
+html body .player-content { margin: auto; }
+
+/* The AUDIO and DEV badges would sit on a window's title bar and close
+   button: hide them while any window (task, survey, settings) is open */
+html body:has(#modal-overlay.open, .task-modal-overlay, .cvc-task-overlay, .reading-span-task-overlay) #audio-setup-indicator,
+html body:has(#modal-overlay.open, .task-modal-overlay, .cvc-task-overlay, .reading-span-task-overlay) #dev-mode-indicator {
+    display: none;
+}
+
+/* Audio Setup: device and channels on the left, Windows output,
+   calibration and tests on the right */
+html body .modal-content:has(> .audio-setup-modal) { max-width: 900px; width: calc(100vw - 2 * var(--oats-window-margin)); }
+html body .audio-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; align-items: start; }
+html body .audio-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+html body .audio-setup-body { display: flex; flex-direction: column; gap: 10px; }
+html body .audio-field { gap: 4px; }
+html body .audio-field select,
+html body .audio-field input[type="number"] { padding: 6px 8px; }
+html body .audio-status { padding: 7px 10px; }
+
+/* ---- Pre-task survey: one section per page ------------------------------- */
+
+html body .modal-content:has(> #biodata-form) {
+    max-width: 960px;
+    width: calc(100vw - 2 * var(--oats-window-margin));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+html body #biodata-form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(100vh - 2 * var(--oats-window-margin));
+}
+html body #biodata-form > .modal-header { border-bottom: none; padding-bottom: 4px; }
+html body #biodata-form > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    padding: 12px 22px 4px;
+}
+html body #biodata-form > .modal-footer { justify-content: flex-end; align-items: center; }
+
+html body .survey-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 0 16px;
+    border-bottom: 1px solid #e5e5e7;
+    flex-shrink: 0;
+}
+html body .survey-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 10px 7px;
+    font-size: 13px;
+    color: #6e6e73;
+    cursor: pointer;
+    white-space: nowrap;
+    border-radius: 6px 6px 0 0;
+}
+html body .survey-tab:hover { color: #1d1d1f; background: #f5f5f7; }
+html body .survey-tab.active { color: #007aff; border-bottom-color: #007aff; font-weight: 600; }
+html body .survey-tab.has-error { color: #ff3b30; }
+html body .survey-tab.has-error::after { content: ' \2022'; }
+
+html body .survey-steps { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+html body .survey-steps button:disabled { opacity: 0.4; cursor: default; }
+html body .survey-page-count { font-size: 12.5px; color: #6e6e73; margin-left: 4px; }
+
+html body #biodata-form .form-section { margin-bottom: 0; }
+html body #biodata-form .form-section[hidden] { display: none; }
+html body #biodata-form .form-section h3 { font-size: 15px; margin-bottom: 10px; padding-bottom: 4px; }
+html body #biodata-form .form-row { gap: 0 20px; }
+html body #biodata-form .form-group { margin-bottom: 8px; }
+html body #biodata-form .form-group label { font-size: 13px; margin-bottom: 4px; }
+html body #biodata-form .form-group input,
+html body #biodata-form .form-group select,
+html body #biodata-form .form-group textarea { padding: 6px 9px; font-size: 13.5px; border-radius: 7px; }
+html body #biodata-form .radio-group,
+html body #biodata-form .toggle-group,
+html body #biodata-form .checkbox-group { gap: 4px 14px; margin-top: 2px; }
+html body #biodata-form .radio-label,
+html body #biodata-form .toggle-label,
+html body #biodata-form .checkbox-label { font-size: 13.5px; }
+html body #biodata-form .consent-label { padding: 8px 10px; }
+html body #biodata-form .conditional-field { margin-top: 6px; padding: 8px 10px; }
+html body #biodata-form .slider-group,
+html body #biodata-form .likert-group { margin-top: 4px; }
+html body #biodata-form .slider-item,
+html body #biodata-form .likert-item { margin-bottom: 8px; }
+html body #biodata-form .error-text { min-height: 0; margin-top: 2px; font-size: 11.5px; }
+
+/* Language-use and proficiency sliders: three to a row */
+html body #biodata-form .slider-group,
+html body #biodata-form .likert-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px 22px;
+}
+html body #biodata-form .slider-item label,
+html body #biodata-form .likert-item label { font-weight: 400; margin-bottom: 0; }
+html body #biodata-form .slider,
+html body #biodata-form .likert-slider { margin-top: 2px; padding: 0; }
+html body #biodata-form .likert-labels { font-size: 11px; margin-top: 0; }
+
+/* Follow-up answers ("please describe") sit straight under their question */
+html body #biodata-form .conditional-field {
+    margin-top: 4px;
+    padding: 0;
+    background: none;
+    border: none;
+    display: flex;
+    gap: 8px;
+}
+html body #biodata-form .conditional-field[style*="display: none"] { display: none; }
+html body #biodata-form .conditional-field > * { margin-bottom: 0 !important; flex: 1; }
+html body #biodata-form .conditional-field textarea { height: 34px; min-height: 34px; resize: vertical; }
+html body #biodata-form .slider-item,
+html body #biodata-form .likert-item { margin-bottom: 2px; }
+html body #biodata-form .form-section h3 { border-bottom: none; padding-bottom: 0; margin-bottom: 8px; }
+
+/* Same height on every survey page, so the window doesn't jump between tabs */
+html body .modal-content:has(> #biodata-form) { height: min(640px, calc(100vh - 2 * var(--oats-window-margin))); }
+html body .modal-content:has(> #biodata-form) > #biodata-form { height: 100%; }
+
+/* Short windows (under 640 px tall): a little tighter still */
+@media (max-height: 640px) {
+    html body .welcome-screen p,
+    html body .instructions-screen p,
+    html body .task-welcome p,
+    html body .phase-instructions p { margin-bottom: 5px; line-height: 1.4; }
+    html body .welcome-screen h3,
+    html body .instructions-screen h3,
+    html body .task-welcome h3 { font-size: 18px; margin-bottom: 5px; }
+    html body .welcome-screen,
+    html body .instructions-screen,
+    html body .task-welcome { padding-top: 8px; padding-bottom: 8px; }
+    html body .audio-test,
+    html body .audio-test-section { margin: 6px 0; }
+    html body #biodata-form > .modal-header { padding-top: 10px; }
+    html body #biodata-form > .modal-body { padding-top: 8px; }
+    html body #biodata-form .form-group { margin-bottom: 5px; }
+    html body #biodata-form .form-section h3 { margin-bottom: 5px; }
+}
