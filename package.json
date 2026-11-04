@@ -48,5 +48,9 @@
     "fft-js": "^0.0.12",
     "node-record-lpcm16": "^1.0.1",
     "wav": "^1.0.2"
+  },
+  "allowScripts": {
+    "audify@1.10.1": true,
+    "electron@38.7.2": true
   }
 }

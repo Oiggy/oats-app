@@ -439,3 +439,32 @@ class PracticeCastTask {
         console.log('Practice task cleanup completed');
     }
 }
+
+async function loadSINPracticeTask(participantId) {
+    try {
+        console.log('Loading SIN Practice task for participant:', participantId);
+
+        // Read volume from the saved Words task config (same audio setup)
+        let volume = 1;
+        try {
+            const path = window.require('path');
+            const os = window.require('os');
+            const fs = window.require('fs').promises;
+            const baseDir = process.platform === 'win32'
+                ? path.join(os.homedir(), 'AppData', 'Roaming', 'Oats', 'task-configurations')
+                : path.join(os.homedir(), 'Documents', 'Oats', 'task-configurations');
+            const configPath = path.join(baseDir, 'cfg_cast_word_task.json');
+            const raw = await fs.readFile(configPath, 'utf8');
+            const cfg = JSON.parse(raw);
+            volume = cfg?.parameters?.audio?.volume ?? 1;
+        } catch (_) { /* use default volume if config not found */ }
+
+        window.practiceCastTaskInstance = new PracticeCastTask(participantId, { volume });
+        await window.practiceCastTaskInstance.init();
+    } catch (error) {
+        console.error('Error loading SIN Practice task:', error);
+        oatsDialog.alert('Error loading SIN Practice task. Please try again.');
+    }
+}
+
+window.loadSINPracticeTask = loadSINPracticeTask;

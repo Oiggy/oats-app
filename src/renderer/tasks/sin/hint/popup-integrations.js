@@ -30,6 +30,9 @@ class HINTTask {
         // Save tracking
         this.resultsSaved = false;
 
+        // SNR selection
+        this.selectedStartSNR = 25;
+
         // Recording
         this.mediaRecorder = null;
         this.recordingChunks = [];
@@ -247,10 +250,11 @@ class HINTTask {
         
         try {
             this.audioFiles = this.csvData.map(row => {
-                const snr = String(row['SNR']).padStart(2, '0');
+                const snrValue = parseInt(row['SNR']);
+                const snrFolder = snrValue === -5 ? 'SNR-05' : `SNR${String(snrValue).padStart(2, '0')}`;
                 const list = String(row['List Number']).padStart(2, '0');
                 const sentence = String(row['Sentence Number']).padStart(2, '0');
-                return path.join(audioDir, `SNR${snr}`, `L${list}_S${sentence}_mix.wav`);
+                return path.join(audioDir, snrFolder, `L${list}_S${sentence}_mix.wav`);
             });
             
             console.log('Audio files found:', this.audioFiles.length);
@@ -307,26 +311,29 @@ class HINTTask {
             In this task, you will hear sentences spoken in background noise.
             After each sentence, please repeat back exactly what you heard.`;
         
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
         this.modalContent.innerHTML = `
             <div class="hint-instruction-page">
                 <div class="instruction-content">
                     <h1 class="task-title">HINT</h1>
-                    
+
                     <div class="instruction-text">${instructionText.split('\n').map((line) => line.trim().replace(/ {2,}/g, ' ')).join('\n').trim()}</div>
-                    
+
                     ${this.audioCheckHTML()}
 
-                    ${this.practiceResult ? `<div class="practice-done-note" style="margin: 4px 0 12px; color: #28a745; font-weight: 600;">✓ Practice done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)</div>` : ''}
+                    <div class="snr-selector">
+                        <label class="snr-selector-label">Start at SNR (dB):</label>
+                        <div class="snr-selector-buttons" id="snr-selector-buttons">
+                            ${snrLevels.map(s => `<button class="snr-select-btn${s === this.selectedStartSNR ? ' active' : ''}" data-snr="${s}">${s}</button>`).join('')}
+                        </div>
+                    </div>
 
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
                         </button>
-                        <button class="task-btn ${this.practiceResult ? 'task-btn-secondary' : 'task-btn-primary'}" id="practice-btn">
-                            ${this.practiceResult ? 'Practice Again' : 'Start Practice'}
-                        </button>
-                        <button class="task-btn ${this.practiceResult ? 'task-btn-primary' : 'task-btn-secondary'}" id="start-hint-btn">
-                            ${this.practiceResult ? 'Start Task' : 'Skip Practice'}
+                        <button class="task-btn task-btn-primary" id="start-hint-btn">
+                            Start
                         </button>
                     </div>
                 </div>
@@ -335,53 +342,46 @@ class HINTTask {
 
         const audioCheckBtn = document.getElementById('audio-check-btn');
         if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
-        
+
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
-            // Nothing to save unless the task was started
             if (this.taskStarted) this.saveResults();
             this.closeTask();
         });
 
-        document.getElementById('practice-btn').addEventListener('click', () => this.startPractice());
-        
+        document.querySelectorAll('.snr-select-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.snr-select-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.selectedStartSNR = parseInt(btn.dataset.snr);
+            });
+        });
+
         document.getElementById('start-hint-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
                 oatsDialog.alert('No audio/CSV items found.');
                 return;
             }
+            const startIndex = this.csvData.findIndex(row => String(row['SNR']) === String(this.selectedStartSNR));
+            this.currentIndex = startIndex >= 0 ? startIndex : 0;
             this.showPlayerPage();
         });
     }
 
     // Built-in sentence practice: hides this task, runs the practice items at this
     // task's volume, then comes back to the instruction page.
-    async startPractice() {
-        this.stopAudio();
-        this.modalOverlay.style.display = 'none';
-        const practice = new PracticeSentenceTask(this.participantId, {
-            volume: this.config.parameters.audio.volume,
-            onFinish: (result) => {
-                if (result.result === 'complete' || result.itemsPlayed > 0) this.practiceResult = result;
-                this.modalOverlay.style.display = '';
-                this.showInstructionPage();
-            }
-        });
-        window.practiceSentenceTaskInstance = practice;
-        await practice.init();
-        if (!practice.modalOverlay || !practice.modalOverlay.parentNode) {
-            // Practice couldn't open (its error was shown): come back
-            this.modalOverlay.style.display = '';
-        }
-    }
-
     showPlayerPage() {
         this.taskStarted = true;
         this.currentPage = 'player';
         
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
         this.modalContent.innerHTML = `
             <div class="hint-player-page">
                 <div class="player-content">
                     <h1 class="task-title">HINT</h1>
+
+                    <div class="snr-jump-row" id="snr-jump-row">
+                        ${snrLevels.map(s => `<button class="snr-jump-btn" data-snr="${s}">${s}</button>`).join('')}
+                    </div>
 
                     <div class="top-row">
                         <div class="left-col">
@@ -449,39 +449,61 @@ class HINTTask {
             this.closeTask();
         });
         document.getElementById('select-all-btn').addEventListener('click', () => this.selectAllKeywords());
-        
+
+        document.querySelectorAll('.snr-jump-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.jumpToSNR(parseInt(btn.dataset.snr)));
+        });
+
+        this.refreshPlayerUI();
+    }
+
+    updateSNRJumpButtons() {
+        const currentSNR = String(this.csvData[this.currentIndex]['SNR']);
+        document.querySelectorAll('.snr-jump-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.snr === currentSNR);
+        });
+    }
+
+    jumpToSNR(snr) {
+        const index = this.csvData.findIndex(row => String(row['SNR']) === String(snr));
+        if (index < 0) return;
+        this.saveKeywordStates();
+        this.stopResponseTimer();
+        this.stopAudio();
+        this.currentIndex = index;
         this.refreshPlayerUI();
     }
 
     refreshPlayerUI() {
         if (this.totalItems === 0) return;
-        
+
         const row = this.csvData[this.currentIndex];
-        
+
         // Update counter
         const sentenceNum = row['Sentence Number'] || '';
         const totalInList = this.csvData.filter(r => r['SNR'] === row['SNR']).length;
-        document.getElementById('item-counter').textContent = 
+        document.getElementById('item-counter').textContent =
             `Item ${this.currentIndex + 1} of ${this.totalItems}  |  Sentence ${sentenceNum} of ${totalInList}`;
-        
+
         // Update SNR
         const snr = row['SNR'] || '';
         const snrText = snr ? `SNR: ${snr} dB` : 'SNR: — dB';
         document.getElementById('snr-label').textContent = snrText;
-        
+
         // Update sentence (handle both "Sentence" and "Sentence " with trailing space)
         const sentence = row['Sentence '] || row['Sentence'] || '—';
         document.getElementById('sentence-display').textContent = sentence;
-        
+
         // Build keywords
         this.buildKeywordsArea(row['Key Words'] || '');
-        
+
         // Reset take counter for new item
         this.currentTake = 0;
 
-        // Update SNR summary and skip hint
+        // Update SNR summary, skip hint, and jump buttons
         this.updateSNRSummary();
         this.updateSkipHint();
+        this.updateSNRJumpButtons();
 
         this.stopAudio();
         this.resetResponseTimer();
@@ -577,7 +599,7 @@ class HINTTask {
         const summaryDiv = document.getElementById('snr-summary');
         if (!summaryDiv) return;
 
-        const snrOrder = [25, 20, 15, 10, 5, 0];
+        const snrOrder = [25, 20, 15, 10, 5, 0, -5];
         const snrCounts = {};
         snrOrder.forEach(snr => { snrCounts[snr] = { total: 0, correct: 0 }; });
 
@@ -918,7 +940,7 @@ class HINTTask {
         const participantDir = getParticipantDir(this.participantId);
         await fs.mkdir(participantDir, { recursive: true });
         const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
-        const snrLevels = [25, 20, 15, 10, 5, 0];
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
 
         let data = {};
         snrLevels.forEach(snr => {
