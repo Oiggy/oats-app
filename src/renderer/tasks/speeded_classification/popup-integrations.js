@@ -514,19 +514,19 @@ class SpeededClassificationPopup {
     getResponseButtons(dimension) {
         return dimension === 'phoneme'
             ? [
-                { label: 'B', value: 'b', key: 'b', description: 'word starts with /b/' },
-                { label: 'P', value: 'p', key: 'p', description: 'word starts with /p/' }
+                { label: 'B', value: 'b', key: 'ShiftLeft', keyLabel: 'Left Shift', description: 'word starts with /b/' },
+                { label: 'P', value: 'p', key: 'ShiftRight', keyLabel: 'Right Shift', description: 'word starts with /p/' }
             ]
             : [
-                { label: 'Male', value: 'male', key: 'm', description: 'male voice' },
-                { label: 'Female', value: 'female', key: 'f', description: 'female voice' }
+                { label: 'Male', value: 'male', key: 'ShiftLeft', keyLabel: 'Left Shift', description: 'male voice' },
+                { label: 'Female', value: 'female', key: 'ShiftRight', keyLabel: 'Right Shift', description: 'female voice' }
             ];
     }
 
     getInstructions(dimension, isPractice, practiceCount) {
         const task = dimension === 'phoneme'
-            ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>B</strong> key (or click B) for words starting with B.\nPress the <strong>P</strong> key (or click P) for words starting with P.'
-            : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>M</strong> key (or click Male) for a male voice.\nPress the <strong>F</strong> key (or click Female) for a female voice.';
+            ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>left Shift</strong> key (or click B) for words starting with B.\nPress the <strong>right Shift</strong> key (or click P) for words starting with P.'
+            : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>left Shift</strong> key (or click Male) for a male voice.\nPress the <strong>right Shift</strong> key (or click Female) for a female voice.';
         const tail = isPractice
             ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first do ${practiceCount} practice trials with feedback.`
             : '\n\nThe practice is over. Respond as quickly and accurately as possible.\nNo feedback will be provided.';
@@ -1227,7 +1227,7 @@ class SpeededClassificationPopup {
                 <p>${this.currentPhase.instructions.replace(/\n/g, '<br>')}</p>
                 <div class="response-buttons-preview">
                     ${this.currentPhase.responseButtons.map(button => 
-                        `<div class="preview-button">${button.label}<span class="key-hint">key: ${button.key.toUpperCase()}</span></div>`
+                        `<div class="preview-button">${button.label}<span class="key-hint">key: ${button.keyLabel}</span></div>`
                     ).join('')}
                 </div>
                 <button id="start-phase-btn" class="task-button task-button-primary">
@@ -1255,7 +1255,7 @@ class SpeededClassificationPopup {
                 <div class="response-buttons">
                     ${this.currentPhase.responseButtons.map(button => 
                         `<button class="response-button" data-response="${button.value}">
-                            ${button.label}<span class="key-hint">${button.key.toUpperCase()}</span>
+                            ${button.label}<span class="key-hint">${button.keyLabel}</span>
                         </button>`
                     ).join('')}
                 </div>
@@ -1459,7 +1459,8 @@ class SpeededClassificationPopup {
         return new Promise(resolve => {
             const timeoutMs = this.config.parameters.timing.response_timeout;
             const keyMap = {};
-            responseButtons.forEach(b => { keyMap[b.key.toLowerCase()] = b.value; });
+            // Left / right Shift pick the left / right button (by physical key)
+            responseButtons.forEach(b => { keyMap[b.key] = b.value; });
             const stage = document.getElementById('task-stage');
             let done = false;
 
@@ -1491,7 +1492,7 @@ class SpeededClassificationPopup {
 
             const onKey = (e) => {
                 if (e.repeat) return;
-                const value = keyMap[(e.key || '').toLowerCase()];
+                const value = keyMap[e.code];
                 if (!value) return;
                 e.preventDefault();
                 const btn = stage ? stage.querySelector(`.response-button[data-response="${value}"]`) : null;

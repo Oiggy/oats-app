@@ -56,8 +56,8 @@ class AuditoryStroopPopup {
 
     static get RESPONSE_BUTTONS() {
         return [
-            { label: 'M', value: 'M', key: 'm', description: 'male voice' },
-            { label: 'F', value: 'F', key: 'f', description: 'female voice' }
+            { label: 'M', value: 'M', key: 'ShiftLeft', keyLabel: 'Left Shift', description: 'male voice' },
+            { label: 'F', value: 'F', key: 'ShiftRight', keyLabel: 'Right Shift', description: 'female voice' }
         ];
     }
 
@@ -890,7 +890,7 @@ class AuditoryStroopPopup {
             <div class="welcome-screen">
                 <h3>Welcome to the Auditory Stroop Task</h3>
                 <p>You will hear the words <em>mother</em>, <em>father</em> and <em>person</em> spoken by male and female voices. Your task is to decide whether the speaker is a <strong>man</strong> or a <strong>woman</strong>, ignoring the meaning of the word.</p>
-                <p>Each trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible using the M and F keys or the onscreen buttons.</p>
+                <p>Each trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible using the left and right Shift keys or the onscreen buttons.</p>
                 ${this.renderMissingAudioWarning()}
                 
                 <div class="audio-test">
@@ -960,7 +960,7 @@ class AuditoryStroopPopup {
 
     renderButtonPreview() {
         return AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
-            `<div class="preview-button">${b.label}<span class="key-hint">key: ${b.key.toUpperCase()}</span></div>`
+            `<div class="preview-button">${b.label}<span class="key-hint">key: ${b.keyLabel}</span></div>`
         ).join('');
     }
 
@@ -974,7 +974,7 @@ class AuditoryStroopPopup {
             <div class="instructions-screen">
                 <h3>Practice: Auditory Stroop</h3>
                 <p>You will hear a word spoken by a man or a woman. Decide whether the <strong>voice</strong> is male or female — ignore what the word means.</p>
-                <p><strong>Press M (or click M) for a male voice.<br>Press F (or click F) for a female voice.</strong></p>
+                <p><strong>Press the left Shift key (or click M) for a male voice.<br>Press the right Shift key (or click F) for a female voice.</strong></p>
                 <p>Respond as quickly and accurately as possible. You will receive feedback during these ${this.practiceStimuli.length} practice trials.</p>
                 
                 <div class="response-buttons-preview">
@@ -1011,7 +1011,7 @@ class AuditoryStroopPopup {
             <div class="instructions-screen">
                 <h3>Main Task: Auditory Stroop</h3>
                 <p>You will again hear words spoken by a man or a woman. Decide whether the <strong>voice</strong> is male or female, ignoring the word meaning.</p>
-                <p><strong>Press M (or click M) for a male voice.<br>Press F (or click F) for a female voice.</strong></p>
+                <p><strong>Press the left Shift key (or click M) for a male voice.<br>Press the right Shift key (or click F) for a female voice.</strong></p>
                 <p>Respond as quickly and accurately as possible. No feedback will be provided in this phase.</p>
                 
                 <div class="response-buttons-preview">
@@ -1074,7 +1074,7 @@ class AuditoryStroopPopup {
                 <div class="response-timer" id="response-timer">Time left: —</div>
                 <div class="response-buttons">
                     ${AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
-                        `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.key.toUpperCase()}</span></button>`
+                        `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.keyLabel}</span></button>`
                     ).join('')}
                 </div>
                 <div class="feedback-slot" id="feedback-slot"></div>
@@ -1260,11 +1260,12 @@ class AuditoryStroopPopup {
         return { onsetPerf: this.contextTimeToPerformance(stimulusStart), ended, backend: 'WebAudio', timingReliable: true };
     }
 
-    // Keyboard (M/F) or onscreen-button response, timed from word onset.
+    // Keyboard (left/right Shift) or onscreen-button response, timed from word onset.
     collectResponse(onsetPerf) {
         return new Promise(resolve => {
             const timeoutMs = this.config.parameters.timing.response_timeout;
             const keyMap = {};
+            // Left / right Shift pick the left / right button (by physical key)
             AuditoryStroopPopup.RESPONSE_BUTTONS.forEach(b => { keyMap[b.key] = b.value; });
             const stage = document.getElementById('task-stage');
             let done = false;
@@ -1297,7 +1298,7 @@ class AuditoryStroopPopup {
 
             const onKey = (e) => {
                 if (e.repeat) return;
-                const value = keyMap[(e.key || '').toLowerCase()];
+                const value = keyMap[e.code];
                 if (!value) return;
                 e.preventDefault();
                 const btn = stage ? stage.querySelector(`.response-button[data-response="${value}"]`) : null;
