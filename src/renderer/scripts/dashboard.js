@@ -1587,10 +1587,10 @@ class Dashboard {
                                 <label for="sc-control-reps">Control Block Repetitions</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="sc-control-reps">−</button>
-                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="8" readonly>
+                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="6" readonly>
                                     <button type="button" data-action="increase" data-target="sc-control-reps">+</button>
                                 </div>
-                                <div class="help-text">8 stimuli &times; this (paper: 8 = 64 trials)</div>
+                                <div class="help-text">8 stimuli &times; this (default 6 = 48 trials, as in auditory Stroop; paper: 8 = 64)</div>
                             </div>
                         </div>
 
@@ -2007,7 +2007,7 @@ class Dashboard {
                 trials: {
                     practice_round_size: intValue('sc-practice', 3),
                     practice_max_rounds: intValue('sc-practice-rounds', 4),
-                    control_repetitions: intValue('sc-control-reps', 8),
+                    control_repetitions: intValue('sc-control-reps', 6),
                     orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
                 timing: {

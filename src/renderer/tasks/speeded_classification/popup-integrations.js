@@ -10,8 +10,10 @@
 //               voice-relevant   (respond male vs female)
 //   Conditions  control     - irrelevant dimension held constant
 //                 phoneme: one b/p pair (e.g. buff-puff) by the 4 talkers of
-//                          one sex = 8 stimuli, each presented 8 times
-//                 voice:   one word by all 8 talkers = 8 stimuli, each x8
+//                          one sex = 8 stimuli, each presented 6 times
+//                 voice:   one word by all 8 talkers = 8 stimuli, each x6
+//                 (the paper presented each 8 times; 6 here, as in the
+//                 auditory Stroop task, to shorten the task)
 //                 (pseudo-random, never the same stimulus twice in a row)
 //               orthogonal  - all 64 stimuli once each, pseudo-random
 //   Each participant runs all 4 conditions. Unlike the paper (which
@@ -139,7 +141,7 @@ class SpeededClassificationPopup {
                 trials: {
                     practice_round_size: 3,      // practice trials per round; all correct = passed
                     practice_max_rounds: 4,      // failed rounds before the experimenter is asked
-                    control_repetitions: 8,      // 8 stimuli x 8 = 64 control trials
+                    control_repetitions: 6,      // 8 stimuli x 6 = 48 control trials (paper: x8 = 64)
                     orthogonal_repetitions: 1    // 64 stimuli x 1 = 64 orthogonal trials
                 },
                 // Same for every participant (the paper counterbalanced these;
