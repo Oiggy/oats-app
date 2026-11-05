@@ -22,8 +22,9 @@
 //   12 practice trials (with feedback) before each condition; no feedback
 //   on test trials.
 //   Trial: 500-Hz warning tone -> 500 ms -> stimulus. RT is measured from
-//   stimulus onset. 3-s response deadline; the 2-s silent interval before
-//   the next warning tone starts at the response (or at the deadline).
+//   stimulus onset (where speech starts in the file, not the file start).
+//   3-s response deadline; the 2-s silent interval before the next
+//   warning tone starts at the response (or at the deadline).
 //   The response screen stays up for the whole block (no fixation cross).
 //   Scoring: interference = mean correct RT (orthogonal) - mean correct RT
 //   (control), per dimension, after removing RTs exceeding each
@@ -41,6 +42,7 @@ class SpeededClassificationPopup {
         this.audioContext = null;
         this.stimulusList = [];
         this.audioBuffers = {};
+        this.speechOnsetMs = {};   // where speech starts in each file (ms)
         this.audioFilePaths = {};
         this.missingAudio = [];
         this.asioEngine = null;
@@ -352,6 +354,7 @@ class SpeededClassificationPopup {
         const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
         if (this.audioContext) {
             this.audioBuffers[stimulus.stimulus_id] = await this.audioContext.decodeAudioData(arrayBuffer);
+            this.speechOnsetMs[stimulus.stimulus_id] = this.getSpeechOnset().detectSpeechOnsetMs(this.audioBuffers[stimulus.stimulus_id]);
         }
     }
 
@@ -1317,6 +1320,7 @@ class SpeededClassificationPopup {
             audio_placeholder: this.missingAudio.includes(stimulus.stimulus_id),
             audio_backend: playback.backend,
             timing_reliable: playback.timingReliable,
+            speech_onset_in_file_ms: this.getSpeechOnsetMs(stimulus),
             timestamp: new Date().toISOString()
         };
         
@@ -1370,12 +1374,26 @@ class SpeededClassificationPopup {
             throw new Error('ASIO did not start playback');
         }
 
-        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
+        const playback = { onsetPerf: first.partOnsetPerfMs[2] + this.getSpeechOnsetMs(stimulus), backend: 'ASIO', timingReliable: true };
         playback.ended = played.then((result) => {
             playback.timingReliable = !result.cancelled && result.timingReliable !== false;
             return result;
         }, () => { playback.timingReliable = false; });
         return playback;
+    }
+
+    // Shared speech-onset detection (see src/shared/audio/speech-onset.js)
+    getSpeechOnset() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'speech-onset.js'));
+    }
+
+    // Where speech starts in this stimulus's file. RTs, the response
+    // deadline and the countdown run from there, not from the file start
+    // (the recordings begin with silence of varying length).
+    getSpeechOnsetMs(stimulus) {
+        return Math.round(this.speechOnsetMs[stimulus.stimulus_id] || 0);
     }
 
     // Maps an AudioContext time to the performance.now() clock, taking
@@ -1449,7 +1467,7 @@ class SpeededClassificationPopup {
             ended = this.wait((stimulusStart - ctx.currentTime) * 1000 + 500);
         }
 
-        return { onsetPerf: this.contextTimeToPerformance(stimulusStart), ended, backend: 'WebAudio', timingReliable: true };
+        return { onsetPerf: this.contextTimeToPerformance(stimulusStart) + this.getSpeechOnsetMs(stimulus), ended, backend: 'WebAudio', timingReliable: true };
     }
 
     // Collects a keyboard or onscreen-button response. RT is measured from
@@ -1782,7 +1800,7 @@ class SpeededClassificationPopup {
             'participant_id', 'global_trial', 'block', 'phase', 'is_practice', 'dimension', 'condition',
             'trial_in_phase', 'stimulus', 'word', 'initial_phoneme', 'talker', 'talker_sex',
             'correct_response', 'participant_response', 'response_source', 'reaction_time',
-            'timed_out', 'accuracy', 'rt_outlier', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
+            'timed_out', 'accuracy', 'rt_outlier', 'speech_onset_in_file_ms', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
         ];
         const escape = (v) => {
             const s = v === null || v === undefined ? '' : String(v);
@@ -1846,6 +1864,7 @@ class SpeededClassificationPopup {
         content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
         content += `Warning Tone -> Stimulus Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from stimulus onset): ${config.timing.response_timeout}ms\n`;
+        content += `Stimulus Onset: where speech starts in each file (first sample within 60 dB of the file's peak; per trial in trials.csv, speech_onset_in_file_ms)\n`;
         content += `Silent Interval after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
         content += `Audio Volume: ${config.audio.volume}\n`;
@@ -1858,7 +1877,7 @@ class SpeededClassificationPopup {
         // Garner interference
         content += 'GARNER INTERFERENCE (test trials only)\n';
         content += '-'.repeat(60) + '\n';
-        content += 'RTs from correct trials, measured from stimulus onset; no-response\n';
+        content += 'RTs from correct trials, measured from where speech starts in each file; no-response\n';
         content += 'trials excluded; RTs more than 2 SD above each condition mean removed.\n';
         content += 'Interference = orthogonal RT - control RT.\n\n';
         content += 'Dimension        | Control M (SD)      | Orthogonal M (SD)   | Interference | % Increase\n';

@@ -16,8 +16,9 @@
 //              the paper (an order per participant), every participant gets
 //              the same order (seeded, see trial_order_seed).
 //   Trial      500-Hz warning tone -> 500 ms -> word. RT measured from word
-//              onset. Responses slower than 3 s count as incorrect. 2-s delay
-//              between the response (or the 3-s deadline) and the next
+//              onset (where speech starts in the file, not the file
+//              start). Responses slower than 3 s count as incorrect. 2-s
+//              delay between the response (or the 3-s deadline) and the next
 //              warning tone. The response screen stays up for the whole
 //              phase (no fixation cross).
 //   Scoring    correct trials only; RTs exceeding each condition's mean by
@@ -37,6 +38,7 @@ class AuditoryStroopPopup {
         this.results = [];
         this.audioContext = null;
         this.audioBuffers = {};
+        this.speechOnsetMs = {};   // where speech starts in each file (ms)
         this.audioFilePaths = {};
         this.missingAudio = [];
         this.asioEngine = null;
@@ -344,6 +346,7 @@ class AuditoryStroopPopup {
         const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
         if (this.audioContext) {
             this.audioBuffers[stimulus.stimulus_id] = await this.audioContext.decodeAudioData(arrayBuffer);
+            this.speechOnsetMs[stimulus.stimulus_id] = this.getSpeechOnset().detectSpeechOnsetMs(this.audioBuffers[stimulus.stimulus_id]);
         }
     }
 
@@ -1125,6 +1128,7 @@ class AuditoryStroopPopup {
             audio_placeholder: this.missingAudio.includes(stimulus.stimulus_id),
             audio_backend: playback.backend,
             timing_reliable: playback.timingReliable,
+            speech_onset_in_file_ms: this.getSpeechOnsetMs(stimulus),
             timestamp: new Date().toISOString()
         };
         
@@ -1178,12 +1182,26 @@ class AuditoryStroopPopup {
             throw new Error('ASIO did not start playback');
         }
 
-        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
+        const playback = { onsetPerf: first.partOnsetPerfMs[2] + this.getSpeechOnsetMs(stimulus), backend: 'ASIO', timingReliable: true };
         playback.ended = played.then((result) => {
             playback.timingReliable = !result.cancelled && result.timingReliable !== false;
             return result;
         }, () => { playback.timingReliable = false; });
         return playback;
+    }
+
+    // Shared speech-onset detection (see src/shared/audio/speech-onset.js)
+    getSpeechOnset() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'speech-onset.js'));
+    }
+
+    // Where speech starts in this stimulus's file. RTs, the response
+    // deadline and the countdown run from there, not from the file start
+    // (the recordings begin with silence of varying length).
+    getSpeechOnsetMs(stimulus) {
+        return Math.round(this.speechOnsetMs[stimulus.stimulus_id] || 0);
     }
 
     // Maps an AudioContext time to the performance.now() clock, taking
@@ -1257,7 +1275,7 @@ class AuditoryStroopPopup {
             ended = this.wait((stimulusStart - ctx.currentTime) * 1000 + 800);
         }
 
-        return { onsetPerf: this.contextTimeToPerformance(stimulusStart), ended, backend: 'WebAudio', timingReliable: true };
+        return { onsetPerf: this.contextTimeToPerformance(stimulusStart) + this.getSpeechOnsetMs(stimulus), ended, backend: 'WebAudio', timingReliable: true };
     }
 
     // Keyboard (left/right Shift) or onscreen-button response, timed from word onset.
@@ -1575,7 +1593,7 @@ class AuditoryStroopPopup {
         const columns = [
             'participant_id', 'global_trial', 'phase', 'trial', 'stimulus_file', 'word', 'talker',
             'voice_gender', 'condition', 'correct_response', 'participant_response', 'response_source',
-            'reaction_time', 'timed_out', 'accuracy', 'rt_outlier', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
+            'reaction_time', 'timed_out', 'accuracy', 'rt_outlier', 'speech_onset_in_file_ms', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
         ];
         const escape = (v) => {
             const s = v === null || v === undefined ? '' : String(v);
@@ -1628,6 +1646,7 @@ class AuditoryStroopPopup {
         content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
         content += `Warning Tone -> Word Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from word onset): ${config.timing.response_timeout}ms\n`;
+        content += `Word Onset: where speech starts in each file (first sample within 60 dB of the file's peak; per trial in trials.csv, speech_onset_in_file_ms)\n`;
         content += `Delay after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
         content += `Audio Volume: ${config.audio.volume}\n`;
@@ -1640,7 +1659,7 @@ class AuditoryStroopPopup {
         // Stroop analysis
         content += 'STROOP RESULTS (main trials only)\n';
         content += '-'.repeat(60) + '\n';
-        content += 'RTs from correct trials, measured from word onset; responses slower\n';
+        content += 'RTs from correct trials, measured from where speech starts in each file; responses slower\n';
         content += `than ${config.timing.response_timeout}ms count as incorrect; RTs more than 2 SD above each\n`;
         content += 'condition mean removed. Interference = incongruent RT - neutral RT.\n\n';
         content += 'Condition    | Trials | Correct | Accuracy | No-resp | Mean RT | SD     | RTs used | Trimmed\n';
