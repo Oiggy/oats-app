@@ -19,8 +19,10 @@
 //   session: phoneme before voice, control before orthogonal, buff-puff by
 //   the male talkers, "bad" for the voice control, and one fixed
 //   pseudo-random trial order (seeded, see trial_order_seed).
-//   12 practice trials (with feedback) before each condition; no feedback
-//   on test trials.
+//   Practice (with feedback) before each condition, in rounds of 3 trials:
+//   a round passes when all 3 are correct; otherwise 3 more follow. After 4
+//   failed rounds the experimenter chooses more practice or the block. (The
+//   paper used 12 practice trials.) No feedback on test trials.
 //   Trial: 500-Hz warning tone -> 500 ms -> stimulus. RT is measured from
 //   stimulus onset (where speech starts in the file, not the file start).
 //   3-s response deadline; the 2-s silent interval before the next
@@ -135,7 +137,8 @@ class SpeededClassificationPopup {
             version: SpeededClassificationPopup.CONFIG_VERSION,
             parameters: {
                 trials: {
-                    practice_per_condition: 12,  // 12 practice trials before each condition
+                    practice_round_size: 3,      // practice trials per round; all correct = passed
+                    practice_max_rounds: 4,      // failed rounds before the experimenter is asked
                     control_repetitions: 8,      // 8 stimuli x 8 = 64 control trials
                     orthogonal_repetitions: 1    // 64 stimuli x 1 = 64 orthogonal trials
                 },
@@ -531,7 +534,7 @@ class SpeededClassificationPopup {
             ? 'Decide whether each word begins with a <strong>B</strong> or a <strong>P</strong> sound. Ignore whether the speaker is male or female.\n\nPress the <strong>left Shift</strong> key (or click B) for words starting with B.\nPress the <strong>right Shift</strong> key (or click P) for words starting with P.'
             : 'Decide whether each word is spoken by a <strong>male</strong> or a <strong>female</strong> voice. Ignore what the word is.\n\nPress the <strong>left Shift</strong> key (or click Male) for a male voice.\nPress the <strong>right Shift</strong> key (or click Female) for a female voice.';
         const tail = isPractice
-            ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first do ${practiceCount} practice trials with feedback.`
+            ? `\n\nEach trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible.\nYou will first practice with feedback, ${practiceCount} trials at a time. When you get all ${practiceCount} right, the block starts; otherwise you practice ${practiceCount} more.`
             : '\n\nThe practice is over. Respond as quickly and accurately as possible.\nNo feedback will be provided.';
         return task + tail;
     }
@@ -553,10 +556,13 @@ class SpeededClassificationPopup {
                 blockNumber++;
                 const set = this.getConditionStimulusSet(dimension, condition, cb);
                 const responseButtons = this.getResponseButtons(dimension);
-                const practiceCount = trialParams.practice_per_condition;
+                const practiceCount = trialParams.practice_round_size;
 
                 if (practiceCount > 0) {
-                    const stimuli = this.buildPracticeSequence(set, dimension, practiceCount);
+                    // Rounds take consecutive trials from this sequence (the
+                    // same for every participant), wrapping around if needed
+                    const maxRounds = Math.max(1, trialParams.practice_max_rounds);
+                    const stimuli = this.buildPracticeSequence(set, dimension, practiceCount * maxRounds);
                     this.phases.push({
                         name: `practice_${dimension}_${condition}`,
                         type: dimension,
@@ -564,7 +570,7 @@ class SpeededClassificationPopup {
                         condition,
                         block: blockNumber,
                         isPractice: true,
-                        trialCount: stimuli.length,
+                        trialCount: practiceCount,   // one round
                         title: `Block ${blockNumber} of ${totalBlocks} – Practice: ${dimensionLabel[dimension]}`,
                         instructions: this.getInstructions(dimension, true, practiceCount),
                         responseButtons,
@@ -664,7 +670,7 @@ class SpeededClassificationPopup {
     }
 
     generateTaskHTML() {
-        const totalTrials = this.phases.reduce((sum, phase) => sum + phase.trialCount, 0);
+        const totalTrials = this.phases.filter(p => !p.isPractice).reduce((sum, phase) => sum + phase.trialCount, 0);
         
         return `
             <div class="task-header">
@@ -683,7 +689,7 @@ class SpeededClassificationPopup {
                         <h3>Welcome to the Speeded Classification Task</h3>
                         <p>You will hear spoken words. In each block you will classify every word either by its first sound (B or P) or by the speaker's voice (male or female).</p>
                         <p>Each trial starts with a short beep, followed half a second later by the word. Respond as quickly and accurately as possible using the keyboard keys or the onscreen buttons.</p>
-                        <p>This task has ${this.phases.filter(p => !p.isPractice).length} blocks (${totalTrials} trials in total, including practice).</p>
+                        <p>This task has ${this.phases.filter(p => !p.isPractice).length} blocks (${totalTrials} trials in total), each starting with a short practice.</p>
                         ${this.renderMissingAudioWarning()}
                         ${this.renderCounterbalancingControls()}
                         <div class="audio-test">
@@ -1159,6 +1165,7 @@ class SpeededClassificationPopup {
         this.currentTrialInPhase = 0;
         this.totalTrialsCompleted = 0;
         this.results = [];
+        this.practiceOutcomes = [];
         this.isPaused = false;
         this.startTime = null;
     }
@@ -1198,6 +1205,11 @@ class SpeededClassificationPopup {
             // One trial screen for the whole phase; trials only update it
             this.showTrialScreen();
 
+            if (this.currentPhase.isPractice) {
+                await this.runPracticeRounds();
+                continue;
+            }
+
             // Run trials for this phase
             for (this.currentTrialInPhase = 0; this.currentTrialInPhase < this.currentPhase.trialCount; this.currentTrialInPhase++) {
                 if (this.taskState === 'stopped' || this.finishedEarly) break;
@@ -1216,6 +1228,87 @@ class SpeededClassificationPopup {
         if (this.taskState !== 'stopped') {
             this.completeTask();
         }
+    }
+
+    // Practice in rounds: a round passes when every trial in it is correct.
+    // After practice_max_rounds failed rounds (and every so many after
+    // that) the experimenter chooses more practice or the block.
+    async runPracticeRounds() {
+        const phase = this.currentPhase;
+        const size = phase.trialCount;
+        const maxRounds = Math.max(1, this.config.parameters.trials.practice_max_rounds);
+        const outcome = { phase: phase.name, block: phase.block, rounds: 0, passed: false, experimenter_started_block: false };
+        this.practiceOutcomes.push(outcome);
+        const stopped = () => this.taskState === 'stopped' || this.finishedEarly;
+
+        for (let round = 1; ; round++) {
+            outcome.rounds = round;
+            const roundResults = [];
+            for (let i = 0; i < size; i++) {
+                if (stopped()) return;
+                while (this.isPaused && !this.finishedEarly) {
+                    await this.wait(100);
+                }
+                if (stopped()) return;
+                const number = (round - 1) * size + i;
+                this.currentTrialInPhase = number % phase.stimuli.length;
+                const before = this.results.length;
+                await this.runSingleTrial({ round, indexInRound: i, size, number: number + 1 });
+                if (this.results.length === before) return; // aborted
+                roundResults.push(this.results[before]);
+                this.totalTrialsCompleted++;
+            }
+            if (stopped()) return;
+
+            if (roundResults.every(r => r.accuracy === 1)) {
+                outcome.passed = true;
+                return;
+            }
+            const more = round % maxRounds === 0
+                ? await this.showPracticeDecision(round, size)
+                : await this.showPracticeAgain(round, size);
+            if (stopped()) return;
+            if (!more) {
+                outcome.experimenter_started_block = true;
+                return;
+            }
+            this.showTrialScreen();
+        }
+    }
+
+    // Between practice rounds: not all answers were correct
+    showPracticeAgain(round, size) {
+        document.getElementById('progress-display').textContent = `${this.currentPhase.title} – round ${round} not passed`;
+        document.getElementById('task-stage').innerHTML = `
+            <div class="phase-instructions">
+                <h3>Let's practice again</h3>
+                <p>Not all of your answers were correct. You will do ${size} more practice trials.</p>
+                <button id="practice-again-btn" class="task-button task-button-primary">Continue</button>
+            </div>
+        `;
+        return new Promise(resolve => {
+            document.getElementById('practice-again-btn').addEventListener('click', () => resolve(true));
+            this.cancelInstructions = () => resolve(false);
+        });
+    }
+
+    // After practice_max_rounds failed rounds: the experimenter decides
+    showPracticeDecision(round, size) {
+        document.getElementById('progress-display').textContent = `${this.currentPhase.title} – practice not passed`;
+        document.getElementById('task-stage').innerHTML = `
+            <div class="phase-instructions">
+                <h3>Experimenter: practice not passed</h3>
+                <p>The participant has done ${round} practice rounds (${round * size} trials) without getting all ${size} trials of a round right.</p>
+                <p>Give more practice, or start the block?</p>
+                <button id="practice-more-btn" class="task-button task-button-secondary">More Practice (${size} trials)</button>
+                <button id="practice-start-block-btn" class="task-button task-button-primary">Start the Block</button>
+            </div>
+        `;
+        return new Promise(resolve => {
+            document.getElementById('practice-more-btn').addEventListener('click', () => resolve(true));
+            document.getElementById('practice-start-block-btn').addEventListener('click', () => resolve(false));
+            this.cancelInstructions = () => resolve(false);
+        });
     }
 
     async showPhaseInstructions() {
@@ -1267,7 +1360,8 @@ class SpeededClassificationPopup {
         `;
     }
 
-    async runSingleTrial() {
+    // practice: { round, indexInRound, size, number } on practice trials
+    async runSingleTrial(practice = null) {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
         const stimulus = this.currentPhase.stimuli[this.currentTrialInPhase];
@@ -1277,7 +1371,9 @@ class SpeededClassificationPopup {
         // Trial count sits above the stimulus, as in CVC; the footer names the block
         progressDisplay.textContent = this.currentPhase.title + (this.isPaused ? ' (PAUSED)' : '');
         const counter = document.getElementById('trial-counter');
-        if (counter) counter.textContent = `Trial ${this.currentTrialInPhase + 1} of ${this.currentPhase.trialCount}`;
+        if (counter) counter.textContent = practice
+            ? `Practice round ${practice.round} – Trial ${practice.indexInRound + 1} of ${practice.size}`
+            : `Trial ${this.currentTrialInPhase + 1} of ${this.currentPhase.trialCount}`;
         
         // Clear the previous trial's button highlight before the next word
         taskStage.querySelectorAll('.response-button.clicked').forEach(btn => btn.classList.remove('clicked'));
@@ -1303,7 +1399,8 @@ class SpeededClassificationPopup {
             dimension: this.currentPhase.dimension,
             condition: this.currentPhase.condition,
             is_practice: this.currentPhase.isPractice,
-            trial_in_phase: this.currentTrialInPhase + 1,
+            trial_in_phase: practice ? practice.number : this.currentTrialInPhase + 1,
+            practice_round: practice ? practice.round : null,
             global_trial: trialNumber,
             stimulus: stimulus.stimulus_id,
             word: stimulus.word,
@@ -1798,7 +1895,7 @@ class SpeededClassificationPopup {
     generateTrialsCSV() {
         const columns = [
             'participant_id', 'global_trial', 'block', 'phase', 'is_practice', 'dimension', 'condition',
-            'trial_in_phase', 'stimulus', 'word', 'initial_phoneme', 'talker', 'talker_sex',
+            'trial_in_phase', 'practice_round', 'stimulus', 'word', 'initial_phoneme', 'talker', 'talker_sex',
             'correct_response', 'participant_response', 'response_source', 'reaction_time',
             'timed_out', 'accuracy', 'rt_outlier', 'speech_onset_in_file_ms', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
         ];
@@ -1858,7 +1955,7 @@ class SpeededClassificationPopup {
         content += 'TASK CONFIGURATION\n';
         content += '-'.repeat(30) + '\n';
         const config = this.config.parameters;
-        content += `Practice Trials per Condition: ${config.trials.practice_per_condition}\n`;
+        content += `Practice: rounds of ${config.trials.practice_round_size} trials; a round passes when all are correct; experimenter asked after ${config.trials.practice_max_rounds} failed rounds\n`;
         content += `Control Repetitions per Stimulus: ${config.trials.control_repetitions}\n`;
         content += `Orthogonal Repetitions per Stimulus: ${config.trials.orthogonal_repetitions}\n`;
         content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
@@ -1871,6 +1968,15 @@ class SpeededClassificationPopup {
         content += `Audio Output: ${this.describeTrialAudio()}\n`;
         if (this.missingAudio.length) {
             content += `WARNING: ${this.missingAudio.length} stimulus recordings were missing and replaced by placeholder tones: ${this.missingAudio.join(', ')}\n`;
+        }
+        content += '\n';
+
+        // Practice outcome per block
+        content += 'PRACTICE\n';
+        content += '-'.repeat(30) + '\n';
+        for (const o of this.practiceOutcomes || []) {
+            const how = o.passed ? 'passed' : o.experimenter_started_block ? 'not passed; experimenter started the block' : 'not finished';
+            content += `Block ${o.block} (${o.phase}): ${o.rounds} round(s), ${how}\n`;
         }
         content += '\n';
 

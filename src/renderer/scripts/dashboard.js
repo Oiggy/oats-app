@@ -1575,13 +1575,13 @@ class Dashboard {
 
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="sc-practice">Practice Trials per Block</label>
+                                <label for="sc-practice">Practice Trials per Round</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="sc-practice">−</button>
-                                    <input type="number" id="sc-practice" name="practice_per_condition" min="0" max="20" value="12" readonly>
+                                    <input type="number" id="sc-practice" name="practice_round_size" min="0" max="12" value="3" readonly>
                                     <button type="button" data-action="increase" data-target="sc-practice">+</button>
                                 </div>
-                                <div class="help-text">With feedback, before each of the 4 blocks (paper: 12)</div>
+                                <div class="help-text">With feedback, before each block; all correct = passed, otherwise another round (paper: 12 practice trials)</div>
                             </div>
                             <div class="config-group">
                                 <label for="sc-control-reps">Control Block Repetitions</label>
@@ -1603,6 +1603,15 @@ class Dashboard {
                                     <button type="button" data-action="increase" data-target="sc-orthogonal-reps">+</button>
                                 </div>
                                 <div class="help-text">64 stimuli &times; this (paper: 1 = 64 trials)</div>
+                            </div>
+                            <div class="config-group">
+                                <label for="sc-practice-rounds">Failed Practice Rounds Before Asking</label>
+                                <div class="number-stepper">
+                                    <button type="button" data-action="decrease" data-target="sc-practice-rounds">−</button>
+                                    <input type="number" id="sc-practice-rounds" name="practice_max_rounds" min="1" max="10" value="4" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-practice-rounds">+</button>
+                                </div>
+                                <div class="help-text">Then the experimenter chooses more practice or the block</div>
                             </div>
                         </div>
                         <div class="help-text" id="sc-total-trials"></div>
@@ -1996,7 +2005,8 @@ class Dashboard {
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice_per_condition: intValue('sc-practice', 12),
+                    practice_round_size: intValue('sc-practice', 3),
+                    practice_max_rounds: intValue('sc-practice-rounds', 4),
                     control_repetitions: intValue('sc-control-reps', 8),
                     orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
@@ -2025,9 +2035,8 @@ class Dashboard {
         const el = document.getElementById('sc-total-trials');
         if (!el) return;
         const v = (id) => parseInt(document.getElementById(id)?.value, 10) || 0;
-        const practice = v('sc-practice') * 4;
         const main = 2 * 8 * v('sc-control-reps') + 2 * 64 * v('sc-orthogonal-reps');
-        el.textContent = `Total: ${main} test trials + ${practice} practice = ${main + practice} trials`;
+        el.textContent = `Total: ${main} test trials, plus practice before each block (rounds of ${v('sc-practice')} until all are correct)`;
     }
 
     async saveConfigurationToFile(config) {
@@ -2139,7 +2148,8 @@ class Dashboard {
         // Trial/timing fields from the current format only (older files
         // held placeholder fields the task never used)
         if (config.version === 2 && params.trials) {
-            this.setInputValue('sc-practice', params.trials.practice_per_condition);
+            this.setInputValue('sc-practice', params.trials.practice_round_size);
+            this.setInputValue('sc-practice-rounds', params.trials.practice_max_rounds);
             this.setInputValue('sc-control-reps', params.trials.control_repetitions);
             this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
