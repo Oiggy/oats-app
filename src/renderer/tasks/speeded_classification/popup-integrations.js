@@ -54,8 +54,10 @@ class SpeededClassificationPopup {
         this.cancelResponse = null;
     }
 
+    // 3: practice in rounds of 3, control blocks x6. Files saved by an
+    // earlier version (e.g. control x8, 12 practice trials) are not used.
     static get CONFIG_VERSION() {
-        return 2;
+        return 3;
     }
 
     // b/p minimal pairs used for the phoneme-relevant control condition
@@ -104,10 +106,10 @@ class SpeededClassificationPopup {
             const configData = await fs.readFile(configPath, 'utf8');
             const saved = JSON.parse(configData);
 
-            // The dashboard's configuration form for this task stores the old
-            // placeholder fields (1-2 trials, 10 s timeout, ...), which don't
-            // describe the paper's design. From such a file only the playback
-            // volume is used; trials and timing follow the paper.
+            // Settings saved by an earlier version describe an older design
+            // (placeholder fields, or control x8 and 12 practice trials).
+            // From such a file only the playback volume is used; trials and
+            // timing use the current defaults.
             if (saved.version !== SpeededClassificationPopup.CONFIG_VERSION) {
                 this.config = defaults;
                 const volume = saved.parameters && saved.parameters.audio && parseFloat(saved.parameters.audio.volume);

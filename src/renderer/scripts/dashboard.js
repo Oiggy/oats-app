@@ -1571,7 +1571,7 @@ class Dashboard {
                 <div class="config-tab-content active" id="trials-tab">
                     <div class="config-card">
                         <h3>Trial Parameters</h3>
-                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Block order and counterbalancing are chosen on the task's welcome screen.</div>
+                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Every participant gets the same block order and trial order (it can be changed on the task's welcome screen, under Counterbalancing).</div>
 
                         <div class="config-row">
                             <div class="config-group">
@@ -1992,7 +1992,8 @@ class Dashboard {
     }
 
     // Speeded Classification configuration, in the format the task reads
-    // (version 2 = Sommers & Danielson 1999 design).
+    // (version 3 = Sommers & Danielson 1999 design with practice rounds and
+    // control blocks x6; must match SpeededClassificationPopup.CONFIG_VERSION).
     collectConfigurationData() {
         const intValue = (id, fallback) => {
             const v = parseInt(document.getElementById(id)?.value, 10);
@@ -2001,7 +2002,7 @@ class Dashboard {
         const crashRecovery = document.getElementById('crash-recovery');
         const config = {
             task: 'speeded-classification',
-            version: 2,
+            version: 3,
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
@@ -2146,14 +2147,14 @@ class Dashboard {
         const params = config.parameters || {};
 
         // Trial/timing fields from the current format only (older files
-        // held placeholder fields the task never used)
-        if (config.version === 2 && params.trials) {
+        // describe an older design, which the task no longer uses)
+        if (config.version === 3 && params.trials) {
             this.setInputValue('sc-practice', params.trials.practice_round_size);
             this.setInputValue('sc-practice-rounds', params.trials.practice_max_rounds);
             this.setInputValue('sc-control-reps', params.trials.control_repetitions);
             this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
-        if (config.version === 2 && params.timing) {
+        if (config.version === 3 && params.timing) {
             this.setInputValue('sc-warning-delay', params.timing.warning_to_stimulus_delay);
             this.setInputValue('iti-slider', params.timing.iti);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);
