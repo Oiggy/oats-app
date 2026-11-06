@@ -281,6 +281,87 @@
     backdrop-filter: blur(2px);
 }
 
+/* SNR Selector (instruction page) */
+.snr-selector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0 8px;
+}
+
+.snr-selector-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.snr-selector-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.snr-select-btn {
+    background: linear-gradient(to bottom right, #ffffff, #f0f0f0);
+    color: #2c3e50;
+    border: 2px solid #e0e0e0;
+    border-radius: 30px;
+    padding: 6px 14px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    min-width: 52px;
+    height: 40px;
+    transition: all 0.2s ease;
+}
+
+.snr-select-btn:hover {
+    border-color: #007aff;
+    color: #007aff;
+}
+
+.snr-select-btn.active {
+    background: #007aff;
+    border-color: #007aff;
+    color: white;
+}
+
+/* SNR Jump Buttons (player page) */
+.snr-jump-row {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 4px 0;
+}
+
+.snr-jump-btn {
+    background: linear-gradient(to bottom right, #ffffff, #f0f0f0);
+    color: #2c3e50;
+    border: 2px solid #e0e0e0;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    min-width: 44px;
+    height: 32px;
+    transition: all 0.2s ease;
+}
+
+.snr-jump-btn:hover {
+    border-color: #007aff;
+    color: #007aff;
+}
+
+.snr-jump-btn.active {
+    background: #007aff;
+    border-color: #007aff;
+    color: white;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .cast-nonword-modal {

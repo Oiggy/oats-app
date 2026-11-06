@@ -1513,8 +1513,8 @@ class Dashboard {
                 window.hintConfig = new HINTConfig();
             }
             return window.hintConfig.generateConfigHTML();
-        } else if (this.selectedTaskValue === 'cast-word') {
-            // Initialize CaST Word config
+        } else if (this.selectedTaskValue === 'sin-practice' || this.selectedTaskValue === 'cast-word') {
+            // Initialize CaST Word config (practice shares the same audio config)
             if (!window.castWordConfig) {
                 window.castWordConfig = new CaSTWordConfig();
             }
@@ -1825,6 +1825,11 @@ class Dashboard {
                     window.hintConfig.bindConfigEvents();
                 }
             },
+            'sin-practice': () => {
+                if (window.castWordConfig) {
+                    window.castWordConfig.bindConfigEvents();
+                }
+            },
             'cast-word': () => {
                 if (window.castWordConfig) {
                     window.castWordConfig.bindConfigEvents();
@@ -2121,6 +2126,12 @@ class Dashboard {
                 if (window.hintConfig) {
                     await window.hintConfig.loadExistingConfiguration();
                     window.hintConfig.updateUIFromConfig();
+                }
+            },
+            'sin-practice': async () => {
+                if (window.castWordConfig) {
+                    await window.castWordConfig.loadExistingConfiguration();
+                    window.castWordConfig.updateUIFromConfig();
                 }
             },
             'cast-word': async () => {
@@ -4008,6 +4019,7 @@ class Dashboard {
             'reading-span': 'loadReadingSpanTask',
             'speeded-classification': 'loadSpeededClassificationTask',
             'auditory-stroop': 'loadAuditoryStroopTask',
+            'sin-practice': 'loadSINPracticeTask',
             'cast-nonword': 'loadCaSTNonwordTask',
             'cast-word': 'loadCaSTWordTask',
             'hint': 'loadHINTTask',

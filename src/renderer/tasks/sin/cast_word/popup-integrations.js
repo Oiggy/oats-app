@@ -26,6 +26,9 @@ class CaSTWordTask {
         // Save tracking
         this.resultsSaved = false;
 
+        // SNR selection
+        this.selectedStartSNR = 25;
+
         // Recording
         this.mediaRecorder = null;
         this.recordingChunks = [];
@@ -236,9 +239,10 @@ class CaSTWordTask {
         
         try {
             this.audioFiles = this.csvData.map(row => {
-                const snr = String(row['SNR']).padStart(2, '0');
+                const snrValue = parseInt(row['SNR']);
+                const snrFolder = snrValue === -5 ? 'SNR-05' : `SNR${String(snrValue).padStart(2, '0')}`;
                 const word = (row['Word'] || '').toLowerCase().trim();
-                return path.join(audioDir, `SNR${snr}`, `${word}_mix.wav`);
+                return path.join(audioDir, snrFolder, `${word}_mix.wav`);
             });
 
             console.log('Audio files mapped:', this.audioFiles.length);
@@ -289,26 +293,29 @@ class CaSTWordTask {
             In this task, you will hear some single words in  background noise.
             After each one, please repeat what you heard.`;
         
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
         this.modalContent.innerHTML = `
             <div class="cast-word-instruction-page">
                 <div class="instruction-content">
                     <h1 class="task-title">Words</h1>
-                    
+
                     <div class="instruction-text">${instructionText.split('\n').map((line) => line.trim().replace(/ {2,}/g, ' ')).join('\n').trim()}</div>
-                    
+
                     ${this.audioCheckHTML()}
 
-                    ${this.practiceResult ? `<div class="practice-done-note" style="margin: 4px 0 12px; color: #28a745; font-weight: 600;">✓ Practice done (${this.practiceResult.itemsPlayed} of ${this.practiceResult.totalItems} items played)</div>` : ''}
+                    <div class="snr-selector">
+                        <label class="snr-selector-label">Start at SNR (dB):</label>
+                        <div class="snr-selector-buttons" id="snr-selector-buttons">
+                            ${snrLevels.map(s => `<button class="snr-select-btn${s === this.selectedStartSNR ? ' active' : ''}" data-snr="${s}">${s}</button>`).join('')}
+                        </div>
+                    </div>
 
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
                         </button>
-                        <button class="task-btn ${this.practiceResult ? 'task-btn-secondary' : 'task-btn-primary'}" id="practice-btn">
-                            ${this.practiceResult ? 'Practice Again' : 'Start Practice'}
-                        </button>
-                        <button class="task-btn ${this.practiceResult ? 'task-btn-primary' : 'task-btn-secondary'}" id="start-cast-word-btn">
-                            ${this.practiceResult ? 'Start Task' : 'Skip Practice'}
+                        <button class="task-btn task-btn-primary" id="start-cast-word-btn">
+                            Start
                         </button>
                     </div>
                 </div>
@@ -317,53 +324,46 @@ class CaSTWordTask {
 
         const audioCheckBtn = document.getElementById('audio-check-btn');
         if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
-        
+
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
-            // Nothing to save unless the task was started
             if (this.taskStarted) this.saveResults();
             this.closeTask();
         });
 
-        document.getElementById('practice-btn').addEventListener('click', () => this.startPractice());
-        
+        document.querySelectorAll('.snr-select-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.snr-select-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.selectedStartSNR = parseInt(btn.dataset.snr);
+            });
+        });
+
         document.getElementById('start-cast-word-btn').addEventListener('click', () => {
             if (this.totalItems === 0) {
                 oatsDialog.alert('No audio/CSV items found.');
                 return;
             }
+            const startIndex = this.csvData.findIndex(row => String(row['SNR']) === String(this.selectedStartSNR));
+            this.currentIndex = startIndex >= 0 ? startIndex : 0;
             this.showPlayerPage();
         });
     }
 
     // Built-in word practice: hides this task, runs the practice items at this
     // task's volume, then comes back to the instruction page.
-    async startPractice() {
-        this.stopAudio();
-        this.modalOverlay.style.display = 'none';
-        const practice = new PracticeCastTask(this.participantId, {
-            volume: this.config.parameters.audio.volume,
-            onFinish: (result) => {
-                if (result.result === 'complete' || result.itemsPlayed > 0) this.practiceResult = result;
-                this.modalOverlay.style.display = '';
-                this.showInstructionPage();
-            }
-        });
-        window.practiceCastTaskInstance = practice;
-        await practice.init();
-        if (!practice.modalOverlay || !practice.modalOverlay.parentNode) {
-            // Practice couldn't open (its error was shown): come back
-            this.modalOverlay.style.display = '';
-        }
-    }
-
     showPlayerPage() {
         this.taskStarted = true;
         this.currentPage = 'player';
         
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
         this.modalContent.innerHTML = `
             <div class="cast-word-player-page">
                 <div class="player-content">
                     <h1 class="task-title">Words</h1>
+
+                    <div class="snr-jump-row" id="snr-jump-row">
+                        ${snrLevels.map(s => `<button class="snr-jump-btn" data-snr="${s}">${s}</button>`).join('')}
+                    </div>
 
                     <div class="top-row">
                         <div class="snr-summary" id="snr-summary"></div>
@@ -432,48 +432,69 @@ class CaSTWordTask {
             this.saveResults();
             this.closeTask();
         });
-        
+
+        document.querySelectorAll('.snr-jump-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.jumpToSNR(parseInt(btn.dataset.snr)));
+        });
+
         // Checkbox event
         const checkbox = document.getElementById('correct-checkbox');
         checkbox.addEventListener('change', () => {
             this.handleCheckboxChange();
         });
-        
+
+        this.refreshPlayerUI();
+    }
+
+    updateSNRJumpButtons() {
+        const currentSNR = String(this.csvData[this.currentIndex]['SNR']);
+        document.querySelectorAll('.snr-jump-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.snr === currentSNR);
+        });
+    }
+
+    jumpToSNR(snr) {
+        const index = this.csvData.findIndex(row => String(row['SNR']) === String(snr));
+        if (index < 0) return;
+        this.stopResponseTimer();
+        this.stopAudio();
+        this.currentIndex = index;
         this.refreshPlayerUI();
     }
 
     refreshPlayerUI() {
         if (this.totalItems === 0) return;
-        
+
         const row = this.csvData[this.currentIndex];
-        
+
         // Update counter
-        document.getElementById('item-counter').textContent = 
+        document.getElementById('item-counter').textContent =
             `Item ${this.currentIndex + 1} of ${this.totalItems}`;
-        
+
         // Update SNR
         const snr = row['SNR'] || '';
         const snrText = snr ? `SNR: ${snr} dB` : 'SNR: — dB';
         document.getElementById('snr-label').textContent = snrText;
-        
+
         // Update word
         const word = row['Word'] || '—';
         document.getElementById('word-display').textContent = word;
 
         const pronunciation = row['Pronunciation'] || '';
         document.getElementById('pronunciation-display').textContent = pronunciation;
-        
+
         // Update checkbox
         const checkbox = document.getElementById('correct-checkbox');
         const isCorrect = row['Correct1/Wrong0'] === '1';
         checkbox.checked = isCorrect;
-        
+
         // Reset take counter for new item
         this.currentTake = 0;
 
-        // Update SNR summary and skip hint
+        // Update SNR summary, skip hint, and jump buttons
         this.updateSNRSummary();
         this.updateSkipHint();
+        this.updateSNRJumpButtons();
 
         this.stopAudio();
         this.resetResponseTimer();
@@ -824,7 +845,7 @@ class CaSTWordTask {
         const participantDir = getParticipantDir(this.participantId);
         await fs.mkdir(participantDir, { recursive: true });
         const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
-        const snrLevels = [25, 20, 15, 10, 5, 0];
+        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
 
         let data = {};
         snrLevels.forEach(snr => {
