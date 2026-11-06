@@ -176,6 +176,7 @@ html body .welcome-screen,
 html body .instructions-screen,
 html body .task-complete,
 html body .phase-instructions,
+html body .phase-transition,
 html body .break-screen {
     padding: 14px 24px;
     max-width: 760px;
@@ -184,14 +185,16 @@ html body .break-screen {
 html body .welcome-screen h3,
 html body .instructions-screen h3,
 html body .task-complete h3,
-html body .phase-instructions h3 {
+html body .phase-instructions h3,
+html body .phase-transition h3 {
     font-size: 20px;
     margin-bottom: 8px;
 }
 
 html body .welcome-screen p,
 html body .instructions-screen p,
-html body .phase-instructions p {
+html body .phase-instructions p,
+html body .phase-transition p {
     margin-bottom: 8px;
     line-height: 1.45;
 }

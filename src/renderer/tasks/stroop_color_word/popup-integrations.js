@@ -304,23 +304,41 @@ class StroopColorWordPopup {
                     font-size: 16px;
                 }
 
-                .welcome-screen, .break-screen {
+                .welcome-screen, .break-screen, .phase-transition {
                     text-align: center;
                     max-width: 700px;
                     padding: 40px;
                 }
 
-                .welcome-screen h3, .break-screen h3 {
+                .welcome-screen h3, .break-screen h3, .phase-transition h3 {
                     margin-bottom: 20px;
                     color: #1d1d1f;
                     font-size: 24px;
                 }
 
-                .welcome-screen p, .break-screen p {
+                .welcome-screen p, .break-screen p, .phase-transition p {
                     margin-bottom: 16px;
                     color: #6e6e73;
                     line-height: 1.6;
                     text-align: left;
+                }
+
+                .phase-transition-badge {
+                    display: inline-block;
+                    background: #eafaf0;
+                    color: #1f8f4e;
+                    border: 1px solid #a7e3c0;
+                    border-radius: 999px;
+                    padding: 4px 14px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    margin-bottom: 16px;
+                }
+
+                .phase-transition-hint {
+                    color: #86868b !important;
+                    font-size: 14px;
+                    text-align: center !important;
                 }
 
                 .fixation-cross {
@@ -583,11 +601,48 @@ class StroopColorWordPopup {
         
         if (this.taskState !== 'stopped') {
             if (phase === 'practice') {
+                await this.showPracticeCompleteScreen();
+                if (this.taskState === 'stopped') return;
                 this.startMainPhase();
             } else {
                 this.completeTask();
             }
         }
+    }
+
+    // Formal transition between the practice and the main phase, so the
+    // participant knows practice is over and the recorded main task is about
+    // to begin (it does not start until they press Start).
+    showPracticeCompleteScreen() {
+        const taskStage = document.getElementById('task-stage');
+        const progressDisplay = document.getElementById('progress-display');
+
+        progressDisplay.textContent = 'Practice complete';
+
+        const mainTrials = this.mainStimuli.length;
+        const breakInfo = this.breakTrials.length ?
+            `<p>There will be a short break after trial ${this.breakTrials.join(' and ')}.</p>` : '';
+
+        taskStage.innerHTML = `
+            <div class="phase-transition">
+                <div class="phase-transition-badge">✓ Practice complete</div>
+                <h3>You're ready to begin the main task</h3>
+                <p>The practice is finished. The main task has <strong>${mainTrials} trial${mainTrials === 1 ? '' : 's'}</strong>.</p>
+                <p>From here, <strong>your voice is recorded</strong> on every trial. Name the colour of the ink out loud, as quickly and accurately as you can.</p>
+                ${breakInfo}
+                <p class="phase-transition-hint">The main task starts when you press the button below.</p>
+                <button id="start-main-btn" class="task-button task-button-primary">
+                    Start Main Task
+                </button>
+            </div>
+        `;
+
+        return new Promise(resolve => {
+            document.getElementById('start-main-btn').addEventListener('click', resolve, { once: true });
+            // Exiting the task while on this screen resolves too, so the
+            // sequence unwinds instead of hanging on a removed button.
+            this.cancelBreak = resolve;
+        });
     }
 
     async showBreakScreen() {
