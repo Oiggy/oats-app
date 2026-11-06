@@ -12,16 +12,22 @@
 //              neutral     - "person" by a man or a woman
 //              incongruent - "mother" by a man, "father" by a woman
 //   Block      each of the 12 pairings presented 6 times = 72 trials
-//              (24 per condition), single block, pseudo-random order
+//              (24 per condition), single block, pseudo-random order. Unlike
+//              the paper (an order per participant), every participant gets
+//              the same order (seeded, see trial_order_seed).
 //   Trial      500-Hz warning tone -> 500 ms -> word. RT measured from word
-//              onset. Responses slower than 3 s count as incorrect. 2-s delay
-//              between the response and the next warning tone.
-//   Scoring    RTs > 2 SD from each condition's mean and no-response trials
-//              excluded; interference = incongruent RT - neutral RT.
+//              onset (where speech starts in the file, not the file
+//              start). Responses slower than 3 s count as incorrect. 2-s
+//              delay between the response (or the 3-s deadline) and the next
+//              warning tone. The response screen stays up for the whole
+//              phase (no fixation cross).
+//   Scoring    correct trials only; RTs exceeding each condition's mean by
+//              more than 2 SD and no-response trials excluded;
+//              interference = incongruent RT - neutral RT.
 //
-// The paper does not describe a practice block for this task; the practice
-// phase kept here (default 12 trials with feedback, one of each pairing)
-// mirrors the 12 practice trials used for the Garner task.
+// The paper does not describe a practice block for this task, so there is
+// none by default (practice = 0). A practice phase with feedback can be
+// turned on in the task settings.
 class AuditoryStroopPopup {
     constructor() {
         this.isOpen = false;
@@ -32,6 +38,7 @@ class AuditoryStroopPopup {
         this.results = [];
         this.audioContext = null;
         this.audioBuffers = {};
+        this.speechOnsetMs = {};   // where speech starts in each file (ms)
         this.audioFilePaths = {};
         this.missingAudio = [];
         this.asioEngine = null;
@@ -51,8 +58,8 @@ class AuditoryStroopPopup {
 
     static get RESPONSE_BUTTONS() {
         return [
-            { label: 'M', value: 'M', key: 'm', description: 'male voice' },
-            { label: 'F', value: 'F', key: 'f', description: 'female voice' }
+            { label: 'M', value: 'M', key: 'ShiftLeft', keyLabel: 'Left Shift', description: 'male voice' },
+            { label: 'F', value: 'F', key: 'ShiftRight', keyLabel: 'Right Shift', description: 'female voice' }
         ];
     }
 
@@ -120,8 +127,9 @@ class AuditoryStroopPopup {
             version: AuditoryStroopPopup.CONFIG_VERSION,
             parameters: {
                 trials: {
-                    practice: 12,      // not specified in the paper
-                    repetitions: 6     // 12 pairings x 6 = 72 trials (24 per condition)
+                    practice: 0,       // the paper describes no practice block
+                    repetitions: 6,    // 12 pairings x 6 = 72 trials (24 per condition)
+                    trial_order_seed: 1 // same seed -> same trial order for everyone
                 },
                 timing: {
                     warning_tone_frequency: 500,     // Hz
@@ -338,6 +346,7 @@ class AuditoryStroopPopup {
         const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
         if (this.audioContext) {
             this.audioBuffers[stimulus.stimulus_id] = await this.audioContext.decodeAudioData(arrayBuffer);
+            this.speechOnsetMs[stimulus.stimulus_id] = this.getSpeechOnset().detectSpeechOnsetMs(this.audioBuffers[stimulus.stimulus_id]);
         }
     }
 
@@ -362,10 +371,23 @@ class AuditoryStroopPopup {
         return buffer;
     }
 
+    // Seeded generator (mulberry32) used for every ordering decision, so the
+    // same seed gives every participant the identical trial sequence.
+    seedRandom(seed) {
+        let state = seed >>> 0;
+        this.random = () => {
+            state = (state + 0x6D2B79F5) >>> 0;
+            let t = state;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
     shuffle(items) {
         const array = [...items];
         for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(this.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
@@ -390,7 +412,7 @@ class AuditoryStroopPopup {
                 const forced = maxCount > Math.ceil(pool.length / 2)
                     ? candidates.filter(({ s }) => counts[keyFn(s)] === maxCount)
                     : candidates;
-                const choice = forced[Math.floor(Math.random() * forced.length)];
+                const choice = forced[Math.floor(this.random() * forced.length)];
                 sequence.push(choice.s);
                 pool.splice(choice.i, 1);
             }
@@ -401,6 +423,8 @@ class AuditoryStroopPopup {
 
     setupStimuli() {
         const trials = this.config.parameters.trials;
+        const seed = parseInt(trials.trial_order_seed, 10);
+        this.seedRandom(isNaN(seed) ? 1 : seed);
 
         // Main block: every word-voice pairing x repetitions (paper: 12 x 6 = 72)
         const main = [];
@@ -562,8 +586,8 @@ class AuditoryStroopPopup {
                     padding: 40px;
                 }
 
-                .audio-test-section {
-                    margin: 24px 0;
+                .audio-test {
+                    margin: 20px 0;
                 }
 
                 .welcome-screen h3,
@@ -624,15 +648,36 @@ class AuditoryStroopPopup {
                     font-size: 16px;
                 }
 
-                .fixation-cross {
-                    font-size: 64px;
-                    font-weight: bold;
-                    color: #1d1d1f;
-                    user-select: none;
-                }
-
+                /* Fixed width, so the screen doesn't shift when feedback appears */
                 .stimulus-display {
                     text-align: center;
+                    width: 460px;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .trial-counter {
+                    font-size: 16px;
+                    color: #6c757d;
+                    margin-bottom: 20px;
+                }
+
+                /* Same look as the response timer in the speech-in-noise tasks */
+                .response-timer {
+                    font-size: 14px;
+                    color: #2c3e50;
+                    text-align: center;
+                    margin: 0 0 8px;
+                }
+
+                /* Practice feedback sits under the buttons in a slot of fixed
+                   height, so the trial screen never moves between trials */
+                .feedback-slot {
+                    min-height: 170px;
+                    margin-top: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
 
                 .stimulus-icon {
@@ -689,10 +734,12 @@ class AuditoryStroopPopup {
 
                 .feedback {
                     text-align: center;
-                    padding: 20px;
+                    padding: 12px 20px;
                     border-radius: 12px;
-                    font-size: 18px;
+                    font-size: 16px;
                     font-weight: 600;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
 
                 .feedback.correct {
@@ -846,14 +893,16 @@ class AuditoryStroopPopup {
             <div class="welcome-screen">
                 <h3>Welcome to the Auditory Stroop Task</h3>
                 <p>You will hear the words <em>mother</em>, <em>father</em> and <em>person</em> spoken by male and female voices. Your task is to decide whether the speaker is a <strong>man</strong> or a <strong>woman</strong>, ignoring the meaning of the word.</p>
-                <p>Each trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible using the M and F keys or the onscreen buttons.</p>
+                <p>Each trial starts with a short beep, followed by the word. Respond as quickly and accurately as possible using the left and right Shift keys or the onscreen buttons.</p>
                 ${this.renderMissingAudioWarning()}
                 
-                <div class="audio-test-section">
+                <div class="audio-test">
                     <button id="test-audio-btn" class="task-button task-button-secondary">
                         🔊 Test Audio
                     </button>
-                    <p class="audio-caption">Checks each audio output with a beep, then plays the warning beep and a word</p>
+                    <p style="font-size: 14px; color: #6e6e73; margin-top: 8px; text-align: center;">
+                        Checks each audio output with a beep, then plays the warning beep and a word
+                    </p>
                     <div class="oats-audio-check-result" id="audio-check-result" hidden></div>
                 </div>
                 
@@ -914,7 +963,7 @@ class AuditoryStroopPopup {
 
     renderButtonPreview() {
         return AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
-            `<div class="preview-button">${b.label}<span class="key-hint">key: ${b.key.toUpperCase()}</span></div>`
+            `<div class="preview-button">${b.label}<span class="key-hint">key: ${b.keyLabel}</span></div>`
         ).join('');
     }
 
@@ -928,7 +977,7 @@ class AuditoryStroopPopup {
             <div class="instructions-screen">
                 <h3>Practice: Auditory Stroop</h3>
                 <p>You will hear a word spoken by a man or a woman. Decide whether the <strong>voice</strong> is male or female — ignore what the word means.</p>
-                <p><strong>Press M (or click M) for a male voice.<br>Press F (or click F) for a female voice.</strong></p>
+                <p><strong>Press the left Shift key (or click M) for a male voice.<br>Press the right Shift key (or click F) for a female voice.</strong></p>
                 <p>Respond as quickly and accurately as possible. You will receive feedback during these ${this.practiceStimuli.length} practice trials.</p>
                 
                 <div class="response-buttons-preview">
@@ -965,7 +1014,7 @@ class AuditoryStroopPopup {
             <div class="instructions-screen">
                 <h3>Main Task: Auditory Stroop</h3>
                 <p>You will again hear words spoken by a man or a woman. Decide whether the <strong>voice</strong> is male or female, ignoring the word meaning.</p>
-                <p><strong>Press M (or click M) for a male voice.<br>Press F (or click F) for a female voice.</strong></p>
+                <p><strong>Press the left Shift key (or click M) for a male voice.<br>Press the right Shift key (or click F) for a female voice.</strong></p>
                 <p>Respond as quickly and accurately as possible. No feedback will be provided in this phase.</p>
                 
                 <div class="response-buttons-preview">
@@ -986,6 +1035,9 @@ class AuditoryStroopPopup {
     async runTrialSequence(phase) {
         const stimuli = phase === 'practice' ? this.practiceStimuli : this.mainStimuli;
         this.trialLoopRunning = true;
+
+        // One trial screen for the whole phase; trials only update it
+        this.showTrialScreen();
         
         for (this.currentTrial = 0; this.currentTrial < stimuli.length; this.currentTrial++) {
             if (this.taskState === 'stopped' || this.finishedEarly) break;
@@ -1013,6 +1065,26 @@ class AuditoryStroopPopup {
         }
     }
 
+    // Response screen shown for every trial of the phase, as CVC and Reading
+    // Span keep one screen up instead of clearing it between trials.
+    showTrialScreen() {
+        const taskStage = document.getElementById('task-stage');
+        taskStage.innerHTML = `
+            <div class="stimulus-display">
+                <div class="trial-counter" id="trial-counter"></div>
+                <div class="stimulus-icon">🔊</div>
+                <div class="stimulus-text">Listen carefully...</div>
+                <div class="response-timer" id="response-timer">Time left: —</div>
+                <div class="response-buttons">
+                    ${AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
+                        `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.keyLabel}</span></button>`
+                    ).join('')}
+                </div>
+                <div class="feedback-slot" id="feedback-slot"></div>
+            </div>
+        `;
+    }
+
     async runSingleTrial(phase, stimulus) {
         const taskStage = document.getElementById('task-stage');
         const progressDisplay = document.getElementById('progress-display');
@@ -1020,32 +1092,20 @@ class AuditoryStroopPopup {
         const trialNum = this.currentTrial + 1;
         const totalTrials = phase === 'practice' ? this.practiceStimuli.length : this.mainStimuli.length;
         
-        progressDisplay.textContent = `${phase === 'practice' ? 'Practice' : 'Main'} Trial ${trialNum} of ${totalTrials}`;
-        
-        // Warning signal: fixation cross while the 500-Hz tone plays
-        taskStage.innerHTML = '<div class="fixation-cross">+</div>';
+        // Trial count sits above the stimulus, as in CVC; the footer names the phase
+        progressDisplay.textContent = (phase === 'practice' ? 'Practice' : 'Main') + ' – Auditory Stroop' + (this.isPaused ? ' (PAUSED)' : '');
+        const counter = document.getElementById('trial-counter');
+        if (counter) counter.textContent = `Trial ${trialNum} of ${totalTrials}`;
+
+        // Clear the previous trial's button highlight before the next word
+        taskStage.querySelectorAll('.response-button.clicked').forEach(btn => btn.classList.remove('clicked'));
 
         const playback = await this.startTrialAudio(stimulus);
         const responsePromise = this.collectResponse(playback.onsetPerf);
-
-        const untilOnset = playback.onsetPerf - performance.now();
-        if (untilOnset > 0) await this.wait(untilOnset);
-
-        if (this.taskState !== 'stopped') {
-            taskStage.innerHTML = `
-                <div class="stimulus-display">
-                    <div class="stimulus-icon">🔊</div>
-                    <div class="stimulus-text">Listen carefully...</div>
-                    <div class="response-buttons">
-                        ${AuditoryStroopPopup.RESPONSE_BUTTONS.map(b =>
-                            `<button class="response-button" data-response="${b.value}">${b.label}<span class="key-hint">${b.key.toUpperCase()}</span></button>`
-                        ).join('')}
-                    </div>
-                </div>
-            `;
-        }
+        this.startResponseCountdown(playback.onsetPerf);
         
         const response = await responsePromise;
+        this.stopResponseCountdown(response);
         if (response.response === 'aborted') return;
         
         // Record trial result
@@ -1068,24 +1128,23 @@ class AuditoryStroopPopup {
             audio_placeholder: this.missingAudio.includes(stimulus.stimulus_id),
             audio_backend: playback.backend,
             timing_reliable: playback.timingReliable,
+            speech_onset_in_file_ms: this.getSpeechOnsetMs(stimulus),
             timestamp: new Date().toISOString()
         };
         
         this.results.push(trialResult);
 
-        // Let the word finish before the inter-trial delay
-        await Promise.race([playback.ended, this.wait(5000)]);
         // An output underrun while the tone or word played shifts the onset
-        trialResult.timing_reliable = playback.timingReliable;
+        playback.ended.then(() => { trialResult.timing_reliable = playback.timingReliable; });
         
-        // Feedback during practice only (no feedback on test trials)
+        // 2-s delay from the response (or the 3-s deadline) to the next
+        // warning tone. Practice feedback is shown during it (none on test
+        // trials).
+        const interval = this.wait(this.config.parameters.timing.iti);
         if (phase === 'practice') {
             await this.showFeedback(trialResult, phase);
         }
-        
-        // 2-s delay before the next warning tone
-        taskStage.innerHTML = '';
-        await this.wait(this.config.parameters.timing.iti);
+        await interval;
     }
 
     // ASIO: warning tone, silent gap and word go out as one continuous sound
@@ -1123,12 +1182,26 @@ class AuditoryStroopPopup {
             throw new Error('ASIO did not start playback');
         }
 
-        const playback = { onsetPerf: first.partOnsetPerfMs[2], backend: 'ASIO', timingReliable: true };
+        const playback = { onsetPerf: first.partOnsetPerfMs[2] + this.getSpeechOnsetMs(stimulus), backend: 'ASIO', timingReliable: true };
         playback.ended = played.then((result) => {
             playback.timingReliable = !result.cancelled && result.timingReliable !== false;
             return result;
         }, () => { playback.timingReliable = false; });
         return playback;
+    }
+
+    // Shared speech-onset detection (see src/shared/audio/speech-onset.js)
+    getSpeechOnset() {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return window.require(path.join(app.getAppPath(), 'src', 'shared', 'audio', 'speech-onset.js'));
+    }
+
+    // Where speech starts in this stimulus's file. RTs, the response
+    // deadline and the countdown run from there, not from the file start
+    // (the recordings begin with silence of varying length).
+    getSpeechOnsetMs(stimulus) {
+        return Math.round(this.speechOnsetMs[stimulus.stimulus_id] || 0);
     }
 
     // Maps an AudioContext time to the performance.now() clock, taking
@@ -1202,14 +1275,15 @@ class AuditoryStroopPopup {
             ended = this.wait((stimulusStart - ctx.currentTime) * 1000 + 800);
         }
 
-        return { onsetPerf: this.contextTimeToPerformance(stimulusStart), ended, backend: 'WebAudio', timingReliable: true };
+        return { onsetPerf: this.contextTimeToPerformance(stimulusStart) + this.getSpeechOnsetMs(stimulus), ended, backend: 'WebAudio', timingReliable: true };
     }
 
-    // Keyboard (M/F) or onscreen-button response, timed from word onset.
+    // Keyboard (left/right Shift) or onscreen-button response, timed from word onset.
     collectResponse(onsetPerf) {
         return new Promise(resolve => {
             const timeoutMs = this.config.parameters.timing.response_timeout;
             const keyMap = {};
+            // Left / right Shift pick the left / right button (by physical key)
             AuditoryStroopPopup.RESPONSE_BUTTONS.forEach(b => { keyMap[b.key] = b.value; });
             const stage = document.getElementById('task-stage');
             let done = false;
@@ -1242,7 +1316,7 @@ class AuditoryStroopPopup {
 
             const onKey = (e) => {
                 if (e.repeat) return;
-                const value = keyMap[(e.key || '').toLowerCase()];
+                const value = keyMap[e.code];
                 if (!value) return;
                 e.preventDefault();
                 const btn = stage ? stage.querySelector(`.response-button[data-response="${value}"]`) : null;
@@ -1274,8 +1348,46 @@ class AuditoryStroopPopup {
         });
     }
 
+    // Countdown of the response deadline, shown like the speech-in-noise
+    // tasks' response timer. "—" until the word starts, then counts down
+    // from the deadline; it stops at the response.
+    startResponseCountdown(onsetPerf) {
+        this.stopResponseCountdown();
+        const deadline = this.config.parameters.timing.response_timeout;
+        const update = () => {
+            const elapsed = performance.now() - onsetPerf;
+            this.showResponseCountdown(elapsed < 0 ? null : Math.max(0, deadline - elapsed));
+        };
+        update();
+        this.responseCountdown = setInterval(update, 100);
+    }
+
+    stopResponseCountdown(response) {
+        if (this.responseCountdown) {
+            clearInterval(this.responseCountdown);
+            this.responseCountdown = null;
+        }
+        if (!response || response.response === 'aborted') return;
+        const deadline = this.config.parameters.timing.response_timeout;
+        this.showResponseCountdown(response.time === null ? 0 : Math.max(0, deadline - response.time));
+    }
+
+    showResponseCountdown(ms) {
+        const timerEl = document.getElementById('response-timer');
+        if (timerEl) {
+            timerEl.textContent = `Time left: ${ms === null ? '—' : this.formatTime(Math.round(ms))}`;
+        }
+    }
+
+    formatTime(ms) {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        const millis = ms % 1000;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+    }
+
     async showFeedback(trialResult, phase) {
-        const taskStage = document.getElementById('task-stage');
+        const slot = document.getElementById('feedback-slot');
         let feedbackHTML = '';
         
         if (trialResult.participant_response === 'timeout') {
@@ -1305,8 +1417,12 @@ class AuditoryStroopPopup {
             `;
         }
         
-        taskStage.innerHTML = feedbackHTML;
-        await this.wait(this.config.parameters.timing.error_display_duration);
+        if (!slot) return;
+        slot.innerHTML = feedbackHTML;
+        // Shown within the inter-trial interval, so it never delays the next trial
+        const timing = this.config.parameters.timing;
+        await this.wait(Math.min(timing.error_display_duration, timing.iti));
+        slot.innerHTML = '';
     }
 
     togglePause() {
@@ -1373,7 +1489,7 @@ class AuditoryStroopPopup {
         return Math.sqrt(values.reduce((s, v) => s + (v - m) ** 2, 0) / (values.length - 1));
     }
 
-    // Correct, responded trials only; RTs > 2 SD from the condition mean are
+    // Correct, responded trials only; RTs more than 2 SD above the condition mean are
     // trimmed and flagged (rt_outlier) on the trial records.
     summarizeCondition(trials) {
         const total = trials.length;
@@ -1387,7 +1503,7 @@ class AuditoryStroopPopup {
         trials.forEach(t => { t.rt_outlier = false; });
         const kept = [];
         rtTrials.forEach(t => {
-            if (sd !== null && Math.abs(t.reaction_time - m) > 2 * sd) {
+            if (sd !== null && t.reaction_time - m > 2 * sd) {
                 t.rt_outlier = true;
             } else {
                 kept.push(t.reaction_time);
@@ -1477,7 +1593,7 @@ class AuditoryStroopPopup {
         const columns = [
             'participant_id', 'global_trial', 'phase', 'trial', 'stimulus_file', 'word', 'talker',
             'voice_gender', 'condition', 'correct_response', 'participant_response', 'response_source',
-            'reaction_time', 'timed_out', 'accuracy', 'rt_outlier', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
+            'reaction_time', 'timed_out', 'accuracy', 'rt_outlier', 'speech_onset_in_file_ms', 'audio_placeholder', 'audio_backend', 'timing_reliable', 'timestamp'
         ];
         const escape = (v) => {
             const s = v === null || v === undefined ? '' : String(v);
@@ -1526,9 +1642,11 @@ class AuditoryStroopPopup {
         const config = this.config.parameters;
         content += `Practice Trials: ${this.practiceStimuli.length}\n`;
         content += `Repetitions per Word-Voice Pairing: ${config.trials.repetitions} (${this.mainStimuli.length} main trials)\n`;
+        content += `Trial Order Seed: ${config.trials.trial_order_seed} (same seed = same trial order for every participant)\n`;
         content += `Warning Tone: ${config.timing.warning_tone_frequency}Hz, ${config.timing.warning_tone_duration}ms\n`;
         content += `Warning Tone -> Word Delay: ${config.timing.warning_to_stimulus_delay}ms\n`;
         content += `Response Deadline (from word onset): ${config.timing.response_timeout}ms\n`;
+        content += `Word Onset: where speech starts in each file (first sample within 60 dB of the file's peak; per trial in trials.csv, speech_onset_in_file_ms)\n`;
         content += `Delay after Response: ${config.timing.iti}ms\n`;
         content += `Practice Feedback Duration: ${config.timing.error_display_duration}ms\n`;
         content += `Audio Volume: ${config.audio.volume}\n`;
@@ -1541,9 +1659,9 @@ class AuditoryStroopPopup {
         // Stroop analysis
         content += 'STROOP RESULTS (main trials only)\n';
         content += '-'.repeat(60) + '\n';
-        content += 'RTs from correct trials, measured from word onset; responses slower\n';
-        content += `than ${config.timing.response_timeout}ms count as incorrect; RTs > 2 SD from each condition\n`;
-        content += 'mean removed. Interference = incongruent RT - neutral RT.\n\n';
+        content += 'RTs from correct trials, measured from where speech starts in each file; responses slower\n';
+        content += `than ${config.timing.response_timeout}ms count as incorrect; RTs more than 2 SD above each\n`;
+        content += 'condition mean removed. Interference = incongruent RT - neutral RT.\n\n';
         content += 'Condition    | Trials | Correct | Accuracy | No-resp | Mean RT | SD     | RTs used | Trimmed\n';
         content += '-'.repeat(95) + '\n';
         for (const condition of ['congruent', 'neutral', 'incongruent']) {

@@ -28,6 +28,10 @@ class NativeAudioRecorder {
         // stopRecording() knows which code path to tear down.
         this.usingAsio = false;
         this.asioOutputPath = null;
+
+        // Early-stop bookkeeping for startRecording()
+        this._pendingStop = null;
+        this._stopRequested = false;
     }
 
     async preloadMicrophone() {
@@ -309,6 +313,8 @@ class NativeAudioRecorder {
     }
 
     async startRecording(outputPath, durationMs, volumeLevel = 50) {
+        // A new recording starts with no pending early-stop request
+        this._stopRequested = false;
         if (asioEngine.isEnabled()) {
             const started = await asioEngine.ensureStarted();
             if (started) {
@@ -326,11 +332,10 @@ class NativeAudioRecorder {
         await asioEngine.startCapture();
 
         return new Promise((resolve) => {
-            setTimeout(async () => {
-                await this.stopRecording();
+            this._scheduleStop(durationMs, () => {
                 console.log(`Recording completed (ASIO): ${outputPath}`);
                 resolve(outputPath);
-            }, durationMs);
+            });
         });
     }
 
@@ -397,18 +402,54 @@ class NativeAudioRecorder {
                     reject(error);
                 });
 
-                // Stop recording after duration
-                setTimeout(async () => {
-                    await this.stopRecording();
+                // Stop recording after duration (or earlier via stopEarly)
+                this._scheduleStop(durationMs, () => {
                     console.log(`Recording completed: ${outputPath}`);
                     resolve(outputPath);
-                }, durationMs);
+                });
 
             } catch (error) {
                 console.error('Failed to start recording:', error);
                 reject(error);
             }
         });
+    }
+
+    // Ends a recording either when its duration runs out or when
+    // stopEarly() is called, whichever comes first, exactly once. The
+    // timer is cancelled on an early stop so it can never cut short a
+    // later recording.
+    _scheduleStop(durationMs, onStopped) {
+        let finished = false;
+        const entry = {};
+        const finish = async () => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (this._pendingStop === entry) this._pendingStop = null;
+            await this.stopRecording();
+            onStopped();
+        };
+        entry.finish = finish;
+        const timer = setTimeout(finish, durationMs);
+        this._pendingStop = entry;
+        // stopEarly() arrived while the recording was still starting up
+        if (this._stopRequested) {
+            this._stopRequested = false;
+            finish();
+        }
+    }
+
+    // Stop the current startRecording() now instead of at its duration.
+    // Resolves once the file is finalized.
+    async stopEarly() {
+        const pending = this._pendingStop;
+        if (pending) {
+            await pending.finish();
+        } else {
+            // Still starting up: stop as soon as the timer is armed
+            this._stopRequested = true;
+        }
     }
 
     async stopRecording() {

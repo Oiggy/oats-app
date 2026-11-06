@@ -10,6 +10,8 @@ class ReadingSpanTask {
         this.currentSentenceIndex = 0;
         this.currentBlockSentences = [];
         this.results = [];
+        this.sentenceLog = [];          // reading time per sentence
+        this.sentenceAdvanceCleanup = null;
         this.sessionStartTime = new Date();
         
         // Initialize NativeAudioRecorder - will be loaded in init()
@@ -21,22 +23,13 @@ class ReadingSpanTask {
         this.practiceSentences = {
             1: {
                 1: [
-                    { sentence: "I took my cat to the vet, and I was informed that she is really sick", target: "sick" }
+                    { sentence: "Of course it was expensive, but he was very happy with his beautiful new car.", target: "car" },
+                    { sentence: "Five minutes before the end of the match, the referee gave the deciding penalty.", target: "penalty" }
                 ],
                 2: [
-                    { sentence: "I do not know if we are in fall or still summer, but it rained heavily today", target: "today" },
-                    { sentence: "I drove to work after picking up my cousin from the airport", target: "airport" }
-                ]
-            },
-            2: {
-                1: [
-                    { sentence: "The paint splashed from the building across my flat, changed my bag colour to red", target: "red" },
-                    { sentence: "Let's take a walk downtown so we get the opportunity to attend the concert", target: "concert" }
-                ],
-                2: [
-                    { sentence: "Many years ago, it was hard to sing music", target: "music" },
-                    { sentence: "Stress is a challenge that needs to be taken seriously", target: "seriously" },
-                    { sentence: "The lecture took so long yesterday due to the multiple presentations", target: "presentations" }
+                    { sentence: "When the famous artists were ready, they made a new appointment for next Friday.", target: "Friday" },
+                    { sentence: "His neighbors never understood how it was possible that he had so much fortune.", target: "fortune" },
+                    { sentence: "The only way the police could stop the bank robbery was by killing the two men.", target: "men" }
                 ]
             }
         };
@@ -321,11 +314,14 @@ class ReadingSpanTask {
             ">
                 <p><strong>Instructions:</strong></p>
                 <ul style="margin-left: 20px;">
-                    <li>You will read sentences one at a time</li>
-                    <li>After each sentence, remember the last word</li>
-                    <li>At the end of each set, recall all the last words in order</li>
-                    <li>Click the recall buttons to record your responses</li>
+                    <li>Sentences will appear on the screen one at a time. Read each sentence aloud.</li>
+                    <li>After reading a sentence, press the SPACE BAR and the next sentence will appear.</li>
+                    <li>After a different number of sentences (2, 3, 4, 5 or 6), the word "Recall" will appear on the screen.</li>
+                    <li>When you see "Recall", say the last word of every sentence you have just read. You can say the words in any order.</li>
+                    <li>Click a recall button before saying each word, and click it again when you are done.</li>
+                    <li>Try to read the sentences as fast as possible while reading for content.</li>
                 </ul>
+                <p style="margin-top: 12px;">We will start with a few practice trials.</p>
                 
                 <p style="margin-top: 20px;"><strong>Audio Recording:</strong></p>
                 <ul style="margin-left: 20px;">
@@ -463,10 +459,66 @@ class ReadingSpanTask {
             ? this.config.parameters.timing.practice_sentence_duration 
             : this.config.parameters.timing.main_sentence_duration;
         
-        this.later(() => {
+        // The sentence stays up for at most `duration`; the participant can
+        // move on earlier with SPACE (or a click), as in the original
+        // E-Prime test. Whichever comes first advances, exactly once.
+        const shownAt = performance.now();
+        let done = false;
+        const advance = (endedBy) => {
+            if (done || this.closed) return;
+            done = true;
+            clearTimeout(timerId);
+            this.timers.delete(timerId);
+            this.removeSentenceAdvanceListeners();
+            this.sentenceLog.push({
+                phase: this.currentPhase,
+                series: this.currentSeries,
+                block: this.currentBlock,
+                position: this.currentSentenceIndex + 1,
+                target_word: sentence.target,
+                reading_time_ms: Math.round(performance.now() - shownAt),
+                ended_by: endedBy
+            });
             this.currentSentenceIndex++;
             this.showNextSentence();
-        }, duration);
+        };
+        const timerId = this.later(() => advance('timeout'), duration);
+        // Ignore SPACE/clicks in the first moments so a double tap can't
+        // skip the next sentence unseen.
+        const MIN_VISIBLE_MS = 300;
+        this.addSentenceAdvanceListeners((endedBy) => {
+            if (performance.now() - shownAt >= MIN_VISIBLE_MS) advance(endedBy);
+        });
+    }
+
+    // SPACE or a click on the task area ends the current sentence early
+    addSentenceAdvanceListeners(advance) {
+        this.removeSentenceAdvanceListeners();
+        // A button clicked to start the phase may still have focus; SPACE
+        // would "click" it again, so drop focus first.
+        if (document.activeElement && document.activeElement !== document.body) {
+            document.activeElement.blur();
+        }
+        const onKey = (e) => {
+            if (e.code !== 'Space' || e.repeat) return;
+            e.preventDefault();
+            advance('space');
+        };
+        const contentEl = document.getElementById('reading-span-task-content');
+        const onClick = () => advance('click');
+        document.addEventListener('keydown', onKey, true);
+        if (contentEl) contentEl.addEventListener('click', onClick);
+        this.sentenceAdvanceCleanup = () => {
+            document.removeEventListener('keydown', onKey, true);
+            if (contentEl) contentEl.removeEventListener('click', onClick);
+        };
+    }
+
+    removeSentenceAdvanceListeners() {
+        if (this.sentenceAdvanceCleanup) {
+            this.sentenceAdvanceCleanup();
+            this.sentenceAdvanceCleanup = null;
+        }
     }
 
     async showRecallScreen() {
@@ -497,7 +549,7 @@ class ReadingSpanTask {
                 font-weight: 600;
                 color: #212529;
                 margin-bottom: 24px;
-            ">Recall the final words in order</h3>
+            ">Recall</h3>
             
             <div style="
                 font-size: 14px;
@@ -505,8 +557,8 @@ class ReadingSpanTask {
                 margin-bottom: 24px;
             ">
                 ${this.currentPhase === 'practice' 
-                    ? 'Click each button to practice recall (no recording)' 
-                    : `Click each button to record your recall (${this.config.parameters.timing.recall_time_duration / 1000}s each)`
+                    ? 'Say the last word of each sentence you just read, in any order. Click a button before each word and again when you are done (practice: nothing is recorded).'
+                    : `Say the last word of each sentence you just read, in any order. Click a button before each word (up to ${this.config.parameters.timing.recall_time_duration / 1000}s each) and again when you are done.`
                 }
             </div>
             
@@ -577,7 +629,7 @@ class ReadingSpanTask {
             // Update timer display to show ready state
             const timerDisplay = document.getElementById('recall-timer-display');
             if (timerDisplay) {
-                timerDisplay.innerHTML = 'Click a recall button to start recording';
+                timerDisplay.innerHTML = 'Click a recall button to start recording, and again when you are done';
             }
         }
                 
@@ -597,10 +649,16 @@ class ReadingSpanTask {
         const targetWord = button.dataset.target;
         const isMainPhase = this.currentPhase === 'main';
         
-        // Prevent clicking if already recording or completed
-        if (button.classList.contains('recording') || button.disabled) {
+        // Clicking the active button again ends this recall early
+        if (button.classList.contains('recording')) {
+            this.finishIndividualRecording(button, targetWord, isMainPhase, index, 'stopped');
             return;
         }
+        // Ignore completed buttons, and clicks while this one is starting
+        if (button.disabled || button.dataset.starting) {
+            return;
+        }
+        button.dataset.starting = '1';
         
         // Disable other buttons while this one is active
         document.querySelectorAll('.recall-button').forEach(btn => {
@@ -613,16 +671,19 @@ class ReadingSpanTask {
         
         // *** ONLY start recording for MAIN phase ***
         if (isMainPhase) {
-            await this.startRecording(targetWord, true);
+            button.resultEntry = await this.startRecording(targetWord, true);
+            if (this.closed) return;
             button.classList.add('recording');
-            button.innerHTML = `<span style="font-size: 16px;">🔴</span> Recording ${index + 1}...`;
+            button.innerHTML = `<span style="font-size: 16px;">⏹</span> Done ${index + 1}`;
             button.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
         } else {
             // Practice phase - just show active state without recording
             button.classList.add('recording');
-            button.innerHTML = `<span style="font-size: 16px;">✓</span> Practicing ${index + 1}...`;
+            button.innerHTML = `<span style="font-size: 16px;">⏹</span> Done ${index + 1}`;
             button.style.background = 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)';
         }
+        button.recallStartedAt = performance.now();
+        delete button.dataset.starting;
         
         // Start individual countdown for this button
         const duration = this.config.parameters.timing.recall_time_duration;
@@ -641,6 +702,7 @@ class ReadingSpanTask {
                     <span style="font-size: 18px; font-weight: 700; color: #dc3545; margin-left: 8px;">
                         ${remaining}s
                     </span>
+                    <span style="color: #6c757d; margin-left: 12px;">(click Done ${index + 1} when finished)</span>
                 `;
                 
                 if (remaining <= 5) {
@@ -659,7 +721,7 @@ class ReadingSpanTask {
 
             if (remaining <= 0) {
                 clearInterval(interval);
-                this.finishIndividualRecording(button, targetWord, isMainPhase, index);
+                this.finishIndividualRecording(button, targetWord, isMainPhase, index, 'timeout');
             }
         }, 1000);
         
@@ -667,9 +729,32 @@ class ReadingSpanTask {
         button.recordingInterval = interval;
     }
 
-    async finishIndividualRecording(button, targetWord, isMainPhase, index) {
-        // Stop recording
+    async finishIndividualRecording(button, targetWord, isMainPhase, index, endedBy = 'timeout') {
+        // Runs once per button, whether the time ran out or Done was clicked
+        if (button.dataset.finishing) return;
+        button.dataset.finishing = '1';
+
+        // Stop the countdown right away so it can't fire during the stop
+        if (button.recordingInterval) {
+            clearInterval(button.recordingInterval);
+            delete button.recordingInterval;
+        }
+
+        const recallMs = button.recallStartedAt != null
+            ? Math.round(performance.now() - button.recallStartedAt)
+            : null;
+
+        // Stop recording (early if Done was clicked)
+        if (isMainPhase && endedBy === 'stopped') {
+            await this.audioRecorder.stopEarly();
+        }
         await this.stopRecording();
+        if (this.closed) return;
+
+        if (button.resultEntry) {
+            button.resultEntry.recall_duration_ms = recallMs;
+            button.resultEntry.ended_by = endedBy;
+        }
         
         // Update button appearance
         button.classList.remove('recording');
@@ -757,14 +842,16 @@ class ReadingSpanTask {
             
             // Store result info for later
             if (saveToFile && this.currentPhase === 'main') {
-                this.results.push({
+                const entry = {
                     phase: this.currentPhase,
                     series: this.currentSeries,
                     block: this.currentBlock,
                     target_word: targetWord,
                     audio_file: filename,
                     timestamp: new Date().toISOString()
-                });
+                };
+                this.results.push(entry);
+                return entry;
             }
             
         } catch (error) {
@@ -875,8 +962,11 @@ class ReadingSpanTask {
                 margin-bottom: 32px;
                 max-width: 600px;
             ">
-                Practice phase completed! Now you'll begin the main task with the same rules.
-                Remember to say the final word of each sentence when prompted.
+                The main task works the same way: read each sentence aloud, press the SPACE BAR
+                for the next one, and when "Recall" appears, say the last word of every sentence
+                you have just read, in any order.
+                <br><br>
+                If you have any questions about the task, please ask the experimenter now.
             </div>
             
             <button onclick="window.readingSpanTaskInstance.startMain()" style="
@@ -1021,7 +1111,7 @@ class ReadingSpanTask {
 
         content += 'DETAILED RESULTS\n';
         content += '-'.repeat(60) + '\n';
-        content += 'Phase     | Series | Block | Target Word    | Audio File\n';
+        content += 'Phase     | Series | Block | Target Word    | Recall ms | Ended By | Audio File\n';
         content += '-'.repeat(60) + '\n';
 
         for (const result of this.results) {
@@ -1030,8 +1120,21 @@ class ReadingSpanTask {
             const block = result.block.toString().padEnd(5);
             const target = result.target_word.padEnd(14);
             const audioFile = result.audio_file || 'N/A';
+            const recallMs = String(result.recall_duration_ms ?? 'N/A').padEnd(9);
+            const endedBy = String(result.ended_by ?? 'N/A').padEnd(8);
 
-            content += `${phase} | ${series} | ${block} | ${target} | ${audioFile}\n`;
+            content += `${phase} | ${series} | ${block} | ${target} | ${recallMs} | ${endedBy} | ${audioFile}\n`;
+        }
+
+        const mainReading = this.sentenceLog.filter((r) => r.phase === 'main');
+        if (mainReading.length) {
+            content += '\nSENTENCE READING TIMES (main phase)\n';
+            content += '-'.repeat(60) + '\n';
+            content += 'Series | Block | Pos | Target Word    | Reading ms | Ended By\n';
+            content += '-'.repeat(60) + '\n';
+            for (const r of mainReading) {
+                content += `${String(r.series).padEnd(6)} | ${String(r.block).padEnd(5)} | ${String(r.position).padEnd(3)} | ${r.target_word.padEnd(14)} | ${String(r.reading_time_ms).padEnd(10)} | ${r.ended_by}\n`;
+            }
         }
 
         content += '\n' + '='.repeat(60) + '\n';
@@ -1069,6 +1172,7 @@ class ReadingSpanTask {
         this.closed = true;
         this.timers.forEach((id) => clearTimeout(id));
         this.timers.clear();
+        this.removeSentenceAdvanceListeners();
 
         // Keep what was recorded in the main phase
         if (savePartial && this.currentPhase === 'main' && this.results.length && !this.resultsSaved) {

@@ -1571,26 +1571,26 @@ class Dashboard {
                 <div class="config-tab-content active" id="trials-tab">
                     <div class="config-card">
                         <h3>Trial Parameters</h3>
-                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Block order and counterbalancing are chosen on the task's welcome screen.</div>
+                        <div class="help-text" style="margin-bottom: 12px;">Sommers &amp; Danielson (1999): 4 blocks (phoneme / voice &times; control / orthogonal), each preceded by practice. Every participant gets the same block order and trial order (it can be changed on the task's welcome screen, under Counterbalancing).</div>
 
                         <div class="config-row">
                             <div class="config-group">
-                                <label for="sc-practice">Practice Trials per Block</label>
+                                <label for="sc-practice">Practice Trials per Round</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="sc-practice">−</button>
-                                    <input type="number" id="sc-practice" name="practice_per_condition" min="0" max="20" value="12" readonly>
+                                    <input type="number" id="sc-practice" name="practice_round_size" min="0" max="12" value="3" readonly>
                                     <button type="button" data-action="increase" data-target="sc-practice">+</button>
                                 </div>
-                                <div class="help-text">With feedback, before each of the 4 blocks (paper: 12)</div>
+                                <div class="help-text">With feedback, before each block; all correct = passed, otherwise another round (paper: 12 practice trials)</div>
                             </div>
                             <div class="config-group">
                                 <label for="sc-control-reps">Control Block Repetitions</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="sc-control-reps">−</button>
-                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="8" readonly>
+                                    <input type="number" id="sc-control-reps" name="control_repetitions" min="1" max="10" value="6" readonly>
                                     <button type="button" data-action="increase" data-target="sc-control-reps">+</button>
                                 </div>
-                                <div class="help-text">8 stimuli &times; this (paper: 8 = 64 trials)</div>
+                                <div class="help-text">8 stimuli &times; this (default 6 = 48 trials, as in auditory Stroop; paper: 8 = 64)</div>
                             </div>
                         </div>
 
@@ -1603,6 +1603,15 @@ class Dashboard {
                                     <button type="button" data-action="increase" data-target="sc-orthogonal-reps">+</button>
                                 </div>
                                 <div class="help-text">64 stimuli &times; this (paper: 1 = 64 trials)</div>
+                            </div>
+                            <div class="config-group">
+                                <label for="sc-practice-rounds">Failed Practice Rounds Before Asking</label>
+                                <div class="number-stepper">
+                                    <button type="button" data-action="decrease" data-target="sc-practice-rounds">−</button>
+                                    <input type="number" id="sc-practice-rounds" name="practice_max_rounds" min="1" max="10" value="4" readonly>
+                                    <button type="button" data-action="increase" data-target="sc-practice-rounds">+</button>
+                                </div>
+                                <div class="help-text">Then the experimenter chooses more practice or the block</div>
                             </div>
                         </div>
                         <div class="help-text" id="sc-total-trials"></div>
@@ -1656,7 +1665,7 @@ class Dashboard {
                                 </div>
                                 <input type="range" id="error-display-slider" name="error_display_duration" min="500" max="3000" step="100" value="1500" class="config-slider">
                             </div>
-                            <div class="help-text">Feedback is shown on practice trials only</div>
+                            <div class="help-text">Feedback is shown on practice trials only, during the interval before the next warning tone</div>
                         </div>
                     </div>
                 </div>
@@ -1983,7 +1992,8 @@ class Dashboard {
     }
 
     // Speeded Classification configuration, in the format the task reads
-    // (version 2 = Sommers & Danielson 1999 design).
+    // (version 3 = Sommers & Danielson 1999 design with practice rounds and
+    // control blocks x6; must match SpeededClassificationPopup.CONFIG_VERSION).
     collectConfigurationData() {
         const intValue = (id, fallback) => {
             const v = parseInt(document.getElementById(id)?.value, 10);
@@ -1992,12 +2002,13 @@ class Dashboard {
         const crashRecovery = document.getElementById('crash-recovery');
         const config = {
             task: 'speeded-classification',
-            version: 2,
+            version: 3,
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice_per_condition: intValue('sc-practice', 12),
-                    control_repetitions: intValue('sc-control-reps', 8),
+                    practice_round_size: intValue('sc-practice', 3),
+                    practice_max_rounds: intValue('sc-practice-rounds', 4),
+                    control_repetitions: intValue('sc-control-reps', 6),
                     orthogonal_repetitions: intValue('sc-orthogonal-reps', 1)
                 },
                 timing: {
@@ -2025,9 +2036,8 @@ class Dashboard {
         const el = document.getElementById('sc-total-trials');
         if (!el) return;
         const v = (id) => parseInt(document.getElementById(id)?.value, 10) || 0;
-        const practice = v('sc-practice') * 4;
         const main = 2 * 8 * v('sc-control-reps') + 2 * 64 * v('sc-orthogonal-reps');
-        el.textContent = `Total: ${main} test trials + ${practice} practice = ${main + practice} trials`;
+        el.textContent = `Total: ${main} test trials, plus practice before each block (rounds of ${v('sc-practice')} until all are correct)`;
     }
 
     async saveConfigurationToFile(config) {
@@ -2137,13 +2147,14 @@ class Dashboard {
         const params = config.parameters || {};
 
         // Trial/timing fields from the current format only (older files
-        // held placeholder fields the task never used)
-        if (config.version === 2 && params.trials) {
-            this.setInputValue('sc-practice', params.trials.practice_per_condition);
+        // describe an older design, which the task no longer uses)
+        if (config.version === 3 && params.trials) {
+            this.setInputValue('sc-practice', params.trials.practice_round_size);
+            this.setInputValue('sc-practice-rounds', params.trials.practice_max_rounds);
             this.setInputValue('sc-control-reps', params.trials.control_repetitions);
             this.setInputValue('sc-orthogonal-reps', params.trials.orthogonal_repetitions);
         }
-        if (config.version === 2 && params.timing) {
+        if (config.version === 3 && params.timing) {
             this.setInputValue('sc-warning-delay', params.timing.warning_to_stimulus_delay);
             this.setInputValue('iti-slider', params.timing.iti);
             this.setInputValue('response-timeout-slider', params.timing.response_timeout);

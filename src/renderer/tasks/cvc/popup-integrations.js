@@ -23,6 +23,7 @@ class CVCTask {
         
         // Phase counters
         this.realWordsCompleted = 0;
+        this.wordsDetected = 0; // SPACE/click responses, shown on screen
         this.targetRealWords = 0;
         
         // Performance tracking
@@ -344,6 +345,7 @@ class CVCTask {
         this.currentPhase = 'practice';
         this.currentTrialIndex = 0;
         this.realWordsCompleted = 0;
+        this.wordsDetected = 0; // SPACE/click responses, shown on screen
         this.targetRealWords = this.config.parameters.trials.practice_real_words;
         this.resetStats();
         
@@ -358,6 +360,7 @@ class CVCTask {
         this.currentPhase = 'main';
         this.currentTrialIndex = 0;
         this.realWordsCompleted = 0;
+        this.wordsDetected = 0; // SPACE/click responses, shown on screen
         this.targetRealWords = this.config.parameters.trials.main_real_words;
         this.resetStats();
         
@@ -373,17 +376,18 @@ class CVCTask {
             return;
         }
 
-        // Hardcoded practice sequence: M-U-D (3 real words)
+        // Hardcoded practice sequence: D-O-T, G-A-P (2 real words)
         const practiceSequence = [
-            { letter: 'M', flag: 0 },   // M
-            { letter: 'U', flag: 0 },   // U  
-            { letter: 'D', flag: -1 },  // D (completes MUD)
-            { letter: 'P', flag: 0 },   // P
-            { letter: 'E', flag: 0 },   // E
-            { letter: 'N', flag: -1 },  // N (completes PEN)
-            { letter: 'C', flag: 0 },   // C
-            { letter: 'A', flag: 0 },   // A
-            { letter: 'T', flag: -1 }   // T (completes CAT)
+            { letter: 'G', flag: 0 },       // G
+            { letter: 'I', flag: 0 },       // I
+            { letter: 'D', flag: 0 },       // D
+            { letter: 'O', flag: 0 },       // O
+            { letter: 'T', flag: -1 },      // T (completes DOT)
+            { letter: 'E', flag: 0 },       // E
+            { letter: 'G', flag: 0 },       // G
+            { letter: 'A', flag: 0 },       // A
+            { letter: 'P', flag: -1 },      // P (completes GAP)
+            { letter: 'U', flag: 0 }        // U
         ];
 
         // Check if we've exceeded the practice sequence
@@ -445,14 +449,12 @@ class CVCTask {
     }
 
     showLetter() {
-        const progressText = `Real words completed: ${this.realWordsCompleted} / ${this.targetRealWords}`;
-        
         const content = `
-            <div style="
+            <div id="cvc-progress" style="
                 font-size: 16px;
                 color: #6c757d;
                 margin-bottom: 20px;
-            ">${progressText}</div>
+            ">${this.progressText()}</div>
             <div style="
                 font-size: 120px;
                 font-weight: bold;
@@ -659,6 +661,15 @@ class CVCTask {
         this.responseGiven = true;
         const now = performance.now();
         this.responseTime = (e && e.timeStamp > 0 && Math.abs(now - e.timeStamp) < 1000) ? e.timeStamp : now;
+
+        // The on-screen counter goes up as soon as the participant responds
+        this.wordsDetected++;
+        const progressEl = document.getElementById('cvc-progress');
+        if (progressEl) progressEl.textContent = this.progressText();
+    }
+
+    progressText() {
+        return `Real words detected: ${this.wordsDetected}`;
     }
 
     handleKeyPress(e) {

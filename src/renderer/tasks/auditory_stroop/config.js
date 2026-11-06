@@ -7,7 +7,7 @@ class AuditoryStroopConfig {
             timestamp: null,
             parameters: {
                 trials: {
-                    practice: 12,     // not specified in the paper
+                    practice: 0,      // the paper describes no practice block
                     repetitions: 6    // 12 word-voice pairings x 6 = 72 trials (paper)
                 },
                 timing: {
@@ -63,10 +63,10 @@ class AuditoryStroopConfig {
                                 <label for="practice-trials">Number of Practice Trials</label>
                                 <div class="number-stepper">
                                     <button type="button" data-action="decrease" data-target="practice-trials">−</button>
-                                    <input type="number" id="practice-trials" name="practice_trials" min="0" max="24" value="12" readonly>
+                                    <input type="number" id="practice-trials" name="practice_trials" min="0" max="24" value="0" readonly>
                                     <button type="button" data-action="increase" data-target="practice-trials">+</button>
                                 </div>
-                                <small class="help-text">With feedback; not specified in the paper (0-24)</small>
+                                <small class="help-text">With feedback; the paper has no practice (paper: 0)</small>
                             </div>
                             
                             <div class="config-group">
@@ -433,7 +433,7 @@ class AuditoryStroopConfig {
             timestamp: new Date().toISOString(),
             parameters: {
                 trials: {
-                    practice: intValue('practice-trials', 12),
+                    practice: intValue('practice-trials', 0),
                     repetitions: intValue('repetitions', 6)
                 },
                 timing: {
