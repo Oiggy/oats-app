@@ -293,7 +293,7 @@ class CaSTWordTask {
             In this task, you will hear some single words in  background noise.
             After each one, please repeat what you heard.`;
         
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
         this.modalContent.innerHTML = `
             <div class="cast-word-instruction-page">
                 <div class="instruction-content">
@@ -313,6 +313,9 @@ class CaSTWordTask {
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
+                        </button>
+                        <button class="task-btn task-btn-secondary" id="view-results-btn" style="display:none">
+                            View Results
                         </button>
                         <button class="task-btn task-btn-primary" id="start-cast-word-btn">
                             Start
@@ -347,6 +350,27 @@ class CaSTWordTask {
             this.currentIndex = startIndex >= 0 ? startIndex : 0;
             this.showPlayerPage();
         });
+
+        document.getElementById('view-results-btn').addEventListener('click', () => {
+            this.showResultsPage();
+        });
+
+        // Show "View Results" button only if Words task has been completed
+        (async () => {
+            try {
+                const path = window.require('path');
+                const fs = window.require('fs').promises;
+                const { app } = window.require('@electron/remote') || window.require('electron').remote;
+                const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+                const participantDir = getParticipantDir(this.participantId);
+                const entries = await fs.readdir(participantDir);
+                const done = entries.some(e => e.startsWith('speechinnoisewordstask_'));
+                if (done) {
+                    const btn = document.getElementById('view-results-btn');
+                    if (btn) btn.style.display = '';
+                }
+            } catch (_) {}
+        })();
     }
 
     // Built-in word practice: hides this task, runs the practice items at this
@@ -355,7 +379,7 @@ class CaSTWordTask {
         this.taskStarted = true;
         this.currentPage = 'player';
         
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
         this.modalContent.innerHTML = `
             <div class="cast-word-player-page">
                 <div class="player-content">
@@ -674,9 +698,125 @@ class CaSTWordTask {
             this.refreshPlayerUI();
             setTimeout(() => this.handlePlay(), 100);
         } else {
-            this.saveResults();
-            oatsDialog.alert('Task finished.');
+            await this.saveResults();
+            this.showResultsPage();
         }
+    }
+
+    async showResultsPage() {
+        this.currentPage = 'results';
+
+        this.modalContent.innerHTML = `
+            <div class="cast-word-results-page">
+                <div class="results-content" style="display:flex; flex-direction:column; align-items:center; padding-top:16px;">
+                    <h1 class="task-title" style="margin:0 0 12px 0;">Words — Results</h1>
+                    <div id="results-loading" style="text-align:center; padding: 20px;">
+                        <p>Fitting psychometric function, please wait...</p>
+                    </div>
+                    <div id="results-display" style="display:none; text-align:center; width:100%;">
+                        <div id="snr-recommendation" style="font-size:1.3em; font-weight:bold; margin:0 0 12px 0; color:#1a73e8;"></div>
+                        <img id="psychometric-plot" style="max-width:420px; width:100%; border-radius:8px;" />
+                        <div id="snr-table" style="margin:12px auto;"></div>
+                        <div style="margin-top:14px;">
+                            <button class="task-btn task-btn-primary" id="continue-btn">Continue to Main Menu</button>
+                        </div>
+                    </div>
+                    <div id="results-error" style="display:none; color:red; padding:20px;"></div>
+                </div>
+            </div>
+        `;
+
+        try {
+            const os = window.require('os');
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const participantDir = getParticipantDir(this.participantId);
+
+            const csvPath   = path.join(participantDir, 'speechinnoise_summary.csv');
+            const pngPath   = path.join(participantDir, `Words_psychometric_${this.participantId}.png`);
+            const scriptPath = path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'sin_psychometric.py');
+
+            const recommendedSNR = await this.runPsychometricScript(csvPath, pngPath, scriptPath, 'Words');
+
+            // Save recommended SNR so HINT/CST can use it as their starting point
+            const fs2 = window.require('fs').promises;
+            await fs2.writeFile(path.join(participantDir, 'words_recommended_snr.txt'), String(recommendedSNR), 'utf8');
+
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-display').style.display = 'block';
+            document.getElementById('snr-recommendation').textContent =
+                `Start HINT/CST at: ${recommendedSNR} dB`;
+            document.getElementById('psychometric-plot').src = `file://${pngPath}`;
+
+            // Build SNR table from summary CSV
+            const fs = window.require('fs').promises;
+            const raw = await fs.readFile(csvPath, 'utf8');
+            const lines = raw.trim().split('\n');
+            const headers = lines[0].split(',');
+            const wIdx = headers.indexOf('Words');
+            const rows = lines.slice(1).map(l => l.split(','))
+                .filter(r => r[wIdx] !== '')
+                .sort((a, b) => parseInt(b[0]) - parseInt(a[0]));
+            const tableHTML = `<table style="border-collapse:collapse; font-size:0.9em; margin:0 auto;">
+                <thead><tr>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">SNR (dB)</th>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">Correct / Total</th>
+                </tr></thead>
+                <tbody>${rows.map(r => {
+                    const correct = parseInt(r[wIdx]);
+                    return `<tr><td style="padding:3px 16px; text-align:center;">${r[0]}</td><td style="padding:3px 16px; text-align:center;">${correct} / 20</td></tr>`;
+                }).join('')}</tbody>
+            </table>`;
+            document.getElementById('snr-table').innerHTML = tableHTML;
+
+            document.getElementById('continue-btn').addEventListener('click', () => {
+                this.closeTask();
+            });
+
+        } catch (error) {
+            console.error('Psychometric script error:', error);
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-error').style.display = 'block';
+            document.getElementById('results-error').innerHTML =
+                `<strong>Could not fit psychometric function.</strong><br>${error.message}<br><br>
+                 <button class="task-btn task-btn-primary" id="continue-btn-err">Continue to Main Menu</button>`;
+            document.getElementById('continue-btn-err').addEventListener('click', () => {
+                this.closeTask();
+            });
+        }
+    }
+
+    runPsychometricScript(csvPath, pngPath, scriptPath, column = 'Words') {
+        return new Promise((resolve, reject) => {
+            const { spawn } = window.require('child_process');
+
+            const child = spawn('conda', ['run', '--no-capture-output', '-n', 'psignifit',
+                                          'python', scriptPath, csvPath, pngPath, column]);
+
+            let stdout = '';
+            let stderr = '';
+
+            child.stdout.on('data', data => { stdout += data.toString(); });
+            child.stderr.on('data', data => { stderr += data.toString(); });
+
+            child.on('close', code => {
+                if (code !== 0) {
+                    reject(new Error(`Python exited with code ${code}:\n${stderr}`));
+                } else {
+                    const snr = parseInt(stdout.trim());
+                    if (isNaN(snr)) {
+                        reject(new Error(`Unexpected output from Python: "${stdout.trim()}"`));
+                    } else {
+                        resolve(snr);
+                    }
+                }
+            });
+
+            child.on('error', err => {
+                reject(new Error(`Failed to launch conda: ${err.message}`));
+            });
+        });
     }
 
     stopAudio() {
@@ -845,7 +985,7 @@ class CaSTWordTask {
         const participantDir = getParticipantDir(this.participantId);
         await fs.mkdir(participantDir, { recursive: true });
         const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
 
         let data = {};
         snrLevels.forEach(snr => {
