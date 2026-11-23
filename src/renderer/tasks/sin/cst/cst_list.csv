@@ -42,7 +42,7 @@ SNR,Topic,Passage Pair,Sentence Number,Sentence ,Key Words,Correct Key Words
 0,Eagle,19,6,Each type is very different in size and color.  ,"type, size, color",
 0,Eagle,19,7,Eagles have strong beaks and powerful claws.  ,"Strong, beaks, claws  ",
 -5,Window,1,1,Windows provide light and air to rooms.,"windows, provide, light, air, rooms",
--5,Window,1,2,Windows were once covered with crude shutters.,"onece, covered, crude, shutters",
+-5,Window,1,2,Windows were once covered with crude shutters.,"once, covered, crude, shutters",
 -5,Window,1,3,"Later, oiled paper was used for windowpanes.","later, oiled, paper, windowpanes",
 -5,Window,1,4,Glass windows first appeared in ancient Rome.,"glass, appeared, ancient, rome",
 -5,Window,1,5,Colored glass was used in European windows.,"colored, used, european",

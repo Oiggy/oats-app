@@ -51,7 +51,8 @@ def main():
     )
 
     # --- Fit ---
-    result = ps.psignifit(data, sigmoid='logistic', experiment_type='equal asymptote')
+    result = ps.psignifit(data, sigmoid='logistic', experiment_type='yes/no',
+                          fixed_parameters={'gamma': 0})
 
     # --- Find threshold ---
     snr_min, snr_max = min(SNR_LEVELS), max(SNR_LEVELS)

@@ -65,7 +65,8 @@ def main():
     rows.sort(key=lambda x: x[0])
     data = np.array(rows, dtype=float)
 
-    result = ps.psignifit(data, sigmoid='logistic', experiment_type='equal asymptote')
+    result = ps.psignifit(data, sigmoid='logistic', experiment_type='yes/no',
+                          fixed_parameters={'gamma': 0})
 
     snr_min, snr_max = data[:, 0].min(), data[:, 0].max()
     x = np.linspace(snr_min, snr_max, 10000)
