@@ -526,6 +526,11 @@ class HINTTask {
             const match = btn.dataset.snr === currentSNR ||
                 (currentSNR === 'half' && btn.dataset.snr === 'half');
             btn.classList.toggle('active', match);
+            // Half-step items play only once a level has triggered the half-step
+            if (btn.dataset.snr === 'half') {
+                btn.disabled = this.halfStepSNR === null;
+                btn.title = btn.disabled ? 'Available once a level scores below 50%' : '';
+            }
         });
     }
 
@@ -541,7 +546,7 @@ class HINTTask {
 
     jumpToHalf() {
         const index = this.csvData.findIndex(row => row['SNR'] === 'half');
-        if (index < 0) return;
+        if (index < 0 || this.halfStepSNR === null) return;
         this.saveKeywordStates();
         this.stopResponseTimer();
         this.stopAudio();
@@ -683,6 +688,7 @@ class HINTTask {
 
         // Calculate counts up to current index (inclusive)
         for (let i = 0; i <= this.currentIndex; i++) {
+            if (i < this.currentIndex && !this.isScored(i)) continue;
             const row = this.csvData[i];
             const snr = row['SNR'] === 'half' ? 'half' : Number(row['SNR']);
             if (!(snr in snrCounts)) continue;
@@ -819,10 +825,11 @@ class HINTTask {
                 const correctKw = levelRows.reduce((s, r) => s + this.parseKeywords(r['Correct Key Words'] || '').length, 0);
                 const pct = totalKw > 0 ? correctKw / totalKw : 1;
 
-                if (pct < 0.5 && this.halfStepSNR === null) {
-                    // Score <50% — do a half-step above
-                    const snrNum = parseFloat(currentSNR);
-                    this.halfStepSNR = snrNum + 2.5;
+                // Score <50% — do a half-step above, where its recordings
+                // exist (HINT_audio/SNR22.5 down to SNR-2.5)
+                const halfStep = parseFloat(currentSNR) + 2.5;
+                if (pct < 0.5 && this.halfStepSNR === null && this.halfStepAudioExists(halfStep)) {
+                    this.halfStepSNR = halfStep;
                     const halfIndex = this.csvData.findIndex(r => r['SNR'] === 'half');
                     if (halfIndex >= 0) {
                         this.currentIndex = halfIndex;
@@ -833,6 +840,14 @@ class HINTTask {
                 }
             }
 
+            // No half-step was triggered: the half-step items are not part
+            // of this run, so it ends after the last full level
+            if (nextSNR === 'half' && this.halfStepSNR === null) {
+                await this.saveResults();
+                this.showResultsPage();
+                return;
+            }
+
             this.currentIndex++;
             this.refreshPlayerUI();
             setTimeout(() => this.handlePlay(), 100);
@@ -840,6 +855,19 @@ class HINTTask {
             await this.saveResults();
             this.showResultsPage();
         }
+    }
+
+    halfStepAudioExists(snr) {
+        const path = window.require('path');
+        const fs = window.require('fs');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return fs.existsSync(path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'sin', 'hint', 'HINT_audio', this.snrToFolder(snr)));
+    }
+
+    // Rows the tester has scored (moved on from with Next, Back or a jump).
+    // Rows never presented are not scores of 0.
+    isScored(index) {
+        return this.keywordStates[index] !== undefined;
     }
 
     async showResultsPage() {
@@ -1134,6 +1162,8 @@ class HINTTask {
             // File doesn't exist yet, use empty structure
         }
 
+        // This run replaces the HINT column; levels it did not test stay blank
+        snrLevels.forEach(snr => { data[snr]['HINT'] = ''; });
         for (const [snr, stats] of Object.entries(snrSummary)) {
             const snrNum = parseFloat(snr);
             if (data[snrNum] !== undefined && stats.total > 0) {
@@ -1154,7 +1184,9 @@ class HINTTask {
     calculateSNRSummary() {
         const summary = {};
 
-        for (const row of this.csvData) {
+        for (let i = 0; i < this.csvData.length; i++) {
+            if (!this.isScored(i)) continue;
+            const row = this.csvData[i];
             const snr = row['SNR'] === 'half'
                 ? (this.halfStepSNR !== null ? this.halfStepSNR : 'half')
                 : (row['SNR'] || '—');
