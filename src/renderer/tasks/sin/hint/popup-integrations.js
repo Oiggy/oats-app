@@ -394,10 +394,10 @@ class HINTTask {
                 const path = window.require('path');
                 const fs = window.require('fs').promises;
                 const { app } = window.require('@electron/remote') || window.require('electron').remote;
-                const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+                const { getParticipantDir, isTaskRunFolder } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
                 const participantDir = getParticipantDir(this.participantId);
                 const entries = await fs.readdir(participantDir);
-                const done = entries.some(e => e.startsWith('speechinnoisehinttask_'));
+                const done = entries.some(e => isTaskRunFolder(e, 'hint'));
                 if (done) {
                     const btn = document.getElementById('view-results-btn');
                     if (btn) btn.style.display = '';
@@ -1044,7 +1044,7 @@ class HINTTask {
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
             const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            // <participant>/speechinnoisehinttask_<run start>/ holds results.txt, trials.csv and recordings/
+            // <participant>/sin-hint_<run start>/ holds results.txt, trials.csv and recordings/
             const outputDir = getTaskRunDir(this.participantId, 'hint', this.runStart);
             const outputPath = path.join(outputDir, 'results.txt');
             

@@ -14,10 +14,10 @@ sample-accurate timing.
 | Reading Span | Reads sentences, then recalls the final words aloud | `readingspantask_<run start>` |
 | Speeded Classification | Classifies spoken words by first sound or by voice | `speededclassificationtask_<run start>` |
 | Auditory Stroop | Judges the speaker's sex, ignoring the word's meaning | `auditorystrooptask_<run start>` |
-| Speech in Noise: Nonwords | Repeats nonwords heard in noise (scored by the tester) | `speechinnoisenonwordstask_<run start>` |
-| Speech in Noise: Words | Repeats words heard in noise | `speechinnoisewordstask_<run start>` |
-| Speech in Noise: HINT | Repeats sentences heard in noise | `speechinnoisehinttask_<run start>` |
-| Speech in Noise: CST | Repeats connected-speech sentences heard in noise | `speechinnoisecsttask_<run start>` |
+| Speech in Noise: Nonwords | Repeats nonwords heard in noise (scored by the tester) | `sin-nonwords_<run start>` |
+| Speech in Noise: Words | Repeats words heard in noise | `sin-words_<run start>` |
+| Speech in Noise: HINT | Repeats sentences heard in noise | `sin-hint_<run start>` |
+| Speech in Noise: CST | Repeats connected-speech sentences heard in noise | `sin-cst_<run start>` |
 
 Speech-in-Noise practice is built into each Speech-in-Noise task (Practice
 button on its menu).
@@ -152,7 +152,7 @@ On Windows, everything is under `%APPDATA%\Oats` (elsewhere `~/Documents/Oats`):
 Oats/
 ├── participants/<participant ID>/       real participants
 │   ├── biodata.txt                      pre-task survey
-│   ├── <taskname>task_<YYYY-MM-DD_HH-MM-SS-mmmZ>/
+│   ├── <task>_<YYYY-MM-DD_HH-MM-SS-mmmZ>/
 │   │   ├── results.txt                  readable summary (+ app version, audio backend, Test Audio result)
 │   │   ├── trials.csv                   trial-level data (where the task has trials)
 │   │   └── recordings / *.wav           spoken responses (tasks that record)
@@ -165,8 +165,11 @@ Oats/
 Every `results.txt` (and `biodata.txt`) records the app version that wrote
 it, e.g. `App Version: OATS 1.0.3 (Brodbeck Lab)`.
 
-Every task run gets one folder named `<full task name>task_<run start time>`,
-for example `auditorystrooptask_2026-10-08_13-55-21-514Z`.
+Every task run gets one folder named `<task>_<run start time>`, for example
+`auditorystrooptask_2026-10-08_13-55-21-514Z`. The Speech-in-Noise tasks use
+short names so they are easy to tell apart: `sin-words`, `sin-nonwords`,
+`sin-hint` and `sin-cst` (runs saved before v1.0.10 are named
+`speechinnoise<task>task`).
 
 Error logs: `Documents/Oats/logs/app-error-YYYY-MM-DD.log` (all platforms).
 Developer Mode activity: see [developer_mode.md](developer_mode.md).
