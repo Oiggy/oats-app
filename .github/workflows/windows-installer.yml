@@ -46,6 +46,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The Speech-in-Noise tasks fit psychometric functions with Python
+      # (psignifit). Freeze the scripts into one self-contained program,
+      # shipped in the installer as resources/psychometric/, so the lab PC
+      # needs no Python (see src/shared/psychometric/psychometric-runner.js).
+      - name: Set up Python (psychometric fitting)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: src/shared/psychometric/requirements.txt
+
+      - name: Build the psychometric fitting program
+        shell: bash
+        run: |
+          python -m pip install -r src/shared/psychometric/requirements.txt pyinstaller==6.22.3
+          pyinstaller --noconfirm --clean --onedir --name oats-psychometric \
+            --distpath build-psychometric --workpath build-psychometric/work --specpath build-psychometric \
+            --paths src/shared/psychometric --exclude-module tkinter \
+            src/shared/psychometric/oats_psychometric.py
+
+      - name: Check the psychometric fitting program
+        shell: bash
+        run: |
+          exe=build-psychometric/oats-psychometric/oats-psychometric.exe
+          mkdir -p build-psychometric/check && cd build-psychometric/check
+          cat > summary.csv <<'EOF'
+          SNR,Non-words,Words,HINT,CST
+          25,19,20,18/20,30/32
+          20,18,19,17/20,29/32
+          15,15,17,14/20,25/32
+          10,10,13,10/20,18/32
+          5,5,8,6/20,10/32
+          0,2,3,2/20,4/32
+          -5,,,1/20,1/32
+          EOF
+          sed -i 's/^ *//' summary.csv
+          # Known answer for these scores: 90% correct at 16.4 dB -> start at 20 dB
+          words=$("../../$exe" sin summary.csv words.png Words | tr -d '\r')
+          echo "Words recommended SNR: $words"
+          [ "$words" = "20" ] || { echo "Expected 20"; exit 1; }
+          "../../$exe" sin summary.csv nonwords.png Non-words
+          "../../$exe" hint summary.csv hint.png
+          "../../$exe" cst summary.csv cst.png
+          for f in words nonwords hint cst; do [ -s "$f.png" ] || { echo "No $f.png"; exit 1; }; done
+          echo "Psychometric fitting program works"
+
       - name: Work out the version
         shell: bash
         run: |
@@ -84,6 +130,12 @@ jobs:
         run: npm run build-win -- --publish never
         env:
           CI: true
+
+      - name: Check the installer includes the psychometric fitting program
+        shell: bash
+        run: |
+          test -f dist/win-unpacked/resources/psychometric/oats-psychometric.exe \
+            || { echo "resources/psychometric/oats-psychometric.exe missing from the app"; exit 1; }
 
       - name: Compute branch-safe artifact name
         shell: bash

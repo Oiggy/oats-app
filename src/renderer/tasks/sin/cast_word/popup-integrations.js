@@ -791,8 +791,11 @@ class CaSTWordTask {
         return new Promise((resolve, reject) => {
             const { spawn } = window.require('child_process');
 
-            const child = spawn('conda', ['run', '--no-capture-output', '-n', 'psignifit',
-                                          'python', scriptPath, csvPath, pngPath, column]);
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote');
+            const { psychometricCommand } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'psychometric-runner.js'));
+            const { command, args } = psychometricCommand(scriptPath, [csvPath, pngPath, column]);
+            const child = spawn(command, args, { windowsHide: true });
 
             let stdout = '';
             let stderr = '';
@@ -814,7 +817,7 @@ class CaSTWordTask {
             });
 
             child.on('error', err => {
-                reject(new Error(`Failed to launch conda: ${err.message}`));
+                reject(new Error(`Failed to launch the psychometric fitting program: ${err.message}`));
             });
         });
     }

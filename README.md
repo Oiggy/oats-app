@@ -124,6 +124,26 @@ OATS) is also in the app: **AUDIO** > the **JDS + Focusrite** set-up guide.
   than compare conditions, a one-off loopback test can do it: a cable from
   a spare output (e.g. Out 3) into Input 3 or 4.
 
+## Speech-in-Noise psychometric fitting
+
+At the end of the Words, Nonwords, HINT and CST tasks the results page fits
+a psychometric function to the participant's per-SNR scores (psignifit,
+logistic, yes/no, guess rate 0) and shows the plot; Words also recommends the
+SNR to start HINT/CST at. The plot is saved as
+`<Words|Nonwords|HINT|CST>_psychometric_<participant>.png` in the participant
+folder.
+
+**Nothing to install on the lab PC.** The Windows installer includes the
+fitting as a self-contained program (`resources/psychometric/oats-psychometric.exe`,
+Python and psignifit inside), built and checked by the installer workflow.
+Package versions are pinned in `src/shared/psychometric/requirements.txt`, so
+every installer fits curves the same way.
+
+Running from source, the fit runs the scripts in a `psignifit` conda
+environment instead: run `scripts/Speech_in_noise_setup_windows.bat` once. If
+neither is available, the task still finishes and saves its data; the results
+page just says the curve could not be fitted.
+
 ## Where data is saved
 
 On Windows, everything is under `%APPDATA%\Oats` (elsewhere `~/Documents/Oats`):
@@ -185,7 +205,11 @@ Running from source shows the version as `(dev)`. ASIO needs Windows and the
 interface's ASIO driver (for Focusrite: Focusrite Control 2).
 
 Local builds: `npm run build-win` (Windows), `npm run build-mac`,
-`npm run build-linux`, `npm run build` (all).
+`npm run build-linux`, `npm run build` (all). A local Windows build includes
+the psychometric fitting program only if `build-psychometric/` exists (see the
+"Build the psychometric fitting program" step in
+`.github/workflows/windows-installer.yml`); otherwise that build falls back to
+conda, as when running from source.
 
 ## Project structure
 
@@ -206,6 +230,7 @@ oats-app/
     └── shared/
         ├── audio/               ASIO engine, Test Audio check, recorder, stimulus levels
         ├── logging/             error log
+        ├── psychometric/        Speech-in-Noise curve fitting (Python, bundled into the installer)
         └── storage/             participant folders and run-folder names
 ```
 

@@ -921,10 +921,13 @@ class HINTTask {
     runPsychometricScript(csvPath, pngPath, scriptPath, maxSNR = null) {
         return new Promise((resolve, reject) => {
             const { spawn } = window.require('child_process');
-            const args = ['run', '--no-capture-output', '-n', 'psignifit', 'python',
-                scriptPath, csvPath, pngPath];
-            if (maxSNR !== null) args.push(String(maxSNR));
-            const child = spawn('conda', args);
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote');
+            const { psychometricCommand } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'psychometric-runner.js'));
+            const scriptArgs = [csvPath, pngPath];
+            if (maxSNR !== null) scriptArgs.push(String(maxSNR));
+            const { command, args } = psychometricCommand(scriptPath, scriptArgs);
+            const child = spawn(command, args, { windowsHide: true });
             let stderr = '';
             child.stderr.on('data', d => { stderr += d.toString(); });
             child.on('close', code => {
