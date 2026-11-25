@@ -31,11 +31,25 @@ const TASK_FOLDERS = {
     'reading-span': 'readingspantask',
     'speeded-classification': 'speededclassificationtask',
     'auditory-stroop': 'auditorystrooptask',
-    'cast-word': 'speechinnoisewordstask',
-    'cast-nonword': 'speechinnoisenonwordstask',
-    'hint': 'speechinnoisehinttask',
-    'cst': 'speechinnoisecsttask'
+    'cast-word': 'sin-words',
+    'cast-nonword': 'sin-nonwords',
+    'hint': 'sin-hint',
+    'cst': 'sin-cst'
 };
+
+// Names used by earlier versions, still recognised for runs saved before
+const PREVIOUS_TASK_FOLDERS = {
+    'cast-word': ['speechinnoisewordstask'],
+    'cast-nonword': ['speechinnoisenonwordstask'],
+    'hint': ['speechinnoisehinttask'],
+    'cst': ['speechinnoisecsttask']
+};
+
+// True if a folder in the participant folder is a run of this task
+function isTaskRunFolder(folderName, taskKey) {
+    const names = [TASK_FOLDERS[taskKey], ...(PREVIOUS_TASK_FOLDERS[taskKey] || [])];
+    return names.some((name) => folderName.startsWith(`${name}_`));
+}
 
 function getOatsBaseDir() {
     return process.platform === 'win32'
@@ -68,5 +82,6 @@ module.exports = {
     getParticipantDir,
     formatRunTimestamp,
     getTaskRunDir,
+    isTaskRunFolder,
     TASK_FOLDERS
 };

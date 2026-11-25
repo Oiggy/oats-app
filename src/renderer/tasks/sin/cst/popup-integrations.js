@@ -36,6 +36,9 @@ class CSTTask {
         // SNR selection
         this.selectedStartSNR = 25;
 
+        // Adaptive half-step SNR (set when a full SNR level scores <50%)
+        this.halfStepSNR = null;
+
         // Recording
         this.mediaRecorder = null;
         this.recordingChunks = [];
@@ -261,8 +264,13 @@ class CSTTask {
         
         try {
             this.audioFiles = this.csvData.map(row => {
-                const snrValue = parseInt(row['SNR']);
-                const snrFolder = snrValue === -5 ? 'SNR-05' : `SNR${String(snrValue).padStart(2, '0')}`;
+                const snrRaw = row['SNR'];
+                let snrFolder;
+                if (snrRaw === 'half') {
+                    snrFolder = 'SNR_HALF_PLACEHOLDER';
+                } else {
+                    snrFolder = this.snrToFolder(parseFloat(snrRaw));
+                }
                 const topic = (row['Topic'] || '').trim();
                 const list = String(row['Passage Pair']).padStart(2, '0');
                 const sentence = String(row['Sentence Number']).padStart(2, '0');
@@ -272,6 +280,7 @@ class CSTTask {
             console.log('Audio files found:', this.audioFiles.length);
 
             for (const filePath of this.audioFiles) {
+                if (filePath.includes('SNR_HALF_PLACEHOLDER')) continue;
                 await this.loadAudioBuffer(filePath);
             }
         } catch (error) {
@@ -328,6 +337,28 @@ class CSTTask {
         }
         
         return 0;
+    }
+
+    snrToFolder(snrValue) {
+        if (snrValue === -5) return 'SNR-05';
+        if (snrValue < 0) return `SNR-${Math.abs(snrValue)}`;
+        if (!Number.isInteger(snrValue)) return `SNR${snrValue}`;
+        return `SNR${String(snrValue).padStart(2, '0')}`;
+    }
+
+    getAudioPath(index) {
+        const path = window.require('path');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        const audioDir = path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'sin', 'cst', 'CST_audio');
+        const row = this.csvData[index];
+        const snrRaw = row['SNR'];
+        const snrFolder = snrRaw === 'half'
+            ? this.snrToFolder(this.halfStepSNR)
+            : this.snrToFolder(parseFloat(snrRaw));
+        const topic = (row['Topic'] || '').trim();
+        const list = String(row['Passage Pair']).padStart(2, '0');
+        const sentence = String(row['Sentence Number']).padStart(2, '0');
+        return path.join(audioDir, snrFolder, `${topic}_L${list}_S${sentence}_mix.wav`);
     }
 
     extractFirstNumber(str) {
@@ -393,6 +424,9 @@ class CSTTask {
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
                         </button>
+                        <button class="task-btn task-btn-secondary" id="view-results-btn" style="display:none;">
+                            View Results
+                        </button>
                         <button class="task-btn task-btn-primary" id="start-cst-btn">
                             Start
                         </button>
@@ -403,6 +437,25 @@ class CSTTask {
 
         const audioCheckBtn = document.getElementById('audio-check-btn');
         if (audioCheckBtn) audioCheckBtn.addEventListener('click', () => this.testAudio());
+
+        // Show View Results button only if CST task has been completed
+        (async () => {
+            try {
+                const path = window.require('path');
+                const fs = window.require('fs').promises;
+                const { app } = window.require('@electron/remote') || window.require('electron').remote;
+                const { getParticipantDir, isTaskRunFolder } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+                const participantDir = getParticipantDir(this.participantId);
+                const entries = await fs.readdir(participantDir);
+                const done = entries.some(e => isTaskRunFolder(e, 'cst'));
+                if (done) {
+                    const btn = document.getElementById('view-results-btn');
+                    if (btn) btn.style.display = '';
+                }
+            } catch (_) {}
+        })();
+
+        document.getElementById('view-results-btn').addEventListener('click', () => this.showResultsPage());
 
         document.getElementById('back-to-main-btn').addEventListener('click', () => {
             if (this.taskStarted) this.saveResults();
@@ -434,14 +487,15 @@ class CSTTask {
         this.taskStarted = true;
         this.currentPage = 'player';
         
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrJumpLevels = [25, 20, 15, 10, 5, 0, -5];
         this.modalContent.innerHTML = `
             <div class="cst-player-page">
                 <div class="player-content">
                     <h1 class="task-title">CST</h1>
 
                     <div class="snr-jump-row" id="snr-jump-row">
-                        ${snrLevels.map(s => `<button class="snr-jump-btn" data-snr="${s}">${s}</button>`).join('')}
+                        ${snrJumpLevels.map(s => `<button class="snr-jump-btn" data-snr="${s}">${s}</button>`).join('')}
+                        <button class="snr-jump-btn" data-snr="half">half</button>
                     </div>
 
                     <div class="top-row">
@@ -474,9 +528,9 @@ class CSTTask {
                         <div class="keywords-grid" id="keywords-grid"></div>
                     </div>
                     
-                    <div class="skip-hint" id="skip-hint" style="display: none; color: red; font-weight: bold; text-align: center; margin: 4px 0;">
+                    <!-- <div class="skip-hint" id="skip-hint" style="display: none; color: red; font-weight: bold; text-align: center; margin: 4px 0;">
                         ⚠ Low score — you may stop the task if needed
-                    </div>
+                    </div> -->
 
                     <div class="recording-indicator" id="recording-indicator" style="display:none; color: red; font-weight: bold; text-align: center;">
                         ● Recording
@@ -519,7 +573,11 @@ class CSTTask {
         document.getElementById('select-all-btn').addEventListener('click', () => this.selectAllKeywords());
 
         document.querySelectorAll('.snr-jump-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.jumpToSNR(parseInt(btn.dataset.snr)));
+            btn.addEventListener('click', () => {
+                const val = btn.dataset.snr;
+                if (val === 'half') this.jumpToHalf();
+                else this.jumpToSNR(parseFloat(val));
+            });
         });
 
         this.refreshPlayerUI();
@@ -528,13 +586,30 @@ class CSTTask {
     updateSNRJumpButtons() {
         const currentSNR = String(this.csvData[this.currentIndex]['SNR']);
         document.querySelectorAll('.snr-jump-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.snr === currentSNR);
+            const match = btn.dataset.snr === currentSNR ||
+                (currentSNR === 'half' && btn.dataset.snr === 'half');
+            btn.classList.toggle('active', match);
+            // Half-step items play only once a level has triggered the half-step
+            if (btn.dataset.snr === 'half') {
+                btn.disabled = this.halfStepSNR === null;
+                btn.title = btn.disabled ? 'Available once a level scores below 50%' : '';
+            }
         });
     }
 
     jumpToSNR(snr) {
         const index = this.csvData.findIndex(row => String(row['SNR']) === String(snr));
         if (index < 0) return;
+        this.saveKeywordStates();
+        this.stopResponseTimer();
+        this.stopAudio();
+        this.currentIndex = index;
+        this.refreshPlayerUI();
+    }
+
+    jumpToHalf() {
+        const index = this.csvData.findIndex(row => row['SNR'] === 'half');
+        if (index < 0 || this.halfStepSNR === null) return;
         this.saveKeywordStates();
         this.stopResponseTimer();
         this.stopAudio();
@@ -552,14 +627,17 @@ class CSTTask {
         
         // Update counter
         const sentenceNum = row['Sentence Number'] || '';
-        const totalInList = this.csvData.filter(r => r['Topic'] === row['Topic']).length;
-        document.getElementById('item-counter').textContent = 
-            `Item ${this.currentIndex + 1} of ${this.totalItems}  |  Sentence ${sentenceNum} of ${totalInList}`;
+        const totalInList = this.csvData.filter(r => r['SNR'] === row['SNR'] && r['Topic'] === row['Topic']).length;
+        document.getElementById('item-counter').textContent =
+            `Sentence ${sentenceNum} of ${totalInList}`;
         
             
-        // Update SNR - handle empty values
-        const snr = row['SNR'] || row['snr'] || '';
-        const snrText = snr ? `SNR: ${snr} dB` : 'SNR: — dB';
+        // Update SNR
+        const snr = row['SNR'] || '';
+        const snrDisplay = snr === 'half'
+            ? (this.halfStepSNR !== null ? `${this.halfStepSNR} (half-step)` : 'half-step (SNR TBD)')
+            : snr;
+        const snrText = snrDisplay ? `SNR: ${snrDisplay} dB` : 'SNR: — dB';
         document.getElementById('snr-label').textContent = snrText;
         
         // Update Topic (from CSV or infer from folder)
@@ -588,10 +666,16 @@ class CSTTask {
         const nextTopicBanner = document.getElementById('next-topic-banner');
         const nextTopicText = document.getElementById('next-topic-text');
         const currentTopic = row['Topic'] || '';
+        const prevRow = this.csvData[this.currentIndex - 1];
         const nextRow = this.csvData[this.currentIndex + 1];
         const nextTopic = nextRow ? (nextRow['Topic'] || '') : null;
+        const prevTopic = prevRow ? (prevRow['Topic'] || '') : null;
 
-        if (nextTopic && nextTopic !== currentTopic) {
+        // Show "Now starting: X" at the first sentence of a new topic (including half-step entry)
+        if (prevTopic !== null && prevTopic !== currentTopic) {
+            nextTopicText.textContent = `Now starting: ${currentTopic}`;
+            nextTopicBanner.style.display = 'block';
+        } else if (nextTopic && nextTopic !== currentTopic) {
             nextTopicText.textContent = `Next topic: ${nextTopic}`;
             nextTopicBanner.style.display = 'block';
         } else {
@@ -704,14 +788,15 @@ class CSTTask {
         const summaryDiv = document.getElementById('snr-summary');
         if (!summaryDiv) return;
 
-        const snrOrder = [25, 20, 15, 10, 5, 0, -5];
+        const snrOrder = [25, 20, 15, 10, 5, 0, -5, 'half'];
         const snrCounts = {};
         snrOrder.forEach(snr => { snrCounts[snr] = { total: 0, correct: 0 }; });
 
         // Calculate counts up to current index (inclusive)
         for (let i = 0; i <= this.currentIndex; i++) {
+            if (i < this.currentIndex && !this.isScored(i)) continue;
             const row = this.csvData[i];
-            const snr = Number(row['SNR']);
+            const snr = row['SNR'] === 'half' ? 'half' : Number(row['SNR']);
             if (!(snr in snrCounts)) continue;
 
             const totalKeywords = this.parseKeywords(row['Key Words'] || '').length;
@@ -738,39 +823,7 @@ class CSTTask {
     }
 
     updateSkipHint() {
-        const skipHintDiv = document.getElementById('skip-hint');
-        if (!skipHintDiv) return;
-        
-        const currentRow = this.csvData[this.currentIndex];
-        const currentSNR = currentRow['SNR'] || '—';
-        
-        // Find first half items with this SNR
-        const first5Indices = [];
-        for (let i = 0; i < this.csvData.length; i++) {
-            const snr = this.csvData[i]['SNR'] || '—';
-            if (snr === currentSNR) {
-                first5Indices.push(i);
-                if (first5Indices.length === 4) break;
-            }
-        }
-        
-        if (first5Indices.length === 0 || this.currentIndex <= first5Indices[first5Indices.length - 1]) {
-            skipHintDiv.style.display = 'none';
-            return;
-        }
-        
-        // Calculate total correct keywords in first 5
-        let totalCorrect = 0;
-        for (const idx of first5Indices) {
-            const correctText = this.csvData[idx]['Correct Key Words'] || '';
-            totalCorrect += this.parseKeywords(correctText).length;
-        }
-        
-        if (totalCorrect < 2) {
-            skipHintDiv.style.display = 'block';
-        } else {
-            skipHintDiv.style.display = 'none';
-        }
+        // Low score warning disabled
     }
 
     async handleBack() {
@@ -799,7 +852,10 @@ class CSTTask {
         }
         this.startRecording();
 
-        const audioPath = this.audioFiles[this.currentIndex];
+        const audioPath = this.getAudioPath(this.currentIndex);
+        if (!this.audioBuffers[audioPath]) {
+            await this.loadAudioBuffer(audioPath);
+        }
 
         if (this.asioEngine && this.asioEngine.isEnabled()) {
             this.asioEngine.clearOutputQueue();
@@ -864,13 +920,155 @@ class CSTTask {
         await this.stopAndSaveRecording();
 
         if (this.currentIndex < this.totalItems - 1) {
+            const currentSNR = this.csvData[this.currentIndex]['SNR'];
+            const nextSNR = this.csvData[this.currentIndex + 1]['SNR'];
+
+            // Just finished last sentence of a full SNR level (not 'half')
+            if (currentSNR !== 'half' && nextSNR !== currentSNR) {
+                const levelRows = this.csvData.filter(r => r['SNR'] === currentSNR);
+                const totalKw = levelRows.reduce((s, r) => s + this.parseKeywords(r['Key Words'] || '').length, 0);
+                const correctKw = levelRows.reduce((s, r) => s + this.parseKeywords(r['Correct Key Words'] || '').length, 0);
+                const pct = totalKw > 0 ? correctKw / totalKw : 1;
+
+                // Score <50% — do a half-step above, where its recordings
+                // exist (CST_audio/SNR22.5 down to SNR-2.5)
+                const halfStep = parseFloat(currentSNR) + 2.5;
+                if (pct < 0.5 && this.halfStepSNR === null && this.halfStepAudioExists(halfStep)) {
+                    this.halfStepSNR = halfStep;
+                    const halfIndex = this.csvData.findIndex(r => r['SNR'] === 'half');
+                    if (halfIndex >= 0) {
+                        this.currentIndex = halfIndex;
+                        this.refreshPlayerUI();
+                        setTimeout(() => this.handlePlay(), 100);
+                        return;
+                    }
+                }
+            }
+
+            // No half-step was triggered: the half-step items are not part
+            // of this run, so it ends after the last full level
+            if (nextSNR === 'half' && this.halfStepSNR === null) {
+                await this.saveResults();
+                this.showResultsPage();
+                return;
+            }
+
             this.currentIndex++;
             this.refreshPlayerUI();
             setTimeout(() => this.handlePlay(), 100);
         } else {
-            this.saveResults();
-            oatsDialog.alert('Task finished.');
+            await this.saveResults();
+            this.showResultsPage();
         }
+    }
+
+    halfStepAudioExists(snr) {
+        const path = window.require('path');
+        const fs = window.require('fs');
+        const { app } = window.require('@electron/remote') || window.require('electron').remote;
+        return fs.existsSync(path.join(app.getAppPath(), 'src', 'renderer', 'tasks', 'sin', 'cst', 'CST_audio', this.snrToFolder(snr)));
+    }
+
+    // Rows the tester has scored (moved on from with Next, Back or a jump).
+    // Rows never presented are not scores of 0.
+    isScored(index) {
+        return this.keywordStates[index] !== undefined;
+    }
+
+    async showResultsPage() {
+        this.currentPage = 'results';
+        this.modalContent.innerHTML = `
+            <div class="cst-results-page">
+                <div class="results-content" style="display:flex; flex-direction:column; align-items:center; padding-top:16px;">
+                    <h1 class="task-title" style="margin:0 0 12px 0;">CST — Results</h1>
+                    <div id="results-loading" style="text-align:center; padding:20px;">
+                        <p>Fitting psychometric function, please wait...</p>
+                    </div>
+                    <div id="results-display" style="display:none; text-align:center; width:100%;">
+                        <img id="psychometric-plot" style="max-width:420px; width:100%; border-radius:8px;" />
+                        <div id="snr-table" style="margin:12px auto;"></div>
+                        <div style="margin-top:14px;">
+                            <button class="task-btn task-btn-primary" id="continue-btn">Continue to Main Menu</button>
+                        </div>
+                    </div>
+                    <div id="results-error" style="display:none; color:red; padding:20px;"></div>
+                </div>
+            </div>
+        `;
+
+        try {
+            const path = window.require('path');
+            const fs = window.require('fs').promises;
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const participantDir = getParticipantDir(this.participantId);
+
+            const csvPath    = path.join(participantDir, 'speechinnoise_summary.csv');
+            const pngPath    = path.join(participantDir, `CST_psychometric_${this.participantId}.png`);
+            const scriptPath = path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'cst_psychometric.py');
+
+            // Read recommended SNR from Words psychometric result
+            let maxWordsSNR = null;
+            try {
+                const snrTxt = await fs.readFile(path.join(participantDir, 'words_recommended_snr.txt'), 'utf8');
+                const parsed = parseFloat(snrTxt.trim());
+                if (!isNaN(parsed)) maxWordsSNR = parsed;
+            } catch (_) {}
+
+            await this.runPsychometricScript(csvPath, pngPath, scriptPath, maxWordsSNR);
+
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-display').style.display = 'block';
+            document.getElementById('psychometric-plot').src = `file://${pngPath}`;
+
+            // Build SNR table
+            const raw = await fs.readFile(csvPath, 'utf8');
+            const lines = raw.trim().split('\n');
+            const headers = lines[0].split(',');
+            const cstIdx = headers.indexOf('CST');
+            const rows = lines.slice(1).map(l => l.split(','))
+                .filter(r => r[cstIdx] && r[cstIdx].includes('/'))
+                .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
+            const tableHTML = `<table style="border-collapse:collapse; font-size:0.9em; margin:0 auto;">
+                <thead><tr>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">SNR (dB)</th>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">Correct / Total</th>
+                </tr></thead>
+                <tbody>${rows.map(r => `<tr>
+                    <td style="padding:3px 16px; text-align:center;">${r[0]}</td>
+                    <td style="padding:3px 16px; text-align:center;">${r[cstIdx]}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+            document.getElementById('snr-table').innerHTML = tableHTML;
+            document.getElementById('continue-btn').addEventListener('click', () => this.closeTask());
+        } catch (error) {
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-error').innerHTML =
+                `<p>Could not fit psychometric function: ${error.message}</p>
+                 <button class="task-btn task-btn-primary" id="continue-btn-err">Continue to Main Menu</button>`;
+            document.getElementById('results-error').style.display = 'block';
+            document.getElementById('continue-btn-err').addEventListener('click', () => this.closeTask());
+        }
+    }
+
+    runPsychometricScript(csvPath, pngPath, scriptPath, maxSNR = null) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = window.require('child_process');
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote');
+            const { psychometricCommand } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'psychometric-runner.js'));
+            const scriptArgs = [csvPath, pngPath];
+            if (maxSNR !== null) scriptArgs.push(String(maxSNR));
+            const { command, args } = psychometricCommand(scriptPath, scriptArgs);
+            const child = spawn(command, args, { windowsHide: true });
+            let stderr = '';
+            child.stderr.on('data', d => { stderr += d.toString(); });
+            child.on('close', code => {
+                if (code !== 0) reject(new Error(stderr || `exit code ${code}`));
+                else resolve();
+            });
+            child.on('error', err => reject(err));
+        });
     }
 
     stopAudio() {
@@ -951,7 +1149,7 @@ class CSTTask {
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
             const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            // <participant>/speechinnoisecsttask_<run start>/ holds results.txt, trials.csv and recordings/
+            // <participant>/sin-cst_<run start>/ holds results.txt, trials.csv and recordings/
             const outputDir = getTaskRunDir(this.participantId, 'cst', this.runStart);
             const outputPath = path.join(outputDir, 'results.txt');
             
@@ -1047,7 +1245,7 @@ class CSTTask {
         const participantDir = getParticipantDir(this.participantId);
         await fs.mkdir(participantDir, { recursive: true });
         const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 22.5, 20, 17.5, 15, 12.5, 10, 7.5, 5, 2.5, 0, -2.5, -5];
 
         let data = {};
         snrLevels.forEach(snr => {
@@ -1059,7 +1257,7 @@ class CSTTask {
             const lines = existing.trim().split('\n');
             for (let i = 1; i < lines.length; i++) {
                 const values = lines[i].split(',');
-                const snr = parseInt(values[0]);
+                const snr = parseFloat(values[0]);
                 if (data[snr] !== undefined) {
                     data[snr]['Non-words'] = values[1] || '';
                     data[snr]['Words'] = values[2] || '';
@@ -1071,10 +1269,12 @@ class CSTTask {
             // File doesn't exist yet, use empty structure
         }
 
+        // This run replaces the CST column; levels it did not test stay blank
+        snrLevels.forEach(snr => { data[snr]['CST'] = ''; });
         for (const [snr, stats] of Object.entries(snrSummary)) {
-            const snrNum = parseInt(snr);
-            if (data[snrNum] !== undefined) {
-                data[snrNum]['CST'] = stats.correct;
+            const snrNum = parseFloat(snr);
+            if (data[snrNum] !== undefined && stats.total > 0) {
+                data[snrNum]['CST'] = `${stats.correct}/${stats.total}`;
             }
         }
 
@@ -1090,9 +1290,13 @@ class CSTTask {
 
     calculateSNRSummary() {
         const summary = {};
-        
-        for (const row of this.csvData) {
-            const snr = row['SNR'] || '—';
+
+        for (let i = 0; i < this.csvData.length; i++) {
+            if (!this.isScored(i)) continue;
+            const row = this.csvData[i];
+            const snr = row['SNR'] === 'half'
+                ? (this.halfStepSNR !== null ? this.halfStepSNR : 'half')
+                : (row['SNR'] || '—');
             
             if (!summary[snr]) {
                 summary[snr] = { total: 0, correct: 0 };

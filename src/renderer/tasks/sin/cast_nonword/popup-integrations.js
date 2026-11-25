@@ -294,7 +294,7 @@ class CaSTNonwordTask {
         "In this task, you will some non-words in background noise. 
         After each one, please repeat exactly what you heard."`;
         
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
         this.modalContent.innerHTML = `
             <div class="cast-nonword-instruction-page">
                 <div class="instruction-content">
@@ -314,6 +314,9 @@ class CaSTNonwordTask {
                     <div class="instruction-buttons">
                         <button class="task-btn task-btn-secondary" id="back-to-main-btn">
                             Main Menu
+                        </button>
+                        <button class="task-btn task-btn-secondary" id="view-results-btn" style="display:none">
+                            View Results
                         </button>
                         <button class="task-btn task-btn-primary" id="start-cast-nonword-btn">
                             Start
@@ -348,6 +351,119 @@ class CaSTNonwordTask {
             this.currentIndex = startIndex >= 0 ? startIndex : 0;
             this.showPlayerPage();
         });
+
+        document.getElementById('view-results-btn').addEventListener('click', () => {
+            this.showResultsPage();
+        });
+
+        // Show "View Results" button only if Non-words task has been completed
+        (async () => {
+            try {
+                const path = window.require('path');
+                const fs = window.require('fs').promises;
+                const { app } = window.require('@electron/remote') || window.require('electron').remote;
+                const { getParticipantDir, isTaskRunFolder } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+                const participantDir = getParticipantDir(this.participantId);
+                const entries = await fs.readdir(participantDir);
+                const done = entries.some(e => isTaskRunFolder(e, 'cast-nonword'));
+                if (done) {
+                    const btn = document.getElementById('view-results-btn');
+                    if (btn) btn.style.display = '';
+                }
+            } catch (_) {}
+        })();
+    }
+
+    async showResultsPage() {
+        this.currentPage = 'results';
+
+        this.modalContent.innerHTML = `
+            <div class="cast-nonword-results-page">
+                <div class="results-content" style="display:flex; flex-direction:column; align-items:center; padding-top:16px;">
+                    <h1 class="task-title" style="margin:0 0 12px 0;">Nonwords — Results</h1>
+                    <div id="results-loading" style="text-align:center; padding: 20px;">
+                        <p>Fitting psychometric function, please wait...</p>
+                    </div>
+                    <div id="results-display" style="display:none; text-align:center; width:100%;">
+                        <img id="psychometric-plot" style="max-width:420px; width:100%; border-radius:8px;" />
+                        <div id="snr-table" style="margin:12px auto;"></div>
+                        <div style="margin-top:14px;">
+                            <button class="task-btn task-btn-primary" id="continue-btn">Continue to Main Menu</button>
+                        </div>
+                    </div>
+                    <div id="results-error" style="display:none; color:red; padding:20px;"></div>
+                </div>
+            </div>
+        `;
+
+        try {
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote') || window.require('electron').remote;
+            const { getParticipantDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
+            const participantDir = getParticipantDir(this.participantId);
+
+            const csvPath    = path.join(participantDir, 'speechinnoise_summary.csv');
+            const pngPath    = path.join(participantDir, `Nonwords_psychometric_${this.participantId}.png`);
+            const scriptPath = path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'sin_psychometric.py');
+
+            await this.runPsychometricScript(csvPath, pngPath, scriptPath, 'Non-words');
+
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-display').style.display = 'block';
+            document.getElementById('psychometric-plot').src = `file://${pngPath}`;
+
+            // Build SNR table from summary CSV
+            const fs = window.require('fs').promises;
+            const raw = await fs.readFile(csvPath, 'utf8');
+            const lines = raw.trim().split('\n');
+            const headers = lines[0].split(',');
+            const nwIdx = headers.indexOf('Non-words');
+            const snrIdx = 0;
+            const rows = lines.slice(1).map(l => l.split(','))
+                .filter(r => r[nwIdx] !== '')
+                .sort((a, b) => parseInt(b[snrIdx]) - parseInt(a[snrIdx]));
+            const tableHTML = `<table style="border-collapse:collapse; font-size:0.9em; margin:0 auto;">
+                <thead><tr>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">SNR (dB)</th>
+                    <th style="padding:4px 16px; border-bottom:1px solid #ccc;">Correct / Total</th>
+                </tr></thead>
+                <tbody>${rows.map(r => {
+                    const correct = parseInt(r[nwIdx]);
+                    return `<tr><td style="padding:3px 16px; text-align:center;">${r[snrIdx]}</td><td style="padding:3px 16px; text-align:center;">${correct} / 20</td></tr>`;
+                }).join('')}</tbody>
+            </table>`;
+            document.getElementById('snr-table').innerHTML = tableHTML;
+
+            document.getElementById('continue-btn').addEventListener('click', () => this.closeTask());
+        } catch (error) {
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-error').innerHTML =
+                `<p>Could not fit psychometric function: ${error.message}</p>
+                 <button class="task-btn task-btn-primary" id="continue-btn-err">Continue to Main Menu</button>`;
+            document.getElementById('results-error').style.display = 'block';
+            document.getElementById('continue-btn-err').addEventListener('click', () => this.closeTask());
+        }
+    }
+
+    runPsychometricScript(csvPath, pngPath, scriptPath, column = 'Non-words') {
+        return new Promise((resolve, reject) => {
+            const { spawn } = window.require('child_process');
+            const path = window.require('path');
+            const { app } = window.require('@electron/remote');
+            const { psychometricCommand } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'psychometric', 'psychometric-runner.js'));
+            const { command, args } = psychometricCommand(scriptPath, [csvPath, pngPath, column]);
+            const child = spawn(command, args, { windowsHide: true });
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', d => { stdout += d.toString(); });
+            child.stderr.on('data', d => { stderr += d.toString(); });
+            child.on('close', code => {
+                if (code !== 0) { reject(new Error(stderr || `exit code ${code}`)); return; }
+                const snr = parseInt(stdout.trim(), 10);
+                resolve(isNaN(snr) ? null : snr);
+            });
+            child.on('error', err => reject(err));
+        });
     }
 
     // Built-in word practice: hides this task, runs the practice items at this
@@ -356,7 +472,7 @@ class CaSTNonwordTask {
         this.taskStarted = true;
         this.currentPage = 'player';
         
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
         this.modalContent.innerHTML = `
             <div class="cast-nonword-player-page">
                 <div class="player-content">
@@ -675,8 +791,8 @@ class CaSTNonwordTask {
             this.refreshPlayerUI();
             setTimeout(() => this.handlePlay(), 100);
         } else {
-            this.saveResults();
-            oatsDialog.alert('Task finished.');
+            await this.saveResults();
+            this.showResultsPage();
         }
     }
 
@@ -758,7 +874,7 @@ class CaSTNonwordTask {
             const { app } = window.require('@electron/remote') || window.require('electron').remote;
             const { getTaskRunDir } = window.require(path.join(app.getAppPath(), 'src', 'shared', 'storage', 'participant-storage.js'));
 
-            // <participant>/speechinnoisenonwordstask_<run start>/ holds results.txt, trials.csv and recordings/
+            // <participant>/sin-nonwords_<run start>/ holds results.txt, trials.csv and recordings/
             const outputDir = getTaskRunDir(this.participantId, 'cast-nonword', this.runStart);
             const outputPath = path.join(outputDir, 'results.txt');
 
@@ -846,7 +962,7 @@ class CaSTNonwordTask {
         const participantDir = getParticipantDir(this.participantId);
         await fs.mkdir(participantDir, { recursive: true });
         const summaryPath = path.join(participantDir, 'speechinnoise_summary.csv');
-        const snrLevels = [25, 20, 15, 10, 5, 0, -5];
+        const snrLevels = [25, 20, 15, 10, 5, 0];
 
         let data = {};
         snrLevels.forEach(snr => {

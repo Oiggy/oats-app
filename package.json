@@ -40,7 +40,15 @@
     "npmRebuild": false,
     "asarUnpack": [
       "node_modules/audify/**"
-    ]
+    ],
+    "win": {
+      "extraResources": [
+        {
+          "from": "build-psychometric/oats-psychometric",
+          "to": "psychometric"
+        }
+      ]
+    }
   },
   "dependencies": {
     "@electron/remote": "^2.1.3",

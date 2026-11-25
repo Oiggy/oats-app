@@ -39,6 +39,7 @@ release/
 out/
 make/
 packages/
+build-psychometric/
 **/*-unpacked/
 **/*.asar
 
